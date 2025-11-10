@@ -1,0 +1,52 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+  padding: 48px 56px;
+  background: radial-gradient(circle at top, #0f172a, #020617);
+  color: #e2e8f0;
+}
+
+.pageHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.heading {
+  margin: 0;
+  font-size: 30px;
+  letter-spacing: 0.08em;
+}
+
+.subtitle {
+  margin: 0;
+  color: #94a3b8;
+  max-width: 540px;
+  line-height: 1.6;
+}
+
+.lcdSection {
+  display: grid;
+  grid-template-columns: minmax(320px, auto);
+  gap: 40px;
+  align-items: start;
+}
+
+
+@media (max-width: 900px) {
+  .page {
+    padding: 32px 24px;
+  }
+
+  .pageHeader {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .lcdSection {
+    grid-template-columns: 1fr;
+  }
+}
+

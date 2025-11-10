@@ -1,0 +1,197 @@
+.lcdWrapper {
+  display: inline-block;
+  padding: 16px;
+  background: radial-gradient(circle at top left, #5b6a77, #2a2f33);
+  border-radius: 18px;
+  box-shadow:
+    inset 0 2px 4px rgba(255, 255, 255, 0.15),
+    inset 0 -2px 6px rgba(0, 0, 0, 0.45),
+    0 10px 25px rgba(0, 0, 0, 0.35);
+}
+
+.lcdBezel {
+  background: linear-gradient(145deg, #1f2225, #363b42);
+  border-radius: 12px;
+  padding: 20px 24px;
+  min-width: 320px;
+  color: #b5ffd9;
+  font-family: 'Share Tech Mono', 'VT323', 'Roboto Mono', monospace;
+  position: relative;
+}
+
+.lcdHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.lcdTitle {
+  font-size: 18px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9ff7ff;
+  text-shadow: 0 0 8px rgba(115, 255, 238, 0.6);
+}
+
+.lcdSubtitle {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+
+.lcdScreen {
+  position: relative;
+  background: linear-gradient(180deg, #0f2a1f, #0c2018);
+  border: 1px solid rgba(74, 153, 128, 0.5);
+  border-radius: 10px;
+  padding: 18px 16px;
+  overflow: hidden;
+}
+
+.lcdGlare {
+  position: absolute;
+  top: -40%;
+  left: -25%;
+  width: 70%;
+  height: 140%;
+  background: radial-gradient(circle at top, rgba(255, 255, 255, 0.2), transparent 60%);
+  transform: rotate(-18deg);
+  pointer-events: none;
+}
+
+.lcdContent {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 12px;
+}
+
+.axisGroup {
+  display: flex;
+  gap: 18px;
+  padding: 12px;
+  margin: -4px -6px 8px;
+  background: rgba(18, 55, 41, 0.55);
+  border: 1px solid rgba(115, 255, 238, 0.2);
+  border-radius: 10px;
+  box-shadow: inset 0 0 12px rgba(23, 124, 97, 0.4);
+  overflow-x: auto;
+  justify-content: center;
+}
+
+.axisGroup::-webkit-scrollbar {
+  height: 4px;
+}
+
+.axisGroup::-webkit-scrollbar-thumb {
+  background: rgba(115, 255, 238, 0.3);
+  border-radius: 999px;
+}
+
+.axisItem {
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  background: rgba(9, 31, 25, 0.75);
+  border-radius: 8px;
+  border: 1px solid rgba(115, 255, 238, 0.18);
+  box-shadow: inset 0 1px 0 rgba(115, 255, 238, 0.22);
+  align-items: center;
+  text-align: center;
+}
+
+.axisLabel {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(159, 247, 204, 0.75);
+}
+
+.axisValue {
+  font-size: 17px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+  color: #c9fff3;
+  text-shadow:
+    0 0 6px rgba(107, 232, 201, 0.75),
+    0 0 16px rgba(52, 168, 139, 0.5);
+}
+
+.axisUnit {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  opacity: 0.85;
+  text-transform: uppercase;
+}
+
+.lcdRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 16px;
+  letter-spacing: 0.12em;
+  position: relative;
+  padding-bottom: 6px;
+}
+
+.lcdRow::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(88, 196, 168, 0), rgba(88, 196, 168, 0.4), rgba(88, 196, 168, 0));
+  opacity: 0.35;
+  bottom: 0;
+}
+
+.lcdLabel {
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  color: rgba(159, 247, 204, 0.65);
+}
+
+.lcdValue {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 18px;
+  text-shadow:
+    0 0 6px rgba(107, 232, 201, 0.85),
+    0 0 18px rgba(52, 168, 139, 0.6);
+}
+
+.lcdUnit {
+  font-size: 12px;
+  opacity: 0.85;
+  letter-spacing: 0.16em;
+}
+
+.lcdFooter {
+  margin-top: 18px;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(159, 247, 230, 0.75);
+  display: flex;
+  justify-content: space-between;
+}
+
+@media (max-width: 480px) {
+  .lcdBezel {
+    min-width: auto;
+    padding: 16px;
+  }
+
+  .lcdWrapper {
+    width: 100%;
+  }
+}
+
