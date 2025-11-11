@@ -8,9 +8,9 @@ const initialCalibration = [
   { label: 'Y Axis', value: '045.30 → 048.10', unit: 'mm' },
   { label: 'Z Axis', value: '003.20 → 000.00', unit: 'mm' },
   { label: 'Wire Remaining', value: '100', unit: '%', length: '14.3 m' },
+  { label: 'Flux Remaining', value: '82', unit: '%' },
   { label: 'Tip Temp', value: '345', unit: '°C' },
   { label: 'Feed Rate', value: '12.0', unit: 'mm/s' },
-  { label: 'Flow Rate', value: '1.0', unit: 'mm³/s' },
   { label: 'Speed', value: '210', unit: 'mm/s' },
 ]
 
@@ -118,6 +118,126 @@ export default function HomePage() {
       return undefined
     }
 
+    const parsePercentageValue = (value) => {
+      if (typeof value === 'number') {
+        return value
+      }
+
+      if (typeof value === 'string') {
+        const numeric = parseFloat(value)
+        return Number.isFinite(numeric) ? numeric : null
+      }
+
+      return null
+    }
+
+    const normalizePercentage = (value) =>
+      Math.min(100, Math.max(0, value))
+
+    const handleFluxUpdate = (payload) => {
+      setCalibration((current) =>
+        current.map((entry) => {
+          if (entry.label !== 'Flux Remaining') {
+            return entry
+          }
+
+          const nextEntry = { ...entry }
+          const previousNumeric = parsePercentageValue(entry.value)
+          const previousRounded =
+            previousNumeric === null || Number.isNaN(previousNumeric)
+              ? null
+              : Math.round(previousNumeric)
+          let nextValue
+          let nextNumeric = null
+
+          if (typeof payload === 'number') {
+            nextValue = payload
+            nextNumeric = payload
+          } else if (payload && typeof payload === 'object') {
+            if (payload.value !== undefined) {
+              nextValue = payload.value
+            } else if (payload.percentage !== undefined) {
+              nextValue = payload.percentage
+            } else if (payload.level !== undefined) {
+              nextValue = payload.level
+            }
+
+            if (nextValue !== undefined) {
+              nextNumeric = parsePercentageValue(nextValue)
+            }
+
+            if (payload.unit !== undefined) {
+              nextEntry.unit = payload.unit
+            }
+
+            if (payload.volume !== undefined) {
+              nextEntry.volume = payload.volume
+            } else if (payload.remainingVolume !== undefined) {
+              nextEntry.volume = payload.remainingVolume
+            }
+
+            if (payload.message !== undefined) {
+              nextEntry.message = payload.message
+            }
+
+            if (payload.updatedAt !== undefined) {
+              nextEntry.updatedAt = payload.updatedAt
+            } else if (payload.timestamp !== undefined) {
+              nextEntry.updatedAt = payload.timestamp
+            }
+          }
+
+          if (nextNumeric !== null && !Number.isNaN(nextNumeric)) {
+            const nextRounded = Math.round(normalizePercentage(nextNumeric))
+            const drop = previousRounded === null ? null : previousRounded - nextRounded
+            const shouldUpdateValue =
+              previousRounded === null ||
+              nextRounded > previousRounded ||
+              (drop !== null && drop >= 1) ||
+              payload?.force === true
+
+            if (shouldUpdateValue) {
+              nextEntry.value = nextRounded
+            }
+          } else if (nextValue !== undefined) {
+            nextEntry.value = nextValue
+          }
+
+          return nextEntry
+        })
+      )
+    }
+
+    window.ipc.on?.('flux:update', handleFluxUpdate)
+    window.ipc.send?.('flux:state:request')
+
+    return () => {
+      window.ipc.off?.('flux:update', handleFluxUpdate)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || !window.ipc?.send) {
+      return undefined
+    }
+
+    const interval = window.setInterval(() => {
+      window.ipc.send('flux:state:request', {
+        reason: 'auto-refresh',
+        timestamp: Date.now(),
+      })
+    }, 5000)
+
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || !window.ipc) {
+      return undefined
+    }
+
     const handleFanState = (payload) => {
       if (!payload || typeof payload !== 'object') {
         return
@@ -177,7 +297,6 @@ export default function HomePage() {
     ],
     [isMachineFanOn, isTipFanOn, toggleFan]
   )
-
   return (
     <React.Fragment>
       <Head>
