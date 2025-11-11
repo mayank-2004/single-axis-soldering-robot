@@ -21,9 +21,69 @@
 
 .lcdHeader {
   display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.lcdHeaderInfo {
+  display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-bottom: 16px;
+}
+
+.lcdHeaderActions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.lcdActionButton {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(115, 255, 238, 0.25);
+  background: rgba(15, 32, 28, 0.65);
+  color: #9ff7ff;
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.lcdActionButton:hover {
+  transform: translateY(-1px);
+  border-color: rgba(115, 255, 238, 0.45);
+  box-shadow: 0 8px 14px rgba(52, 168, 139, 0.2);
+}
+
+.lcdActionButton:focus-visible {
+  outline: 2px solid rgba(115, 255, 238, 0.8);
+  outline-offset: 2px;
+}
+
+.lcdActionButtonActive {
+  background: linear-gradient(135deg, rgba(43, 110, 90, 0.65), rgba(30, 73, 60, 0.85));
+  border-color: rgba(115, 255, 238, 0.7);
+  box-shadow: 0 10px 18px rgba(52, 168, 139, 0.25);
+}
+
+.lcdActionLabel {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: rgba(159, 247, 204, 0.7);
+}
+
+.lcdActionStatus {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  color: #cafff1;
 }
 
 .lcdTitle {
@@ -188,6 +248,16 @@
   .lcdBezel {
     min-width: auto;
     padding: 16px;
+  }
+
+  .lcdHeader {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .lcdHeaderActions {
+    justify-content: flex-end;
   }
 
   .lcdWrapper {
