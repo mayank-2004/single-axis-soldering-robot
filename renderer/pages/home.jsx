@@ -1,6 +1,10 @@
 import React from 'react'
 import Head from 'next/head'
 import LcdDisplay from '../components/LcdDisplay'
+import ComponentHeightControl from '../components/ComponentHeightControl'
+import TipHeatingControl from '../components/TipHeatingControl'
+import WireFeedControl from '../components/WireFeedControl'
+import SequenceMonitor from '../components/SequenceMonitor'
 import styles from './home.module.css'
 
 const initialCalibration = [
@@ -23,6 +27,20 @@ export default function HomePage() {
   const [calibration, setCalibration] = React.useState(initialCalibration)
   const [localTime, setLocalTime] = React.useState('')
   const [fans, setFans] = React.useState(initialFanState)
+  const [componentHeight, setComponentHeight] = React.useState('')
+  const [heightStatus, setHeightStatus] = React.useState('')
+  const [tipTarget, setTipTarget] = React.useState('345')
+  const [isHeaterEnabled, setIsHeaterEnabled] = React.useState(false)
+  const [heaterStatus, setHeaterStatus] = React.useState('')
+  const [wireFeedLength, setWireFeedLength] = React.useState('5.0')
+  const [wireFeedRate, setWireFeedRate] = React.useState('8.0')
+  const [wireFeedStatus, setWireFeedStatus] = React.useState('idle')
+  const [wireFeedMessage, setWireFeedMessage] = React.useState('')
+  const [sequenceState, setSequenceState] = React.useState({
+    stage: 'idle',
+    lastCompleted: null,
+    isActive: false,
+  })
   const wireStatus = React.useMemo(
     () => calibration.find((entry) => entry.label === 'Wire Remaining'),
     [calibration]
@@ -238,6 +256,93 @@ export default function HomePage() {
       return undefined
     }
 
+    const handleHeightAck = (payload) => {
+      if (!payload || typeof payload !== 'object') {
+        return
+      }
+
+      if (payload.error) {
+        setHeightStatus(payload.error)
+        return
+      }
+
+      if (payload.status) {
+        setHeightStatus(payload.status)
+      } else {
+        setHeightStatus('Height saved')
+      }
+    }
+
+    const handleTipStatus = (payload) => {
+      if (!payload || typeof payload !== 'object') {
+        return
+      }
+
+      if (payload.target !== undefined) {
+        setTipTarget(String(payload.target))
+      }
+
+      if (payload.heater !== undefined) {
+        setIsHeaterEnabled(Boolean(payload.heater))
+      }
+
+      if (payload.status) {
+        setHeaterStatus(payload.status)
+      }
+    }
+
+    const handleWireFeedStatus = (payload) => {
+      if (!payload || typeof payload !== 'object') {
+        return
+      }
+
+      if (payload.status) {
+        setWireFeedStatus(payload.status)
+      }
+
+      if (payload.message) {
+        setWireFeedMessage(payload.message)
+      }
+
+      if (payload.completedAt) {
+        setWireFeedMessage((current) => `${current ? `${current} • ` : ''}Completed ${new Date(payload.completedAt).toLocaleTimeString()}`)
+      }
+    }
+
+    const handleSequenceUpdate = (payload) => {
+      if (!payload || typeof payload !== 'object') {
+        return
+      }
+
+      setSequenceState((current) => ({
+        stage: payload.stage ?? current.stage,
+        lastCompleted: payload.lastCompleted ?? current.lastCompleted,
+        isActive: payload.isActive ?? current.isActive,
+      }))
+    }
+
+    window.ipc.on?.('component:height:ack', handleHeightAck)
+    window.ipc.on?.('tip:status', handleTipStatus)
+    window.ipc.on?.('wire:feed:status', handleWireFeedStatus)
+    window.ipc.on?.('sequence:update', handleSequenceUpdate)
+
+    window.ipc.send?.('tip:status:request')
+    window.ipc.send?.('wire:feed:status:request')
+    window.ipc.send?.('sequence:status:request')
+
+    return () => {
+      window.ipc.off?.('component:height:ack', handleHeightAck)
+      window.ipc.off?.('tip:status', handleTipStatus)
+      window.ipc.off?.('wire:feed:status', handleWireFeedStatus)
+      window.ipc.off?.('sequence:update', handleSequenceUpdate)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || !window.ipc) {
+      return undefined
+    }
+
     const handleFanState = (payload) => {
       if (!payload || typeof payload !== 'object') {
         return
@@ -257,6 +362,118 @@ export default function HomePage() {
       window.ipc.off?.('fan:update', handleFanState)
     }
   }, [])
+
+  const handleHeightChange = React.useCallback((event) => {
+    setComponentHeight(event.target.value)
+  }, [])
+
+  const handleHeightSubmit = React.useCallback(() => {
+    const rawValue = componentHeight.trim()
+    if (!rawValue) {
+      setHeightStatus('Enter a component height first.')
+      return
+    }
+
+    const numeric = Number.parseFloat(rawValue)
+    if (!Number.isFinite(numeric) || numeric < 0) {
+      setHeightStatus('Height must be a positive number.')
+      return
+    }
+
+    if (typeof window === 'undefined' || !window.ipc?.send) {
+      setHeightStatus('IPC unavailable; cannot send height.')
+      return
+    }
+
+    setHeightStatus('Saving height...')
+    window.ipc.send('component:height:set', {
+      height: numeric,
+      unit: 'mm',
+      timestamp: Date.now(),
+    })
+  }, [componentHeight])
+
+  const handleTipTargetChange = React.useCallback((event) => {
+    setTipTarget(event.target.value)
+  }, [])
+
+  const handleApplyTipTarget = React.useCallback(() => {
+    const rawValue = tipTarget.trim()
+    if (!rawValue) {
+      setHeaterStatus('Enter a target temperature first.')
+      return
+    }
+
+    const numeric = Number.parseFloat(rawValue)
+    if (!Number.isFinite(numeric) || numeric < 0) {
+      setHeaterStatus('Temperature must be a positive number.')
+      return
+    }
+
+    if (typeof window === 'undefined' || !window.ipc?.send) {
+      setHeaterStatus('IPC unavailable; cannot update target.')
+      return
+    }
+
+    setHeaterStatus('Updating target temperature...')
+    window.ipc.send('tip:target:set', {
+      target: numeric,
+      unit: '°C',
+      timestamp: Date.now(),
+    })
+  }, [tipTarget])
+
+  const handleToggleHeater = React.useCallback(() => {
+    if (typeof window === 'undefined' || !window.ipc?.send) {
+      setHeaterStatus('IPC unavailable; cannot toggle heater.')
+      return
+    }
+
+    const nextState = !isHeaterEnabled
+    setIsHeaterEnabled(nextState)
+    setHeaterStatus(nextState ? 'Heater enabled' : 'Heater disabled')
+    window.ipc.send('tip:heater:set', {
+      enabled: nextState,
+      timestamp: Date.now(),
+    })
+  }, [isHeaterEnabled])
+
+  const handleWireFeedLengthChange = React.useCallback((event) => {
+    setWireFeedLength(event.target.value)
+  }, [])
+
+  const handleWireFeedRateChange = React.useCallback((event) => {
+    setWireFeedRate(event.target.value)
+  }, [])
+
+  const handleWireFeedStart = React.useCallback(() => {
+    const lengthNumeric = Number.parseFloat(wireFeedLength)
+    if (!Number.isFinite(lengthNumeric) || lengthNumeric <= 0) {
+      setWireFeedMessage('Wire length must be greater than zero.')
+      return
+    }
+
+    const rateNumeric = Number.parseFloat(wireFeedRate)
+    if (!Number.isFinite(rateNumeric) || rateNumeric <= 0) {
+      setWireFeedMessage('Wire feed rate must be greater than zero.')
+      return
+    }
+
+    if (typeof window === 'undefined' || !window.ipc?.send) {
+      setWireFeedMessage('IPC unavailable; cannot feed wire.')
+      return
+    }
+
+    setWireFeedStatus('pending')
+    setWireFeedMessage('Feeding wire...')
+    window.ipc.send('wire:feed:start', {
+      length: lengthNumeric,
+      rate: rateNumeric,
+      unit: 'mm',
+      rateUnit: 'mm/s',
+      timestamp: Date.now(),
+    })
+  }, [wireFeedLength, wireFeedRate])
 
   const toggleFan = React.useCallback((fanKey) => {
     setFans((current) => {
@@ -310,6 +527,38 @@ export default function HomePage() {
             that mirrors your hardware display.
           </p>
         </header>
+
+        <ComponentHeightControl
+          value={componentHeight}
+          onChange={handleHeightChange}
+          onSubmit={handleHeightSubmit}
+          statusMessage={heightStatus}
+        />
+
+        <section className={styles.solderingControls} aria-label="Soldering iron controls">
+          <TipHeatingControl
+            tipTarget={tipTarget}
+            onTipTargetChange={handleTipTargetChange}
+            onApplyTipTarget={handleApplyTipTarget}
+            isHeaterEnabled={isHeaterEnabled}
+            onToggleHeater={handleToggleHeater}
+            heaterStatus={heaterStatus}
+            currentTemperature={calibration.find((entry) => entry.label === 'Tip Temp')?.value}
+          />
+
+          <WireFeedControl
+            length={wireFeedLength}
+            rate={wireFeedRate}
+            status={wireFeedStatus}
+            message={wireFeedMessage}
+            onLengthChange={handleWireFeedLengthChange}
+            onRateChange={handleWireFeedRateChange}
+            onStart={handleWireFeedStart}
+          />
+
+          <SequenceMonitor sequenceState={sequenceState} />
+        </section>
+
 
         {isWireLow ? (
           <div className={styles.wireAlert} role="alert">
