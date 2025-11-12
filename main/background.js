@@ -2,6 +2,7 @@ import path from 'path'
 import { app, ipcMain } from 'electron'
 import serve from 'electron-serve'
 import { createWindow } from './helpers'
+import { setupRobotController } from './robotController'
 
 const isProd = process.env.NODE_ENV === 'production'
 
@@ -10,6 +11,8 @@ if (isProd) {
 } else {
   app.setPath('userData', `${app.getPath('userData')} (development)`)
 }
+
+let robotController
 
 ;(async () => {
   await app.whenReady()
@@ -20,6 +23,15 @@ if (isProd) {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
+  })
+
+  robotController = setupRobotController({
+    ipcMain,
+    getWebContents: () => mainWindow?.webContents,
+  })
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    robotController?.broadcastInitialState()
   })
 
   if (isProd) {
@@ -37,4 +49,11 @@ app.on('window-all-closed', () => {
 
 ipcMain.on('message', async (event, arg) => {
   event.reply('message', `${arg} World!`)
+})
+
+app.on('before-quit', () => {
+  // Ensure all handlers are cleaned up before the app fully exits.
+  if (typeof robotController?.dispose === 'function') {
+    robotController.dispose()
+  }
 })
