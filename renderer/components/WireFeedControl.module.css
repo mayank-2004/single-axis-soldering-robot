@@ -1,0 +1,129 @@
+.controlCard {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px 24px;
+  border-radius: 20px;
+  background: rgba(10, 18, 32, 0.65);
+  border: 1px solid rgba(96, 165, 250, 0.2);
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.28);
+}
+
+.controlHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.controlTitle {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #cbd5f5;
+}
+
+.controlSubtitle {
+  font-size: 12px;
+  color: #94a3b8;
+  letter-spacing: 0.06em;
+}
+
+.controlBody {
+  display: grid;
+  gap: 14px;
+}
+
+.controlRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.controlLabel {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #a5b4fc;
+  min-width: 140px;
+}
+
+.controlFieldGroup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.controlInput {
+  flex: 1 1 120px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(15, 23, 42, 0.85);
+  color: #f8fafc;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+  width: 80px;
+}
+
+.controlInput:focus-visible {
+  border-color: rgba(56, 189, 248, 0.8);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+.controlUnit {
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.controlButtonWide {
+  width: 100%;
+  justify-content: center;
+  display: inline-flex;
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.3), rgba(37, 99, 235, 0.5));
+  color: #f8fafc;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.controlButtonWide:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.25);
+  border-color: rgba(56, 189, 248, 0.65);
+}
+
+.controlButtonWide:active {
+  transform: translateY(0);
+}
+
+.controlButtonWide:focus-visible {
+  outline: 2px solid rgba(129, 140, 248, 0.75);
+  outline-offset: 2px;
+}
+
+.controlValue {
+  font-size: 14px;
+  letter-spacing: 0.1em;
+  color: #f1f5f9;
+}
+
+.controlStatus {
+  margin: 0;
+  font-size: 12px;
+  color: #38bdf8;
+  letter-spacing: 0.06em;
+}
+
