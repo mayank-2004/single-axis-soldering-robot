@@ -63,6 +63,12 @@ export default class SolderingHardware extends EventEmitter {
         index: 0,
         idleCountdown: 0,
       },
+      position: {
+        x: 120.0,
+        y: 45.3,
+        z: 3.2,
+        isMoving: false,
+      },
     }
   }
 
@@ -143,6 +149,77 @@ export default class SolderingHardware extends EventEmitter {
   getSequenceState() {
     const { stage, isActive, lastCompleted } = this.state.sequence
     return { stage, isActive, lastCompleted }
+  }
+
+  getPosition() {
+    return {
+      x: this.state.position.x,
+      y: this.state.position.y,
+      z: this.state.position.z,
+      isMoving: this.state.position.isMoving,
+    }
+  }
+
+  async jog(axis, direction, stepSize) {
+    if (this.state.position.isMoving) {
+      return { error: 'Machine is already moving' }
+    }
+
+    const axisMap = { x: 'x', y: 'y', z: 'z' }
+    const axisKey = axisMap[axis.toLowerCase()]
+    if (!axisKey) {
+      return { error: 'Invalid axis. Use x, y, or z' }
+    }
+
+    const step = direction > 0 ? stepSize : -stepSize
+    this.state.position.isMoving = true
+    this.emit('position:update', this.getPosition())
+
+    // Simulate movement delay
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        this.state.position[axisKey] += step
+        this.state.position.isMoving = false
+
+        // Update calibration display
+        this._updateCalibrationEntry(
+          `${axis.toUpperCase()} Axis`,
+          {
+            value: `${this.state.position[axisKey].toFixed(2)}`,
+          }
+        )
+
+        this.emit('position:update', this.getPosition())
+        resolve({ status: 'Movement completed', position: this.getPosition() })
+      }, 300)
+    })
+  }
+
+  async home() {
+    if (this.state.position.isMoving) {
+      return { error: 'Machine is already moving' }
+    }
+
+    this.state.position.isMoving = true
+    this.emit('position:update', this.getPosition())
+
+    // Simulate homing delay
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        this.state.position.x = 0
+        this.state.position.y = 0
+        this.state.position.z = 0
+        this.state.position.isMoving = false
+
+        // Update calibration display
+        this._updateCalibrationEntry('X Axis', { value: '0.00' })
+        this._updateCalibrationEntry('Y Axis', { value: '0.00' })
+        this._updateCalibrationEntry('Z Axis', { value: '0.00' })
+
+        this.emit('position:update', this.getPosition())
+        resolve({ status: 'Homed to zero position', position: this.getPosition() })
+      }, 500)
+    })
   }
 
   setFanState(fan, enabled) {

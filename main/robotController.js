@@ -45,6 +45,10 @@ export function setupRobotController({ ipcMain, getWebContents }) {
     sendToRenderer('sequence:update', payload ?? hardware.getSequenceState(), target)
   }
 
+  const sendPositionUpdate = (target, payload) => {
+    sendToRenderer('position:update', payload ?? hardware.getPosition(), target)
+  }
+
   const broadcastInitialState = (target) => {
     const snapshot = hardware.getSnapshot()
     sendCalibrationUpdate(snapshot.calibration, target)
@@ -53,6 +57,7 @@ export function setupRobotController({ ipcMain, getWebContents }) {
     sendTipStatus(target, snapshot.tip)
     sendWireFeedStatus(target, snapshot.wireFeed)
     sendSequenceUpdate(target, snapshot.sequence)
+    sendPositionUpdate(target, hardware.getPosition())
   }
 
   const registerHardwareListener = (event, handler) => {
@@ -82,6 +87,10 @@ export function setupRobotController({ ipcMain, getWebContents }) {
 
   registerHardwareListener('sequence', (payload) => {
     sendSequenceUpdate(undefined, payload)
+  })
+
+  registerHardwareListener('position:update', (payload) => {
+    sendPositionUpdate(undefined, payload)
   })
 
   const registerIpcListener = (channel, handler) => {
@@ -140,6 +149,23 @@ export function setupRobotController({ ipcMain, getWebContents }) {
 
   registerIpcListener('wire:alert', (_event, payload = {}) => {
     hardware.handleWireAlert(payload)
+  })
+
+  registerIpcListener('position:request', (event) => {
+    sendPositionUpdate(event.sender)
+  })
+
+  registerIpcListener('axis:jog', async (event, payload = {}) => {
+    const { axis, direction, stepSize } = payload
+    const result = await hardware.jog(axis, direction, stepSize)
+    event.sender.send('axis:jog:ack', result)
+    sendPositionUpdate(event.sender)
+  })
+
+  registerIpcListener('axis:home', async (event) => {
+    const result = await hardware.home()
+    event.sender.send('axis:home:ack', result)
+    sendPositionUpdate(event.sender)
   })
 
   hardware.connect()

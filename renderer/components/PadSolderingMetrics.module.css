@@ -1,0 +1,239 @@
+.controlCard {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px 24px;
+  border-radius: 20px;
+  background: rgba(10, 18, 32, 0.65);
+  border: 1px solid rgba(96, 165, 250, 0.2);
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.28);
+}
+
+.controlHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.controlTitle {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #cbd5f5;
+}
+
+.controlSubtitle {
+  font-size: 12px;
+  color: #94a3b8;
+  letter-spacing: 0.06em;
+}
+
+.controlBody {
+  display: grid;
+  gap: 16px;
+}
+
+.controlRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.controlLabel {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #a5b4fc;
+  min-width: 120px;
+}
+
+.controlFieldGroup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.controlInput {
+  flex: 1 1 120px;
+  max-width: 150px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(15, 23, 42, 0.85);
+  color: #f8fafc;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.controlInput:focus-visible {
+  border-color: rgba(56, 189, 248, 0.8);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+.controlInput::placeholder {
+  color: rgba(148, 163, 184, 0.6);
+}
+
+.controlSelect {
+  flex: 1 1 120px;
+  max-width: 200px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(15, 23, 42, 0.85);
+  color: #f8fafc;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+  cursor: pointer;
+}
+
+.controlSelect:focus-visible {
+  border-color: rgba(56, 189, 248, 0.8);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+.controlSelect option {
+  background: rgba(15, 23, 42, 0.95);
+  color: #f8fafc;
+}
+
+.controlUnit {
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  min-width: 32px;
+}
+
+.calculateButton {
+  width: 100%;
+  padding: 12px 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.3), rgba(37, 99, 235, 0.5));
+  color: #f8fafc;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.calculateButton:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.25);
+  border-color: rgba(56, 189, 248, 0.65);
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.4), rgba(37, 99, 235, 0.6));
+}
+
+.calculateButton:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.calculateButton:focus-visible {
+  outline: 2px solid rgba(129, 140, 248, 0.75);
+  outline-offset: 2px;
+}
+
+.calculateButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.resultsContainer {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(96, 165, 250, 0.2);
+}
+
+.resultItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(9, 31, 25, 0.4);
+  border: 1px solid rgba(115, 255, 238, 0.15);
+}
+
+.resultLabel {
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #a5b4fc;
+}
+
+.resultValue {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #9ff7ff;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 8px rgba(115, 255, 238, 0.4);
+}
+
+.infoText {
+  margin: 0;
+  font-size: 11px;
+  color: #94a3b8;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+  font-style: italic;
+}
+
+.volumeInfo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  margin-top: 4px;
+}
+
+.volumeInfoLabel {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+  text-transform: uppercase;
+}
+
+.volumeInfoValue {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #38bdf8;
+}
+
+@media (max-width: 600px) {
+  .controlRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .controlLabel {
+    min-width: auto;
+  }
+
+  .controlFieldGroup {
+    flex-direction: row;
+  }
+
+  .controlInput {
+    max-width: none;
+  }
+}
+

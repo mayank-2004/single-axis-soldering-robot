@@ -5,6 +5,8 @@ import ComponentHeightControl from '../components/ComponentHeightControl'
 import TipHeatingControl from '../components/TipHeatingControl'
 import WireFeedControl from '../components/WireFeedControl'
 import SequenceMonitor from '../components/SequenceMonitor'
+import ManualMovementControl from '../components/ManualMovementControl'
+import PadSolderingMetrics from '../components/PadSolderingMetrics'
 import styles from './home.module.css'
 
 const initialCalibration = [
@@ -32,15 +34,49 @@ export default function HomePage() {
   const [tipTarget, setTipTarget] = React.useState('345')
   const [isHeaterEnabled, setIsHeaterEnabled] = React.useState(false)
   const [heaterStatus, setHeaterStatus] = React.useState('')
-  const [wireFeedLength, setWireFeedLength] = React.useState('5.0')
-  const [wireFeedRate, setWireFeedRate] = React.useState('8.0')
+  const [wireDiameter, setWireDiameter] = React.useState('')
   const [wireFeedStatus, setWireFeedStatus] = React.useState('idle')
   const [wireFeedMessage, setWireFeedMessage] = React.useState('')
+  
+  // Calculate volume per 1mm using cylinder volume formula: V = π × r² × h
+  // where r = diameter/2, h = 1mm
+  const volumePerMm = React.useMemo(() => {
+    const diameterNumeric = Number.parseFloat(wireDiameter)
+    if (!Number.isFinite(diameterNumeric) || diameterNumeric <= 0) {
+      return null
+    }
+    const radius = diameterNumeric / 2 // radius in mm
+    const height = 1 // 1mm length
+    const volume = Math.PI * radius * radius * height // volume in mm³
+    return volume
+  }, [wireDiameter])
   const [sequenceState, setSequenceState] = React.useState({
     stage: 'idle',
     lastCompleted: null,
     isActive: false,
   })
+  const [currentPosition, setCurrentPosition] = React.useState({
+    x: 120.0,
+    y: 45.3,
+    z: 3.2,
+    isMoving: false,
+  })
+  const [stepSize, setStepSize] = React.useState(1.0)
+  const [padShape, setPadShape] = React.useState('')
+  const [padDimensions, setPadDimensions] = React.useState({
+    side: '',
+    length: '',
+    width: '',
+    radius: '',
+    outerRadius: '',
+    innerRadius: '',
+  })
+  const [solderHeight, setSolderHeight] = React.useState('')
+  const [padArea, setPadArea] = React.useState(null)
+  const [padVolume, setPadVolume] = React.useState(null)
+  const [wireUsed, setWireUsed] = React.useState(null)
+  const [stepsMoved, setStepsMoved] = React.useState(null)
+  const [isCalculatingMetrics, setIsCalculatingMetrics] = React.useState(false)
   const wireStatus = React.useMemo(
     () => calibration.find((entry) => entry.label === 'Wire Remaining'),
     [calibration]
@@ -363,6 +399,44 @@ export default function HomePage() {
     }
   }, [])
 
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || !window.ipc) {
+      return undefined
+    }
+
+    const handlePositionUpdate = (payload) => {
+      if (!payload || typeof payload !== 'object') {
+        return
+      }
+
+      setCurrentPosition((current) => ({
+        x:
+          typeof payload.x === 'number' && Number.isFinite(payload.x)
+            ? payload.x
+            : current.x,
+        y:
+          typeof payload.y === 'number' && Number.isFinite(payload.y)
+            ? payload.y
+            : current.y,
+        z:
+          typeof payload.z === 'number' && Number.isFinite(payload.z)
+            ? payload.z
+            : current.z,
+        isMoving:
+          typeof payload.isMoving === 'boolean'
+            ? payload.isMoving
+            : current.isMoving,
+      }))
+    }
+
+    window.ipc.on?.('position:update', handlePositionUpdate)
+    window.ipc.send?.('position:request')
+
+    return () => {
+      window.ipc.off?.('position:update', handlePositionUpdate)
+    }
+  }, [])
+
   const handleHeightChange = React.useCallback((event) => {
     setComponentHeight(event.target.value)
   }, [])
@@ -438,24 +512,23 @@ export default function HomePage() {
     })
   }, [isHeaterEnabled])
 
-  const handleWireFeedLengthChange = React.useCallback((event) => {
-    setWireFeedLength(event.target.value)
-  }, [])
 
-  const handleWireFeedRateChange = React.useCallback((event) => {
-    setWireFeedRate(event.target.value)
+  const handleWireDiameterChange = React.useCallback((event) => {
+    setWireDiameter(event.target.value)
   }, [])
 
   const handleWireFeedStart = React.useCallback(() => {
-    const lengthNumeric = Number.parseFloat(wireFeedLength)
-    if (!Number.isFinite(lengthNumeric) || lengthNumeric <= 0) {
-      setWireFeedMessage('Wire length must be greater than zero.')
+    // Use calculated wire length from PadSolderingMetrics
+    if (wireUsed === null || wireUsed <= 0) {
+      setWireFeedMessage('Please calculate wire length in Pad Soldering Metrics first.')
       return
     }
+    
+    const lengthToUse = wireUsed
 
-    const rateNumeric = Number.parseFloat(wireFeedRate)
-    if (!Number.isFinite(rateNumeric) || rateNumeric <= 0) {
-      setWireFeedMessage('Wire feed rate must be greater than zero.')
+    const diameterNumeric = Number.parseFloat(wireDiameter)
+    if (!Number.isFinite(diameterNumeric) || diameterNumeric <= 0) {
+      setWireFeedMessage('Wire diameter must be entered and greater than zero.')
       return
     }
 
@@ -465,15 +538,20 @@ export default function HomePage() {
     }
 
     setWireFeedStatus('pending')
-    setWireFeedMessage('Feeding wire...')
+    setWireFeedMessage(wireUsed !== null && wireUsed > 0 
+      ? `Feeding ${lengthToUse.toFixed(2)} mm (calculated from pad metrics)...`
+      : 'Feeding wire...'
+    )
+    // Use a default feed rate of 8.0 mm/s internally, but send diameter for volume tracking
     window.ipc.send('wire:feed:start', {
-      length: lengthNumeric,
-      rate: rateNumeric,
+      length: lengthToUse,
+      diameter: diameterNumeric,
+      rate: 8.0, // Default feed rate (can be adjusted if needed)
       unit: 'mm',
       rateUnit: 'mm/s',
       timestamp: Date.now(),
     })
-  }, [wireFeedLength, wireFeedRate])
+  }, [wireUsed, wireDiameter])
 
   const toggleFan = React.useCallback((fanKey) => {
     setFans((current) => {
@@ -494,6 +572,215 @@ export default function HomePage() {
       return updated
     })
   }, [])
+
+  const handleJog = React.useCallback(
+    (axis, direction, stepSizeValue) => {
+      if (typeof window === 'undefined' || !window.ipc?.send) {
+        return
+      }
+
+      window.ipc.send('axis:jog', {
+        axis,
+        direction,
+        stepSize: stepSizeValue,
+        timestamp: Date.now(),
+      })
+    },
+    []
+  )
+
+  const handleHome = React.useCallback(() => {
+    if (typeof window === 'undefined' || !window.ipc?.send) {
+      return
+    }
+
+    window.ipc.send('axis:home', {
+      timestamp: Date.now(),
+    })
+  }, [])
+
+  const handlePadShapeChange = React.useCallback((shape) => {
+    setPadShape(shape)
+    // Reset dimensions and metrics when shape changes
+    setPadDimensions({
+      side: '',
+      length: '',
+      width: '',
+      radius: '',
+      outerRadius: '',
+      innerRadius: '',
+    })
+    setPadArea(null)
+    setPadVolume(null)
+    setWireUsed(null)
+    setStepsMoved(null)
+  }, [])
+
+  const handlePadDimensionChange = React.useCallback((dimension, value) => {
+    setPadDimensions((prev) => ({
+      ...prev,
+      [dimension]: value,
+    }))
+    // Reset metrics when dimensions change
+    setPadArea(null)
+    setPadVolume(null)
+    setWireUsed(null)
+    setStepsMoved(null)
+  }, [])
+
+  const handleSolderHeightChange = React.useCallback((value) => {
+    setSolderHeight(value)
+    // Reset metrics when height changes
+    setPadVolume(null)
+    setWireUsed(null)
+    setStepsMoved(null)
+  }, [])
+
+  const calculatePadMetrics = React.useCallback(() => {
+    setIsCalculatingMetrics(true)
+
+    // Simulate calculation delay
+    setTimeout(() => {
+      let calculatedArea = 0
+      let maxDimension = 0 // For calculating steps
+
+      // Calculate area based on shape
+      switch (padShape) {
+        case 'square': {
+          const side = Number.parseFloat(padDimensions.side)
+          if (!Number.isFinite(side) || side <= 0) {
+            setPadArea(null)
+            setWireUsed(null)
+            setStepsMoved(null)
+            setIsCalculatingMetrics(false)
+            return
+          }
+          calculatedArea = side * side // Area = side²
+          maxDimension = side
+          break
+        }
+
+        case 'rectangle': {
+          const length = Number.parseFloat(padDimensions.length)
+          const width = Number.parseFloat(padDimensions.width)
+          if (!Number.isFinite(length) || !Number.isFinite(width) || length <= 0 || width <= 0) {
+            setPadArea(null)
+            setWireUsed(null)
+            setStepsMoved(null)
+            setIsCalculatingMetrics(false)
+            return
+          }
+          calculatedArea = length * width // Area = length × width
+          maxDimension = Math.max(length, width)
+          break
+        }
+
+        case 'circle': {
+          const radius = Number.parseFloat(padDimensions.radius)
+          if (!Number.isFinite(radius) || radius <= 0) {
+            setPadArea(null)
+            setWireUsed(null)
+            setStepsMoved(null)
+            setIsCalculatingMetrics(false)
+            return
+          }
+          calculatedArea = Math.PI * radius * radius // Area = π × r²
+          maxDimension = radius * 2 // diameter
+          break
+        }
+
+        case 'concentric': {
+          const outerRadius = Number.parseFloat(padDimensions.outerRadius)
+          const innerRadius = Number.parseFloat(padDimensions.innerRadius)
+          if (!Number.isFinite(outerRadius) || !Number.isFinite(innerRadius) ||
+              outerRadius <= 0 || innerRadius <= 0 || outerRadius <= innerRadius) {
+            setPadArea(null)
+            setWireUsed(null)
+            setStepsMoved(null)
+            setIsCalculatingMetrics(false)
+            return
+          }
+          // Area = π × (outerRadius² - innerRadius²)
+          calculatedArea = Math.PI * (outerRadius * outerRadius - innerRadius * innerRadius)
+          maxDimension = outerRadius * 2 // outer diameter
+          break
+        }
+
+        default:
+          setPadArea(null)
+          setWireUsed(null)
+          setStepsMoved(null)
+          setIsCalculatingMetrics(false)
+          return
+      }
+
+      setPadArea(calculatedArea)
+      
+      // Calculate pad volume: Area × Solder Height
+      const heightNumeric = Number.parseFloat(solderHeight)
+      if (!Number.isFinite(heightNumeric) || heightNumeric <= 0) {
+        setPadVolume(null)
+        setWireUsed(null)
+        setStepsMoved(null)
+        setIsCalculatingMetrics(false)
+        return
+      }
+      
+      const calculatedVolume = calculatedArea * heightNumeric // Volume = Area × Height (mm³)
+      setPadVolume(calculatedVolume)
+      
+      // Calculate wire length using volume: Wire Length = Pad Volume / Volume per 1mm
+      if (!volumePerMm || volumePerMm <= 0) {
+        setWireUsed(null)
+        setStepsMoved(null)
+        setIsCalculatingMetrics(false)
+        return
+      }
+      
+      const calculatedWireUsed = calculatedVolume / volumePerMm // Wire length in mm
+      setWireUsed(calculatedWireUsed)
+
+      // Calculate steps moved based on pad size
+      // Steps = max_dimension / step_resolution
+      // For coverage, we need to move in a pattern
+      // Assuming step size of 0.5mm for precise coverage
+      const stepResolution = 0.5 // mm per step
+      const stepsForDimension = Math.ceil(maxDimension / stepResolution)
+      
+      // For pad coverage, we typically move in a grid or spiral pattern
+      // Number of steps = (max_dimension / step_resolution)² for grid coverage
+      // For better coverage, calculate based on area coverage
+      const stepsForGrid = Math.ceil((maxDimension / stepResolution) ** 2)
+      
+      // Also calculate perimeter-based steps for edge coverage
+      let perimeter = 0
+      switch (padShape) {
+        case 'square':
+          perimeter = maxDimension * 4
+          break
+        case 'rectangle':
+          const length = Number.parseFloat(padDimensions.length)
+          const width = Number.parseFloat(padDimensions.width)
+          perimeter = 2 * (length + width)
+          break
+        case 'circle':
+          perimeter = Math.PI * maxDimension
+          break
+        case 'concentric':
+          const outerRadius = Number.parseFloat(padDimensions.outerRadius)
+          perimeter = Math.PI * maxDimension // outer circumference
+          break
+      }
+      const stepsForPerimeter = Math.ceil(perimeter / stepResolution)
+      
+      // Use the larger value to ensure complete coverage
+      const calculatedSteps = Math.max(stepsForGrid, stepsForPerimeter)
+
+      setWireUsed(calculatedWireUsed)
+      setStepsMoved(calculatedSteps)
+      setIsCalculatingMetrics(false)
+    }, 300)
+  }, [padShape, padDimensions, solderHeight, volumePerMm])
 
   const isMachineFanOn = fans.machine
   const isTipFanOn = fans.tip
@@ -536,6 +823,31 @@ export default function HomePage() {
         />
 
         <section className={styles.solderingControls} aria-label="Soldering iron controls">
+          <ManualMovementControl
+            currentPosition={currentPosition}
+            stepSize={stepSize}
+            onStepSizeChange={setStepSize}
+            onJog={handleJog}
+            onHome={handleHome}
+            isMoving={currentPosition.isMoving}
+          />
+
+          <PadSolderingMetrics
+            padShape={padShape}
+            padDimensions={padDimensions}
+            solderHeight={solderHeight}
+            padArea={padArea}
+            padVolume={padVolume}
+            wireUsed={wireUsed}
+            stepsMoved={stepsMoved}
+            volumePerMm={volumePerMm}
+            onShapeChange={handlePadShapeChange}
+            onDimensionChange={handlePadDimensionChange}
+            onSolderHeightChange={handleSolderHeightChange}
+            onCalculate={calculatePadMetrics}
+            isCalculating={isCalculatingMetrics}
+          />
+
           <TipHeatingControl
             tipTarget={tipTarget}
             onTipTargetChange={handleTipTargetChange}
@@ -547,12 +859,12 @@ export default function HomePage() {
           />
 
           <WireFeedControl
-            length={wireFeedLength}
-            rate={wireFeedRate}
+            calculatedLength={wireUsed}
+            wireDiameter={wireDiameter}
+            volumePerMm={volumePerMm}
             status={wireFeedStatus}
             message={wireFeedMessage}
-            onLengthChange={handleWireFeedLengthChange}
-            onRateChange={handleWireFeedRateChange}
+            onWireDiameterChange={handleWireDiameterChange}
             onStart={handleWireFeedStart}
           />
 
