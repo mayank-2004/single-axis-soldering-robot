@@ -740,43 +740,11 @@ export default function HomePage() {
       const calculatedWireUsed = calculatedVolume / volumePerMm // Wire length in mm
       setWireUsed(calculatedWireUsed)
 
-      // Calculate steps moved based on pad size
-      // Steps = max_dimension / step_resolution
-      // For coverage, we need to move in a pattern
-      // Assuming step size of 0.5mm for precise coverage
-      const stepResolution = 0.5 // mm per step
-      const stepsForDimension = Math.ceil(maxDimension / stepResolution)
-      
-      // For pad coverage, we typically move in a grid or spiral pattern
-      // Number of steps = (max_dimension / step_resolution)² for grid coverage
-      // For better coverage, calculate based on area coverage
-      const stepsForGrid = Math.ceil((maxDimension / stepResolution) ** 2)
-      
-      // Also calculate perimeter-based steps for edge coverage
-      let perimeter = 0
-      switch (padShape) {
-        case 'square':
-          perimeter = maxDimension * 4
-          break
-        case 'rectangle':
-          const length = Number.parseFloat(padDimensions.length)
-          const width = Number.parseFloat(padDimensions.width)
-          perimeter = 2 * (length + width)
-          break
-        case 'circle':
-          perimeter = Math.PI * maxDimension
-          break
-        case 'concentric':
-          const outerRadius = Number.parseFloat(padDimensions.outerRadius)
-          perimeter = Math.PI * maxDimension // outer circumference
-          break
-      }
-      const stepsForPerimeter = Math.ceil(perimeter / stepResolution)
-      
-      // Use the larger value to ensure complete coverage
-      const calculatedSteps = Math.max(stepsForGrid, stepsForPerimeter)
+      // Calculate steps moved based on wire length
+      // In single axis machine: 8 steps per 1mm movement
+      const stepsPerMm = 8 // steps per millimeter
+      const calculatedSteps = Math.ceil(calculatedWireUsed * stepsPerMm)
 
-      setWireUsed(calculatedWireUsed)
       setStepsMoved(calculatedSteps)
       setIsCalculatingMetrics(false)
     }, 300)
