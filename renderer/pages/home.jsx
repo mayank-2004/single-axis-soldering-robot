@@ -10,14 +10,14 @@ import PadSolderingMetrics from '../components/PadSolderingMetrics'
 import styles from './home.module.css'
 
 const initialCalibration = [
-  { label: 'X Axis', value: '120.00 → 132.50', unit: 'mm' },
-  { label: 'Y Axis', value: '045.30 → 048.10', unit: 'mm' },
-  { label: 'Z Axis', value: '003.20 → 000.00', unit: 'mm' },
-  { label: 'Wire Remaining', value: '100', unit: '%', length: '14.3 m' },
-  { label: 'Flux Remaining', value: '82', unit: '%' },
-  { label: 'Tip Temp', value: '345', unit: '°C' },
-  { label: 'Feed Rate', value: '12.0', unit: 'mm/s' },
-  { label: 'Speed', value: '210', unit: 'mm/s' },
+  { label: 'X Axis', value: '120.00 → 132.50', unit: 'mm', icon: '↔' },
+  { label: 'Y Axis', value: '045.30 → 048.10', unit: 'mm', icon: '↕' },
+  { label: 'Z Axis', value: '003.20 → 000.00', unit: 'mm', icon: '↕' },
+  { label: 'Wire Remaining', value: '100', unit: '%', length: '14.3 m', icon: '⚡' },
+  { label: 'Flux Remaining', value: '82', unit: '%', icon: '💧' },
+  { label: 'Tip Temp', value: '345', unit: '°C', icon: '🌡️' },
+  { label: 'Feed Rate', value: '12.0', unit: 'mm/s', icon: '⏩' },
+  { label: 'Speed', value: '210', unit: 'mm/s', icon: '⚡' },
 ]
 
 const initialFanState = {
@@ -740,8 +740,6 @@ export default function HomePage() {
       const calculatedWireUsed = calculatedVolume / volumePerMm // Wire length in mm
       setWireUsed(calculatedWireUsed)
 
-      // Calculate steps moved based on wire length
-      // In single axis machine: 8 steps per 1mm movement
       const stepsPerMm = 8 // steps per millimeter
       const calculatedSteps = Math.ceil(calculatedWireUsed * stepsPerMm)
 
