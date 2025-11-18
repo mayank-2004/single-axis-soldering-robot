@@ -25,6 +25,29 @@ let robotController
     },
   })
 
+  // Handle camera permission requests
+  mainWindow.webContents.session.setPermissionRequestHandler(
+    (webContents, permission, callback) => {
+      // Allow camera and microphone permissions
+      if (permission === 'camera' || permission === 'microphone') {
+        callback(true) // Grant permission
+      } else {
+        callback(false) // Deny other permissions
+      }
+    }
+  )
+
+  // Handle permission check results
+  mainWindow.webContents.session.setPermissionCheckHandler(
+    (webContents, permission, requestingOrigin, details) => {
+      // Allow camera and microphone permissions
+      if (permission === 'camera' || permission === 'microphone') {
+        return true
+      }
+      return false
+    }
+  )
+
   robotController = setupRobotController({
     ipcMain,
     getWebContents: () => mainWindow?.webContents,

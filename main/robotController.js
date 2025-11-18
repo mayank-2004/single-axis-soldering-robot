@@ -1,7 +1,17 @@
 import SolderingHardware from './hardware/SolderingHardware'
 
-export function setupRobotController({ ipcMain, getWebContents }) {
-  const hardware = new SolderingHardware()
+export function setupRobotController({ ipcMain, getWebContents, options = {} }) {
+  // Initialize hardware - use hardware mode so serial manager exists,
+  // but will run in simulation until a serial connection is established
+  const serialConfig = options.serialConfig || {
+    baudRate: 115200,
+    protocol: 'gcode',
+  }
+
+  const hardware = new SolderingHardware({
+    mode: 'hardware', // Always use hardware mode so serial manager exists
+    serialConfig,
+  })
   const ipcListeners = []
   const hardwareListeners = []
 
@@ -41,6 +51,10 @@ export function setupRobotController({ ipcMain, getWebContents }) {
     sendToRenderer('wire:feed:status', payload ?? hardware.getWireFeedStatus(), target)
   }
 
+  const sendSpoolState = (target, payload) => {
+    sendToRenderer('spool:update', payload ?? hardware.getSpoolState(), target)
+  }
+
   const sendSequenceUpdate = (target, payload) => {
     sendToRenderer('sequence:update', payload ?? hardware.getSequenceState(), target)
   }
@@ -56,6 +70,7 @@ export function setupRobotController({ ipcMain, getWebContents }) {
     sendFanUpdate(target, snapshot.fans)
     sendTipStatus(target, snapshot.tip)
     sendWireFeedStatus(target, snapshot.wireFeed)
+    sendSpoolState(target, snapshot.spool)
     sendSequenceUpdate(target, snapshot.sequence)
     sendPositionUpdate(target, hardware.getPosition())
   }
@@ -83,6 +98,10 @@ export function setupRobotController({ ipcMain, getWebContents }) {
 
   registerHardwareListener('wireFeed', (payload) => {
     sendWireFeedStatus(undefined, payload)
+  })
+
+  registerHardwareListener('spool', (payload) => {
+    sendSpoolState(undefined, payload)
   })
 
   registerHardwareListener('sequence', (payload) => {
@@ -139,7 +158,58 @@ export function setupRobotController({ ipcMain, getWebContents }) {
     sendWireFeedStatus(event.sender)
   })
 
+  registerIpcListener('spool:status:request', (event) => {
+    sendSpoolState(event.sender)
+  })
+
+  registerIpcListener('spool:config:set', (event, payload = {}) => {
+    const result = hardware.setSpoolConfig(payload)
+    if (result.error) {
+      event.sender.send('spool:config:response', result)
+    } else {
+      sendSpoolState(event.sender)
+      event.sender.send('spool:config:response', result)
+    }
+  })
+
+  registerIpcListener('spool:reset', (event) => {
+    const result = hardware.resetSpool()
+    sendSpoolState(event.sender)
+    event.sender.send('spool:reset:response', result)
+  })
+
+  registerIpcListener('spool:tare', (event) => {
+    const result = hardware.tareSpool()
+    sendSpoolState(event.sender)
+    event.sender.send('spool:tare:response', result)
+  })
+
   registerIpcListener('sequence:status:request', (event) => {
+    sendSequenceUpdate(event.sender)
+  })
+
+  registerIpcListener('sequence:start', async (event, payload = {}) => {
+    const { padPositions = [], options = {} } = payload
+    const result = await hardware.startSequence(padPositions, options)
+    event.sender.send('sequence:start:response', result)
+    sendSequenceUpdate(event.sender)
+  })
+
+  registerIpcListener('sequence:stop', (event) => {
+    const result = hardware.stopSequence()
+    event.sender.send('sequence:stop:response', result)
+    sendSequenceUpdate(event.sender)
+  })
+
+  registerIpcListener('sequence:pause', (event) => {
+    const result = hardware.pauseSequence()
+    event.sender.send('sequence:pause:response', result)
+    sendSequenceUpdate(event.sender)
+  })
+
+  registerIpcListener('sequence:resume', (event) => {
+    const result = hardware.resumeSequence()
+    event.sender.send('sequence:resume:response', result)
     sendSequenceUpdate(event.sender)
   })
 
@@ -168,7 +238,140 @@ export function setupRobotController({ ipcMain, getWebContents }) {
     sendPositionUpdate(event.sender)
   })
 
-  hardware.connect()
+  // Serial port management IPC handlers
+  registerIpcListener('serial:list-ports', async (event) => {
+    try {
+      const ports = await SolderingHardware.listSerialPorts()
+      event.sender.send('serial:list-ports:response', { ports })
+    } catch (error) {
+      event.sender.send('serial:list-ports:response', { error: error.message })
+    }
+  })
+
+  registerIpcListener('serial:connect', async (event, payload = {}) => {
+    const { portPath, config = {} } = payload
+    try {
+      const result = await hardware.connect(portPath, config)
+      event.sender.send('serial:connect:response', result)
+      if (!result.error) {
+        broadcastInitialState(event.sender)
+      }
+    } catch (error) {
+      event.sender.send('serial:connect:response', { error: error.message })
+    }
+  })
+
+  registerIpcListener('serial:disconnect', async (event) => {
+    try {
+      const result = await hardware.disconnect()
+      event.sender.send('serial:disconnect:response', result)
+    } catch (error) {
+      event.sender.send('serial:disconnect:response', { error: error.message })
+    }
+  })
+
+  registerIpcListener('serial:status', (event) => {
+    const status = hardware.getSerialStatus()
+    event.sender.send('serial:status:response', status)
+  })
+
+  // Listen for hardware errors
+  registerHardwareListener('error', ({ type, error }) => {
+    sendToRenderer('serial:error', { type, error })
+  })
+
+  // G-code command monitoring
+  registerHardwareListener('gcode:command', (data) => {
+    sendToRenderer('gcode:command', data)
+  })
+
+  registerHardwareListener('gcode:response', (data) => {
+    sendToRenderer('gcode:response', data)
+  })
+
+  registerHardwareListener('gcode:error', (data) => {
+    sendToRenderer('gcode:error', data)
+  })
+
+  // G-code command management
+  let gcodeHistory = []
+  const maxHistorySize = 100
+
+  registerIpcListener('gcode:clear', (event) => {
+    gcodeHistory = []
+    event.sender.send('gcode:history', { commands: [] })
+  })
+
+  registerIpcListener('gcode:history:request', (event) => {
+    event.sender.send('gcode:history', { commands: gcodeHistory })
+  })
+
+  // Helper to add command to history
+  const addGcodeToHistory = (data) => {
+    // Update existing entry if it's a response/error for a sent command
+    if (data.status === 'received' || data.status === 'error') {
+      // Try to find matching command by command text
+      if (data.command) {
+        // Find the most recent sent command matching this command text
+        for (let i = gcodeHistory.length - 1; i >= 0; i--) {
+          const entry = gcodeHistory[i]
+          if (entry.status === 'sent' && entry.command === data.command) {
+            entry.status = data.status
+            entry.response = data.response || null
+            entry.error = data.error || null
+            sendToRenderer('gcode:history', { commands: gcodeHistory })
+            return
+          }
+        }
+      }
+      
+      // Fallback: update last sent command if no match found
+      const lastCommand = gcodeHistory[gcodeHistory.length - 1]
+      if (lastCommand && lastCommand.status === 'sent') {
+        lastCommand.status = data.status
+        lastCommand.response = data.response || null
+        lastCommand.error = data.error || null
+        sendToRenderer('gcode:history', { commands: gcodeHistory })
+        return
+      }
+    }
+
+    // Add new command entry
+    const commandEntry = {
+      id: Date.now() + Math.random(),
+      command: data.command || data.response || data.error || 'Unknown',
+      status: data.status || 'sent',
+      timestamp: data.timestamp || Date.now(),
+      response: data.response || null,
+      error: data.error || null,
+    }
+
+    gcodeHistory.push(commandEntry)
+
+    // Limit history size
+    if (gcodeHistory.length > maxHistorySize) {
+      gcodeHistory.shift()
+    }
+
+    sendToRenderer('gcode:history', { commands: gcodeHistory })
+  }
+
+  // Listen for G-code events and add to history
+  registerHardwareListener('gcode:command', (data) => {
+    addGcodeToHistory(data)
+  })
+
+  registerHardwareListener('gcode:response', (data) => {
+    addGcodeToHistory(data)
+  })
+
+  registerHardwareListener('gcode:error', (data) => {
+    addGcodeToHistory(data)
+  })
+
+  // Start in simulation mode (no serial connection yet)
+  // User will connect via UI, which will establish serial connection
+  hardware.connect() // This will start simulation loops since no port is provided
 
   return {
     broadcastInitialState,

@@ -1,12 +1,14 @@
 import { EventEmitter } from 'events'
+import SerialPortManager from './SerialPortManager.js'
+import CommandProtocol from './CommandProtocol.js'
 
 const sequenceStages = [
-  'Positioning X axis',
-  'Positioning Y axis',
-  'Lowering Z axis',
-  'Dispensing solder',
-  'Retracting head',
-  'Advancing to next pad',
+  { name: 'Positioning X axis', action: 'moveX' },
+  { name: 'Positioning Y axis', action: 'moveY' },
+  { name: 'Lowering Z axis', action: 'lowerZ' },
+  { name: 'Dispensing solder', action: 'dispense' },
+  { name: 'Retracting head', action: 'retract' },
+  { name: 'Advancing to next pad', action: 'advance' },
 ]
 
 const initialCalibration = [
@@ -31,11 +33,28 @@ const randomIntInclusive = (min, max) => {
 }
 
 export default class SolderingHardware extends EventEmitter {
-  constructor() {
+  constructor(options = {}) {
     super()
 
+    // Mode: 'simulation' or 'hardware'
+    this.mode = options.mode || 'simulation'
     this.connected = false
     this.timers = []
+
+    // Serial port and protocol (only for hardware mode)
+    this.serialManager = null
+    this.commandProtocol = null
+    this.serialConfig = options.serialConfig || {}
+
+    // Setup serial communication if in hardware mode
+    if (this.mode === 'hardware') {
+      this.serialManager = new SerialPortManager(this.serialConfig)
+      this.commandProtocol = new CommandProtocol(this.serialManager, {
+        protocol: this.serialConfig.protocol || 'gcode',
+        stepsPerMm: this.serialConfig.stepsPerMm,
+      })
+      this._setupSerialEventHandlers()
+    }
 
     this.state = {
       componentHeightMm: null,
@@ -56,12 +75,41 @@ export default class SolderingHardware extends EventEmitter {
         status: 'idle',
         message: 'Ready to feed',
       },
+      spool: {
+        // Spool physical properties
+        spoolDiameter: 50.0, // mm - diameter of the spool (empty core)
+        wireDiameter: 0.5, // mm - diameter of the solder wire
+        initialWireLength: 10000.0, // mm - initial wire length on spool
+        currentWireLength: 10000.0, // mm - current wire length remaining
+        // Weight tracking
+        solderDensity: 8.5, // g/cm³ - typical solder density (lead-free: ~8.5, leaded: ~9.0)
+        // Note: Density is stored in g/cm³ but converted to g/mm³ for calculations
+        tareWeight: 0.0, // g - weight offset (set when spool is empty, to zero out spool weight)
+        currentWeight: 0.0, // g - current wire weight (calculated from length, will be calculated on first getSpoolState)
+        initialWeight: 0.0, // g - initial wire weight when spool was loaded with wire
+        isTared: false, // Whether spool has been tared (should be done when empty)
+        // Spool rotation tracking
+        totalRotations: 0, // total number of rotations
+        currentRotation: 0.0, // current rotation angle (0-360 degrees)
+        stepsPerRotation: 200, // stepper motor steps per full rotation (1.8° per step)
+        stepsPerMm: 8, // steps per mm of wire feed
+        // Status
+        isFeeding: false,
+        lastFeedLength: 0,
+        lastUpdated: Date.now(),
+      },
       sequence: {
         stage: 'idle',
         isActive: false,
+        isPaused: false,
         lastCompleted: null,
         index: 0,
         idleCountdown: 0,
+        currentPad: 0,
+        totalPads: 0,
+        padPositions: [],
+        progress: 0,
+        error: null,
       },
       position: {
         x: 120.0,
@@ -72,28 +120,61 @@ export default class SolderingHardware extends EventEmitter {
     }
   }
 
-  connect() {
+  async connect(portPath = null) {
     if (this.connected) {
-      return
+      return { status: 'Already connected' }
     }
-    this.connected = true
-    this._startSimulationLoops()
+
+    if (this.mode === 'hardware') {
+      if (!portPath) {
+        // No port provided - run in simulation mode as fallback
+        this.connected = true
+        this._startSimulationLoops()
+        return { status: 'Connected (simulation mode - no hardware connected)' }
+      }
+
+      try {
+        const result = await this.serialManager.connect(portPath, this.serialConfig)
+        if (result.error) {
+          return result
+        }
+
+        this.connected = true
+        // Stop simulation loops and start hardware status polling
+        this._stopSimulationLoops()
+        this._startHardwareStatusPolling()
+        return result
+      } catch (error) {
+        return { error: error.message }
+      }
+    } else {
+      // Simulation mode
+      this.connected = true
+      this._startSimulationLoops()
+      return { status: 'Connected (simulation mode)' }
+    }
   }
 
-  disconnect() {
+  async disconnect() {
     if (!this.connected) {
-      return
+      return { status: 'Already disconnected' }
     }
+
     this.connected = false
 
-    this.timers.forEach(({ type, id }) => {
-      if (type === 'interval') {
-        clearInterval(id)
-      } else {
-        clearTimeout(id)
-      }
-    })
-    this.timers = []
+    // Stop hardware status polling or simulation loops
+    this._stopSimulationLoops()
+
+    // Disconnect serial port if in hardware mode
+    if (this.mode === 'hardware' && this.serialManager) {
+      const result = await this.serialManager.disconnect()
+      // Restart simulation as fallback
+      this.connected = true
+      this._startSimulationLoops()
+      return { ...result, status: 'Disconnected from hardware, running in simulation' }
+    }
+
+    return { status: 'Disconnected' }
   }
 
   getSnapshot() {
@@ -103,6 +184,7 @@ export default class SolderingHardware extends EventEmitter {
       fans: this.getFanState(),
       tip: this.getTipStatus(),
       wireFeed: this.getWireFeedStatus(),
+      spool: this.getSpoolState(),
       sequence: this.getSequenceState(),
     }
   }
@@ -146,9 +228,187 @@ export default class SolderingHardware extends EventEmitter {
     }
   }
 
+  /**
+   * Calculate wire weight from length
+   * Weight = Volume × Density
+   * Volume = π × (wireDiameter/2)² × length (in mm³)
+   * Density conversion: 1 g/cm³ = 0.001 g/mm³ (since 1 cm³ = 1000 mm³)
+   * All calculations done in mm
+   */
+  _calculateWireWeight(wireLength) {
+    const { spool } = this.state
+    const radiusMm = spool.wireDiameter / 2 // Radius in mm
+    const lengthMm = wireLength // Length in mm
+    const volumeMm3 = Math.PI * radiusMm * radiusMm * lengthMm // Volume in mm³
+    // Convert density from g/cm³ to g/mm³: 1 cm³ = 1000 mm³, so divide by 1000
+    const densityGPerMm3 = spool.solderDensity / 1000 // Convert g/cm³ to g/mm³
+    const weightG = volumeMm3 * densityGPerMm3 // Weight in grams (all in mm)
+    return weightG
+  }
+
+  getSpoolState() {
+    const { spool } = this.state
+    // Calculate effective spool diameter (core + wire layers)
+    // Approximate: assume wire wraps in layers
+    const wireRadius = spool.wireDiameter / 2
+    const layers = Math.floor((spool.initialWireLength - spool.currentWireLength) / (Math.PI * spool.spoolDiameter))
+    const effectiveDiameter = spool.spoolDiameter + (layers * 2 * wireRadius)
+    
+    // Calculate remaining percentage
+    const remainingPercentage = (spool.currentWireLength / spool.initialWireLength) * 100
+    const remainingLength = spool.currentWireLength
+    
+    // Calculate current wire weight
+    const calculatedWeight = this._calculateWireWeight(spool.currentWireLength)
+    // Net weight = calculated weight - tare weight
+    // When tared with machine parts but no wire, tareWeight = machine parts weight
+    // So netWeight shows only wire weight (excludes machine parts)
+    // As wire is loaded, netWeight increases (positive)
+    // As wire is used, netWeight decreases (but stays positive until empty)
+    const netWeight = calculatedWeight - spool.tareWeight
+    
+    // Track initial weight when wire is first loaded after taring
+    // If tared, has wire, but initialWeight is 0, set it to current weight
+    if (spool.isTared && spool.currentWireLength > 0 && spool.initialWeight === 0) {
+      spool.initialWeight = calculatedWeight
+    }
+    
+    return {
+      spoolDiameter: spool.spoolDiameter,
+      wireDiameter: spool.wireDiameter,
+      initialWireLength: spool.initialWireLength,
+      currentWireLength: spool.currentWireLength,
+      remainingPercentage: Math.max(0, Math.min(100, remainingPercentage)),
+      remainingLength: Math.max(0, remainingLength),
+      totalRotations: spool.totalRotations,
+      currentRotation: spool.currentRotation,
+      effectiveDiameter: effectiveDiameter,
+      isFeeding: spool.isFeeding,
+      lastFeedLength: spool.lastFeedLength,
+      lastUpdated: spool.lastUpdated,
+      // Weight information
+      solderDensity: spool.solderDensity,
+      currentWeight: calculatedWeight,
+      netWeight: netWeight, // Weight after tare (shows only wire weight)
+      initialWeight: spool.initialWeight,
+      tareWeight: spool.tareWeight,
+      isTared: spool.isTared, // Whether spool has been tared
+    }
+  }
+
+  setSpoolConfig(config) {
+    const { spoolDiameter, wireDiameter, initialWireLength, solderDensity } = config
+    
+    if (spoolDiameter !== undefined) {
+      const numeric = Number.parseFloat(spoolDiameter)
+      if (!Number.isFinite(numeric) || numeric <= 0) {
+        return { error: 'Spool diameter must be a positive number.' }
+      }
+      this.state.spool.spoolDiameter = numeric
+    }
+    
+    if (wireDiameter !== undefined) {
+      const numeric = Number.parseFloat(wireDiameter)
+      if (!Number.isFinite(numeric) || numeric <= 0) {
+        return { error: 'Wire diameter must be a positive number.' }
+      }
+      this.state.spool.wireDiameter = numeric
+    }
+    
+    if (initialWireLength !== undefined) {
+      const numeric = Number.parseFloat(initialWireLength)
+      if (!Number.isFinite(numeric) || numeric <= 0) {
+        return { error: 'Initial wire length must be a positive number.' }
+      }
+      this.state.spool.initialWireLength = numeric
+      this.state.spool.currentWireLength = numeric
+      // Recalculate initial weight (weight of wire when spool is loaded)
+      this.state.spool.initialWeight = this._calculateWireWeight(numeric)
+      // Update current weight
+      this.state.spool.currentWeight = this._calculateWireWeight(numeric)
+    }
+    
+    if (solderDensity !== undefined) {
+      const numeric = Number.parseFloat(solderDensity)
+      if (!Number.isFinite(numeric) || numeric <= 0) {
+        return { error: 'Solder density must be a positive number.' }
+      }
+      this.state.spool.solderDensity = numeric
+    }
+    
+    // Recalculate current weight
+    this.state.spool.currentWeight = this._calculateWireWeight(this.state.spool.currentWireLength)
+    
+    this.state.spool.lastUpdated = Date.now()
+    this.emit('spool', this.getSpoolState())
+    return { status: 'Spool configuration updated' }
+  }
+
+  /**
+   * Tare/Zero the spool weight
+   * This should be done when the spool has machine parts attached but NO wire
+   * Sets the tare weight to the current calculated weight (machine parts weight)
+   * After taring, when wire is loaded, only wire weight will be shown
+   * As wire is used, weight will decrease but remain positive
+   */
+  tareSpool() {
+    const { spool } = this.state
+    const currentCalculatedWeight = this._calculateWireWeight(spool.currentWireLength)
+    
+    // Set tare weight to current weight (machine parts weight when no wire)
+    // This zeros out the machine parts weight, so only wire weight is shown
+    spool.tareWeight = currentCalculatedWeight
+    spool.isTared = true // Mark as tared
+    
+    // Reset initial weight - it will be set when wire is first loaded
+    spool.initialWeight = 0
+    
+    spool.lastUpdated = Date.now()
+    this.emit('spool', this.getSpoolState())
+    return { 
+      status: spool.currentWireLength === 0 
+        ? 'Spool weight tared (zeroed) - machine parts weight excluded. Ready to load wire.'
+        : 'Spool weight tared (zeroed) - wire weight will be tracked from now',
+      tareWeight: spool.tareWeight,
+      currentWireLength: spool.currentWireLength,
+    }
+  }
+
+  resetSpool() {
+    this.state.spool.currentWireLength = this.state.spool.initialWireLength
+    this.state.spool.totalRotations = 0
+    this.state.spool.currentRotation = 0
+    this.state.spool.lastFeedLength = 0
+    // Reset weight calculations
+    this.state.spool.currentWeight = this._calculateWireWeight(this.state.spool.initialWireLength)
+    // Note: tareWeight and isTared are NOT reset - user must manually tare again if needed
+    // This preserves the tare setting even after reset
+    this.state.spool.lastUpdated = Date.now()
+    
+    // Update wire remaining in calibration
+    const remainingPercentage = (this.state.spool.currentWireLength / this.state.spool.initialWireLength) * 100
+    const remainingLength = this.state.spool.currentWireLength / 1000 // convert to meters
+    this._updateCalibration('Wire Remaining', {
+      value: Math.round(remainingPercentage),
+      length: `${remainingLength.toFixed(1)} m`,
+    })
+    
+    this.emit('spool', this.getSpoolState())
+    return { status: 'Spool reset to initial state' }
+  }
+
   getSequenceState() {
-    const { stage, isActive, lastCompleted } = this.state.sequence
-    return { stage, isActive, lastCompleted }
+    const { stage, isActive, isPaused, lastCompleted, currentPad, totalPads, progress, error } = this.state.sequence
+    return { 
+      stage, 
+      isActive, 
+      isPaused,
+      lastCompleted, 
+      currentPad,
+      totalPads,
+      progress,
+      error,
+    }
   }
 
   getPosition() {
@@ -175,13 +435,15 @@ export default class SolderingHardware extends EventEmitter {
     this.state.position.isMoving = true
     this.emit('position:update', this.getPosition())
 
-    // Simulate movement delay
-    return new Promise((resolve) => {
-      setTimeout(() => {
+    if (this.mode === 'hardware' && this.commandProtocol) {
+      try {
+        // Send real movement command
+        await this.commandProtocol.moveRelative(axis, step)
+        
+        // Update position (will be confirmed by status polling)
         this.state.position[axisKey] += step
         this.state.position.isMoving = false
 
-        // Update calibration display
         this._updateCalibrationEntry(
           `${axis.toUpperCase()} Axis`,
           {
@@ -190,9 +452,30 @@ export default class SolderingHardware extends EventEmitter {
         )
 
         this.emit('position:update', this.getPosition())
-        resolve({ status: 'Movement completed', position: this.getPosition() })
-      }, 300)
-    })
+        return { status: 'Movement completed', position: this.getPosition() }
+      } catch (error) {
+        this.state.position.isMoving = false
+        return { error: error.message }
+      }
+    } else {
+      // Simulation mode
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          this.state.position[axisKey] += step
+          this.state.position.isMoving = false
+
+          this._updateCalibrationEntry(
+            `${axis.toUpperCase()} Axis`,
+            {
+              value: `${this.state.position[axisKey].toFixed(2)}`,
+            }
+          )
+
+          this.emit('position:update', this.getPosition())
+          resolve({ status: 'Movement completed', position: this.getPosition() })
+        }, 300)
+      })
+    }
   }
 
   async home() {
@@ -203,23 +486,45 @@ export default class SolderingHardware extends EventEmitter {
     this.state.position.isMoving = true
     this.emit('position:update', this.getPosition())
 
-    // Simulate homing delay
-    return new Promise((resolve) => {
-      setTimeout(() => {
+    if (this.mode === 'hardware' && this.commandProtocol) {
+      try {
+        // Send real home command
+        await this.commandProtocol.home()
+        
+        // Update position
         this.state.position.x = 0
         this.state.position.y = 0
         this.state.position.z = 0
         this.state.position.isMoving = false
 
-        // Update calibration display
         this._updateCalibrationEntry('X Axis', { value: '0.00' })
         this._updateCalibrationEntry('Y Axis', { value: '0.00' })
         this._updateCalibrationEntry('Z Axis', { value: '0.00' })
 
         this.emit('position:update', this.getPosition())
-        resolve({ status: 'Homed to zero position', position: this.getPosition() })
-      }, 500)
-    })
+        return { status: 'Homed to zero position', position: this.getPosition() }
+      } catch (error) {
+        this.state.position.isMoving = false
+        return { error: error.message }
+      }
+    } else {
+      // Simulation mode
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          this.state.position.x = 0
+          this.state.position.y = 0
+          this.state.position.z = 0
+          this.state.position.isMoving = false
+
+          this._updateCalibrationEntry('X Axis', { value: '0.00' })
+          this._updateCalibrationEntry('Y Axis', { value: '0.00' })
+          this._updateCalibrationEntry('Z Axis', { value: '0.00' })
+
+          this.emit('position:update', this.getPosition())
+          resolve({ status: 'Homed to zero position', position: this.getPosition() })
+        }, 500)
+      })
+    }
   }
 
   setFanState(fan, enabled) {
@@ -234,7 +539,7 @@ export default class SolderingHardware extends EventEmitter {
     return { status: this.getFanState() }
   }
 
-  setTipTarget(target) {
+  async setTipTarget(target) {
     const numeric = Number.parseFloat(target)
     if (!Number.isFinite(numeric) || numeric <= 0) {
       const error = 'Target temperature must be positive.'
@@ -245,18 +550,36 @@ export default class SolderingHardware extends EventEmitter {
 
     this.state.tip.target = numeric
     this.state.tip.statusMessage = `Target set to ${numeric.toFixed(0)}°C`
+
+    if (this.mode === 'hardware' && this.commandProtocol) {
+      try {
+        await this.commandProtocol.setTemperature(numeric)
+      } catch (error) {
+        console.error('[SolderingHardware] Error setting temperature:', error)
+      }
+    }
+
     this.emit('tip', this.getTipStatus())
     return { status: this.state.tip.statusMessage }
   }
 
-  setHeaterEnabled(enabled) {
+  async setHeaterEnabled(enabled) {
     this.state.tip.heaterEnabled = Boolean(enabled)
     this.state.tip.statusMessage = this.state.tip.heaterEnabled ? 'Heater enabled' : 'Heater disabled'
+
+    if (this.mode === 'hardware' && this.commandProtocol) {
+      try {
+        await this.commandProtocol.setHeaterEnabled(enabled)
+      } catch (error) {
+        console.error('[SolderingHardware] Error setting heater:', error)
+      }
+    }
+
     this.emit('tip', this.getTipStatus())
     return { status: this.state.tip.statusMessage }
   }
 
-  startWireFeed(length, rate) {
+  async startWireFeed(length, rate) {
     const lengthNumeric = Number.parseFloat(length)
     const rateNumeric = Number.parseFloat(rate)
 
@@ -276,26 +599,344 @@ export default class SolderingHardware extends EventEmitter {
       return { error }
     }
 
-    const durationMs = Math.max(1200, (lengthNumeric / rateNumeric) * 1000)
+    // Check if enough wire is available on spool
+    if (lengthNumeric > this.state.spool.currentWireLength) {
+      const error = `Insufficient wire. Requested: ${lengthNumeric.toFixed(1)} mm, Available: ${this.state.spool.currentWireLength.toFixed(1)} mm`
+      this.state.wireFeed.status = 'error'
+      this.state.wireFeed.message = error
+      this.emit('wireFeed', this.getWireFeedStatus())
+      return { error }
+    }
 
     this.state.wireFeed.status = 'feeding'
     this.state.wireFeed.message = `Feeding ${lengthNumeric.toFixed(1)} mm at ${rateNumeric.toFixed(1)} mm/s`
+    this.state.spool.isFeeding = true
+    this.state.spool.lastFeedLength = lengthNumeric
     this.emit('wireFeed', this.getWireFeedStatus())
+    this.emit('spool', this.getSpoolState())
 
-    this._registerTimeout(() => {
-      this.state.wireFeed.status = 'completed'
-      this.state.wireFeed.message = `Completed feed of ${lengthNumeric.toFixed(1)} mm`
-      this.emit('wireFeed', {
-        ...this.getWireFeedStatus(),
-        completedAt: Date.now(),
-      })
-    }, durationMs)
+    // Calculate spool rotation needed for this wire length
+    const { spool } = this.state
+    const effectiveDiameter = spool.spoolDiameter + (spool.wireDiameter * 2) // Approximate effective diameter
+    const circumference = Math.PI * effectiveDiameter // mm per rotation
+    const rotationsNeeded = lengthNumeric / circumference
+    const stepsNeeded = Math.round(rotationsNeeded * spool.stepsPerRotation)
+
+    if (this.mode === 'hardware' && this.commandProtocol) {
+      try {
+        // Feed wire and rotate spool
+        await this.commandProtocol.feedWire(lengthNumeric, rateNumeric)
+        await this.commandProtocol.rotateSpool(stepsNeeded, rateNumeric)
+        
+        const durationMs = Math.max(1200, (lengthNumeric / rateNumeric) * 1000)
+        
+        this._registerTimeout(() => {
+          // Update spool state after feed completes
+          this._updateSpoolAfterFeed(lengthNumeric, rotationsNeeded)
+          
+          this.state.wireFeed.status = 'completed'
+          this.state.wireFeed.message = `Completed feed of ${lengthNumeric.toFixed(1)} mm`
+          this.state.spool.isFeeding = false
+          this.emit('wireFeed', {
+            ...this.getWireFeedStatus(),
+            completedAt: Date.now(),
+          })
+          this.emit('spool', this.getSpoolState())
+        }, durationMs)
+      } catch (error) {
+        this.state.wireFeed.status = 'error'
+        this.state.wireFeed.message = `Error: ${error.message}`
+        this.state.spool.isFeeding = false
+        this.emit('wireFeed', this.getWireFeedStatus())
+        this.emit('spool', this.getSpoolState())
+        return { error: error.message }
+      }
+    } else {
+      // Simulation mode
+      const durationMs = Math.max(1200, (lengthNumeric / rateNumeric) * 1000)
+      this._registerTimeout(() => {
+        // Update spool state after feed completes
+        this._updateSpoolAfterFeed(lengthNumeric, rotationsNeeded)
+        
+        this.state.wireFeed.status = 'completed'
+        this.state.wireFeed.message = `Completed feed of ${lengthNumeric.toFixed(1)} mm`
+        this.state.spool.isFeeding = false
+        this.emit('wireFeed', {
+          ...this.getWireFeedStatus(),
+          completedAt: Date.now(),
+        })
+        this.emit('spool', this.getSpoolState())
+      }, durationMs)
+    }
 
     return { status: this.state.wireFeed.message }
   }
 
+  _updateSpoolAfterFeed(feedLength, rotations) {
+    const { spool } = this.state
+    
+    // Update wire remaining
+    spool.currentWireLength = Math.max(0, spool.currentWireLength - feedLength)
+    
+    // Update weight (recalculate from current length)
+    spool.currentWeight = this._calculateWireWeight(spool.currentWireLength)
+    
+    // Update rotation tracking
+    spool.totalRotations += rotations
+    spool.currentRotation = (spool.currentRotation + (rotations * 360)) % 360
+    
+    // Update wire remaining in calibration display
+    const remainingPercentage = (spool.currentWireLength / spool.initialWireLength) * 100
+    const remainingLength = spool.currentWireLength / 1000 // convert to meters
+    this._updateCalibration('Wire Remaining', {
+      value: Math.round(remainingPercentage),
+      length: `${remainingLength.toFixed(1)} m`,
+    })
+    
+    spool.lastUpdated = Date.now()
+  }
+
   handleWireAlert(payload) {
     console.log('[wire:alert]', payload)
+  }
+
+  /**
+   * Start sequence execution
+   * @param {Array} padPositions - Array of {x, y, z} positions for each pad
+   * @param {Object} options - Configuration options (wireLength, etc.)
+   */
+  async startSequence(padPositions = [], options = {}) {
+    if (this.state.sequence.isActive) {
+      return { error: 'Sequence is already running' }
+    }
+
+    if (this.state.position.isMoving) {
+      return { error: 'Machine is currently moving' }
+    }
+
+    // Default to single pad at current position if none provided
+    const pads = padPositions.length > 0 
+      ? padPositions 
+      : [{ x: this.state.position.x, y: this.state.position.y, z: 0 }]
+
+    this.state.sequence.isActive = true
+    this.state.sequence.isPaused = false
+    this.state.sequence.currentPad = 0
+    this.state.sequence.totalPads = pads.length
+    this.state.sequence.padPositions = pads
+    this.state.sequence.index = 0
+    this.state.sequence.progress = 0
+    this.state.sequence.error = null
+    this.state.sequence.stage = 'idle'
+    this.state.sequence.wireLength = options.wireLength || null // Store wire length for dispense stage
+
+    this.emit('sequence', this.getSequenceState())
+
+    // Start execution
+    this._executeSequence()
+
+    return { status: 'Sequence started', totalPads: pads.length }
+  }
+
+  /**
+   * Stop sequence execution
+   */
+  stopSequence() {
+    if (!this.state.sequence.isActive) {
+      return { status: 'Sequence is not running' }
+    }
+
+    this.state.sequence.isActive = false
+    this.state.sequence.isPaused = false
+    this.state.sequence.stage = 'idle'
+    this.state.sequence.error = 'Stopped by user'
+    this.emit('sequence', this.getSequenceState())
+
+    return { status: 'Sequence stopped' }
+  }
+
+  /**
+   * Pause sequence execution
+   */
+  pauseSequence() {
+    if (!this.state.sequence.isActive) {
+      return { status: 'Sequence is not running' }
+    }
+
+    if (this.state.sequence.isPaused) {
+      return { status: 'Sequence is already paused' }
+    }
+
+    this.state.sequence.isPaused = true
+    this.emit('sequence', this.getSequenceState())
+
+    return { status: 'Sequence paused' }
+  }
+
+  /**
+   * Resume sequence execution
+   */
+  resumeSequence() {
+    if (!this.state.sequence.isActive) {
+      return { error: 'Sequence is not running' }
+    }
+
+    if (!this.state.sequence.isPaused) {
+      return { status: 'Sequence is not paused' }
+    }
+
+    this.state.sequence.isPaused = false
+    this.emit('sequence', this.getSequenceState())
+
+    // Continue execution
+    this._executeSequence()
+
+    return { status: 'Sequence resumed' }
+  }
+
+  /**
+   * Execute sequence steps
+   */
+  async _executeSequence() {
+    const sequence = this.state.sequence
+
+    // Check if sequence should continue
+    if (!sequence.isActive || sequence.isPaused) {
+      return
+    }
+
+    // Check if all pads are complete
+    if (sequence.currentPad >= sequence.totalPads) {
+      sequence.isActive = false
+      sequence.stage = 'idle'
+      sequence.lastCompleted = 'All pads complete'
+      sequence.progress = 100
+      this.emit('sequence', this.getSequenceState())
+      return
+    }
+
+    const currentPad = sequence.padPositions[sequence.currentPad]
+    const currentStage = sequenceStages[sequence.index]
+
+    if (!currentStage) {
+      // Move to next pad
+      sequence.currentPad++
+      sequence.index = 0
+      sequence.progress = Math.round((sequence.currentPad / sequence.totalPads) * 100)
+      this.emit('sequence', this.getSequenceState())
+      await this._executeSequence()
+      return
+    }
+
+    // Update stage
+    sequence.stage = currentStage.name
+    this.emit('sequence', this.getSequenceState())
+
+    try {
+      // Execute the current stage action
+      await this._executeStageAction(currentStage.action, currentPad, sequence.index)
+
+      // Mark as completed and move to next stage
+      if (sequence.index > 0) {
+        sequence.lastCompleted = sequenceStages[sequence.index - 1].name
+      }
+      sequence.index++
+
+      // Small delay between stages
+      await new Promise(resolve => setTimeout(resolve, 200))
+
+      // Continue to next stage
+      this._executeSequence()
+    } catch (error) {
+      sequence.isActive = false
+      sequence.error = error.message
+      sequence.stage = 'error'
+      this.emit('sequence', this.getSequenceState())
+      console.error('[Sequence] Error:', error)
+    }
+  }
+
+  /**
+   * Execute a specific stage action
+   */
+  async _executeStageAction(action, padPosition, stageIndex) {
+    const { x, y, z } = padPosition
+    const safeZ = this.state.componentHeightMm ? this.state.componentHeightMm + 2 : 5 // Safe height above component
+
+    switch (action) {
+      case 'moveX':
+        // Move to X position (at safe height)
+        await this._moveToPosition(x, this.state.position.y, safeZ)
+        break
+
+      case 'moveY':
+        // Move to Y position (at safe height)
+        await this._moveToPosition(x, y, safeZ)
+        break
+
+      case 'lowerZ':
+        // Lower to soldering height
+        const solderingZ = z || 0
+        await this._moveToPosition(x, y, solderingZ)
+        break
+
+      case 'dispense':
+        // Feed wire - use wire length from calibration if available, otherwise default
+        const wireEntry = this.state.calibration.find((entry) => entry.label === 'Wire Remaining')
+        let wireLength = 5.0 // Default 5mm
+        // Try to get wire length from state (could be set from pad metrics)
+        if (this.state.sequence.wireLength) {
+          wireLength = this.state.sequence.wireLength
+        }
+        const feedRate = 8.0 // mm/s
+        await this.startWireFeed(wireLength, feedRate)
+        // Wait for wire feed to complete
+        while (this.state.wireFeed.status === 'feeding') {
+          await new Promise(resolve => setTimeout(resolve, 100))
+        }
+        break
+
+      case 'retract':
+        // Retract to safe height
+        await this._moveToPosition(x, y, safeZ)
+        break
+
+      case 'advance':
+        // Already at position, just prepare for next pad
+        break
+
+      default:
+        console.warn(`[Sequence] Unknown action: ${action}`)
+    }
+  }
+
+  /**
+   * Move to absolute position
+   */
+  async _moveToPosition(x, y, z) {
+    if (this.mode === 'hardware' && this.commandProtocol) {
+      try {
+        await this.commandProtocol.moveTo(x, y, z)
+        this.state.position.x = x
+        this.state.position.y = y
+        this.state.position.z = z
+        this.emit('position:update', this.getPosition())
+      } catch (error) {
+        throw new Error(`Movement failed: ${error.message}`)
+      }
+    } else {
+      // Simulation mode - simulate movement
+      this.state.position.isMoving = true
+      this.emit('position:update', this.getPosition())
+      
+      await new Promise(resolve => setTimeout(resolve, 500)) // Simulate movement time
+      
+      this.state.position.x = x
+      this.state.position.y = y
+      this.state.position.z = z
+      this.state.position.isMoving = false
+      this.emit('position:update', this.getPosition())
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -342,7 +983,22 @@ export default class SolderingHardware extends EventEmitter {
     return id
   }
 
+  _stopSimulationLoops() {
+    // Clear all simulation timers
+    this.timers.forEach(({ type, id }) => {
+      if (type === 'interval') {
+        clearInterval(id)
+      } else {
+        clearTimeout(id)
+      }
+    })
+    this.timers = []
+  }
+
   _startSimulationLoops() {
+    // Clear any existing timers first
+    this._stopSimulationLoops()
+
     // Flux depletion
     this._registerInterval(() => {
       const drop = Math.random() < 0.6 ? 0 : 1
@@ -404,53 +1060,8 @@ export default class SolderingHardware extends EventEmitter {
       })
     }, 9000)
 
-    // Sequence cycle
-    this._registerInterval(() => {
-      const sequence = this.state.sequence
-
-      if (!sequence.isActive) {
-        if (sequence.idleCountdown > 0) {
-          sequence.idleCountdown -= 1
-          if (sequence.idleCountdown <= 0) {
-            sequence.isActive = true
-            sequence.index = 0
-            sequence.stage = sequenceStages[0]
-            if (!sequence.lastCompleted) {
-              sequence.lastCompleted = 'Awaiting cycle'
-            }
-            this.emit('sequence', this.getSequenceState())
-          }
-          return
-        }
-
-        sequence.isActive = true
-        sequence.index = 0
-        sequence.stage = sequenceStages[0]
-        if (!sequence.lastCompleted) {
-          sequence.lastCompleted = 'Awaiting cycle'
-        }
-        this.emit('sequence', this.getSequenceState())
-        return
-      }
-
-      if (sequence.index >= sequenceStages.length) {
-        sequence.isActive = false
-        sequence.stage = 'idle'
-        sequence.lastCompleted = 'Cycle complete'
-        sequence.index = 0
-        sequence.idleCountdown = randomIntInclusive(2, 4)
-        this.emit('sequence', this.getSequenceState())
-        return
-      }
-
-      if (sequence.index > 0 && sequence.index - 1 < sequenceStages.length) {
-        sequence.lastCompleted = sequenceStages[sequence.index - 1]
-      }
-
-      sequence.stage = sequenceStages[sequence.index]
-      sequence.index += 1
-      this.emit('sequence', this.getSequenceState())
-    }, 6000)
+    // Note: Sequence execution is now handled by startSequence() method
+    // This simulation loop is kept for backward compatibility but won't auto-start
 
     // Wire remaining depletion
     this._registerInterval(() => {
@@ -470,6 +1081,151 @@ export default class SolderingHardware extends EventEmitter {
         this._updateCalibration('Wire Remaining', { value: next })
       }
     }, 12000)
+  }
+
+  // -----------------------------------------------------------------------
+  // Hardware mode helpers
+  // -----------------------------------------------------------------------
+
+  _setupSerialEventHandlers() {
+    if (!this.serialManager) return
+
+    this.serialManager.on('connected', () => {
+      console.log('[SolderingHardware] Serial port connected')
+    })
+
+    this.serialManager.on('disconnected', () => {
+      console.log('[SolderingHardware] Serial port disconnected')
+      this.connected = false
+    })
+
+    this.serialManager.on('error', ({ type, error }) => {
+      console.error(`[SolderingHardware] Serial error (${type}):`, error)
+      this.emit('error', { type, error })
+    })
+
+    // Handle Marlin position updates (M114 response)
+    this.serialManager.on('position', (position) => {
+      if (position) {
+        this.state.position.x = position.x || this.state.position.x
+        this.state.position.y = position.y || this.state.position.y
+        this.state.position.z = position.z || this.state.position.z
+
+        this._updateCalibrationEntry('X Axis', {
+          value: `${this.state.position.x.toFixed(2)}`,
+        })
+        this._updateCalibrationEntry('Y Axis', {
+          value: `${this.state.position.y.toFixed(2)}`,
+        })
+        this._updateCalibrationEntry('Z Axis', {
+          value: `${this.state.position.z.toFixed(2)}`,
+        })
+
+        this.emit('position:update', this.getPosition())
+      }
+    })
+
+    // Handle Marlin temperature updates (M105 response)
+    this.serialManager.on('temperature', (temp) => {
+      if (temp && temp.hotend) {
+        this.state.tip.current = temp.hotend.current || this.state.tip.current
+        this._updateCalibrationEntry('Tip Temp', {
+          value: Number(this.state.tip.current.toFixed(1)),
+        })
+        this.emit('tip', this.getTipStatus())
+      }
+    })
+
+    // Handle GRBL status reports (for backward compatibility)
+    this.serialManager.on('status', (status) => {
+      // Update position from hardware status
+      if (status.position) {
+        this.state.position.x = status.position.x
+        this.state.position.y = status.position.y
+        this.state.position.z = status.position.z
+        this.state.position.isMoving = status.state !== 'Idle' && status.state !== 'Hold'
+
+        this._updateCalibrationEntry('X Axis', {
+          value: `${this.state.position.x.toFixed(2)}`,
+        })
+        this._updateCalibrationEntry('Y Axis', {
+          value: `${this.state.position.y.toFixed(2)}`,
+        })
+        this._updateCalibrationEntry('Z Axis', {
+          value: `${this.state.position.z.toFixed(2)}`,
+        })
+
+        this.emit('position:update', this.getPosition())
+      }
+    })
+
+    this.serialManager.on('data', (line) => {
+      // Log incoming data for debugging
+      console.log('[Serial]', line)
+    })
+
+    // Forward G-code command events to hardware events
+    this.serialManager.on('command:sent', (data) => {
+      this.emit('gcode:command', {
+        ...data,
+        status: 'sent',
+      })
+    })
+
+    this.serialManager.on('command:received', (data) => {
+      this.emit('gcode:response', {
+        ...data,
+        status: 'received',
+      })
+    })
+
+    this.serialManager.on('command:error', (data) => {
+      this.emit('gcode:error', {
+        ...data,
+        status: 'error',
+      })
+    })
+
+    this.serialManager.on('command:timeout', (data) => {
+      this.emit('gcode:error', {
+        ...data,
+        status: 'error',
+        error: 'Command timeout',
+      })
+    })
+  }
+
+  _startHardwareStatusPolling() {
+    // Poll for position and temperature from Marlin firmware
+    this._registerInterval(async () => {
+      if (this.mode === 'hardware' && this.commandProtocol && this.connected) {
+        try {
+          // Marlin: Request position (M114)
+          await this.commandProtocol.getPosition()
+          // Marlin: Request temperature (M105)
+          await this.commandProtocol.getTemperature()
+        } catch (error) {
+          console.error('[SolderingHardware] Status polling error:', error)
+        }
+      }
+    }, 1000) // Poll every second
+  }
+
+  /**
+   * Get available serial ports
+   */
+  static async listSerialPorts() {
+    return SerialPortManager.listPorts()
+  }
+
+  /**
+   * Get serial connection status
+   */
+  getSerialStatus() {
+    if (this.mode === 'hardware' && this.serialManager) {
+      return this.serialManager.getStatus()
+    }
+    return { isConnected: false, mode: 'simulation' }
   }
 }
 

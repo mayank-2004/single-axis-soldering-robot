@@ -1,0 +1,257 @@
+.connectionCard {
+  background: linear-gradient(145deg, #1f2225, #363b42);
+  border-radius: 12px;
+  padding: 20px 24px;
+  border: 1px solid rgba(115, 255, 238, 0.2);
+  box-shadow:
+    inset 0 2px 4px rgba(255, 255, 255, 0.05),
+    0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.connectionHeader {
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(115, 255, 238, 0.15);
+}
+
+.connectionTitle {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9ff7ff;
+  text-shadow: 0 0 8px rgba(115, 255, 238, 0.6);
+  margin: 0 0 6px 0;
+}
+
+.connectionSubtitle {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: rgba(159, 247, 204, 0.65);
+  text-transform: uppercase;
+}
+
+.connectionContent {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.errorMessage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: rgba(220, 53, 69, 0.15);
+  border: 1px solid rgba(220, 53, 69, 0.4);
+  border-radius: 8px;
+  color: #ff6b6b;
+  font-size: 13px;
+  letter-spacing: 0.05em;
+}
+
+.errorIcon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.statusIndicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: rgba(18, 55, 41, 0.4);
+  border-radius: 8px;
+  border: 1px solid rgba(115, 255, 238, 0.15);
+}
+
+.statusDot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 8px currentColor;
+  transition: all 0.3s ease;
+}
+
+.statusDotConnected {
+  background: #4ade80;
+  color: #4ade80;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.statusDotDisconnected {
+  background: #6b7280;
+  color: #6b7280;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.statusText {
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  color: rgba(159, 247, 204, 0.85);
+  text-transform: uppercase;
+}
+
+.portSelection,
+.baudRateSelection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.label {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(159, 247, 204, 0.7);
+}
+
+.portSelectWrapper {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.portSelect,
+.baudRateSelect {
+  flex: 1;
+  padding: 10px 14px;
+  background: rgba(9, 31, 25, 0.75);
+  border: 1px solid rgba(115, 255, 238, 0.25);
+  border-radius: 8px;
+  color: #c9fff3;
+  font-family: 'Share Tech Mono', 'VT323', 'Roboto Mono', monospace;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.portSelect:focus,
+.baudRateSelect:focus {
+  outline: none;
+  border-color: rgba(115, 255, 238, 0.6);
+  box-shadow: 0 0 8px rgba(115, 255, 238, 0.3);
+}
+
+.portSelect:disabled,
+.baudRateSelect:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.portSelect option {
+  background: #1f2225;
+  color: #c9fff3;
+}
+
+.refreshButton {
+  padding: 10px 14px;
+  background: rgba(18, 55, 41, 0.6);
+  border: 1px solid rgba(115, 255, 238, 0.25);
+  border-radius: 8px;
+  color: #9ff7ff;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.refreshButton:hover:not(:disabled) {
+  background: rgba(18, 55, 41, 0.8);
+  border-color: rgba(115, 255, 238, 0.45);
+  transform: rotate(180deg);
+}
+
+.refreshButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.connectionActions {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.connectButton,
+.disconnectButton {
+  flex: 1;
+  padding: 12px 20px;
+  border-radius: 8px;
+  border: 1px solid;
+  font-family: 'Share Tech Mono', 'VT323', 'Roboto Mono', monospace;
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.connectButton {
+  background: linear-gradient(135deg, rgba(43, 110, 90, 0.8), rgba(30, 73, 60, 0.9));
+  border-color: rgba(115, 255, 238, 0.5);
+  color: #cafff1;
+  box-shadow: 0 4px 12px rgba(52, 168, 139, 0.2);
+}
+
+.connectButton:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(43, 110, 90, 1), rgba(30, 73, 60, 1));
+  border-color: rgba(115, 255, 238, 0.7);
+  box-shadow: 0 6px 16px rgba(52, 168, 139, 0.3);
+  transform: translateY(-1px);
+}
+
+.connectButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.disconnectButton {
+  background: linear-gradient(135deg, rgba(220, 53, 69, 0.3), rgba(180, 43, 59, 0.4));
+  border-color: rgba(220, 53, 69, 0.5);
+  color: #ff6b6b;
+  box-shadow: 0 4px 12px rgba(220, 53, 69, 0.15);
+}
+
+.disconnectButton:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(220, 53, 69, 0.4), rgba(180, 43, 59, 0.5));
+  border-color: rgba(220, 53, 69, 0.7);
+  box-shadow: 0 6px 16px rgba(220, 53, 69, 0.25);
+  transform: translateY(-1px);
+}
+
+.disconnectButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+@media (max-width: 480px) {
+  .connectionCard {
+    padding: 16px;
+  }
+
+  .portSelectWrapper {
+    flex-direction: column;
+  }
+
+  .refreshButton {
+    width: 100%;
+  }
+}
+
