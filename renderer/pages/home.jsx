@@ -4,9 +4,13 @@ import LcdDisplay from '../components/LcdDisplay'
 import ComponentHeightControl from '../components/ComponentHeightControl'
 import TipHeatingControl from '../components/TipHeatingControl'
 import WireFeedControl from '../components/WireFeedControl'
+import SpoolWireControl from '../components/SpoolWireControl'
 import SequenceMonitor from '../components/SequenceMonitor'
 import ManualMovementControl from '../components/ManualMovementControl'
 import PadSolderingMetrics from '../components/PadSolderingMetrics'
+import SerialPortConnection from '../components/SerialPortConnection'
+import GCodeMonitor from '../components/GCodeMonitor'
+import CameraView from '../components/CameraView'
 import styles from './home.module.css'
 
 const initialCalibration = [
@@ -37,7 +41,29 @@ export default function HomePage() {
   const [wireDiameter, setWireDiameter] = React.useState('')
   const [wireFeedStatus, setWireFeedStatus] = React.useState('idle')
   const [wireFeedMessage, setWireFeedMessage] = React.useState('')
-  
+  const [spoolState, setSpoolState] = React.useState({
+    spoolDiameter: 50.0,
+    wireDiameter: 0.5,
+    initialWireLength: 10000.0,
+    currentWireLength: 10000.0,
+    remainingPercentage: 100,
+    remainingLength: 10000.0,
+    totalRotations: 0,
+    currentRotation: 0,
+    effectiveDiameter: 50.0,
+    isFeeding: false,
+    lastFeedLength: 0,
+    lastUpdated: Date.now(),
+    // Weight tracking
+    netWeight: 0.0,
+    currentWeight: 0.0,
+    initialWeight: 0.0,
+    tareWeight: 0.0,
+    isTared: false,
+    solderDensity: 8.5,
+  })
+  const [spoolStatusMessage, setSpoolStatusMessage] = React.useState('')
+
   // Calculate volume per 1mm using cylinder volume formula: V = π × r² × h
   // where r = diameter/2, h = 1mm
   const volumePerMm = React.useMemo(() => {
@@ -54,6 +80,11 @@ export default function HomePage() {
     stage: 'idle',
     lastCompleted: null,
     isActive: false,
+    isPaused: false,
+    currentPad: 0,
+    totalPads: 0,
+    progress: 0,
+    error: null,
   })
   const [currentPosition, setCurrentPosition] = React.useState({
     x: 120.0,
@@ -77,6 +108,16 @@ export default function HomePage() {
   const [wireUsed, setWireUsed] = React.useState(null)
   const [stepsMoved, setStepsMoved] = React.useState(null)
   const [isCalculatingMetrics, setIsCalculatingMetrics] = React.useState(false)
+
+  // Serial port connection state
+  const [serialPorts, setSerialPorts] = React.useState([])
+  const [isSerialConnected, setIsSerialConnected] = React.useState(false)
+  const [isSerialConnecting, setIsSerialConnecting] = React.useState(false)
+  const [currentSerialPort, setCurrentSerialPort] = React.useState(null)
+  const [serialConnectionError, setSerialConnectionError] = React.useState(null)
+
+  // G-code command history
+  const [gcodeCommands, setGcodeCommands] = React.useState([])
   const wireStatus = React.useMemo(
     () => calibration.find((entry) => entry.label === 'Wire Remaining'),
     [calibration]
@@ -345,6 +386,21 @@ export default function HomePage() {
       }
     }
 
+    const handleSpoolUpdate = (payload) => {
+      if (!payload || typeof payload !== 'object') {
+        return
+      }
+      setSpoolState((current) => ({
+        ...current,
+        ...payload,
+      }))
+      
+      // Sync wire diameter to WireFeedControl when spool state updates
+      if (payload.wireDiameter !== undefined) {
+        setWireDiameter(payload.wireDiameter.toString())
+      }
+    }
+
     const handleSequenceUpdate = (payload) => {
       if (!payload || typeof payload !== 'object') {
         return
@@ -354,22 +410,30 @@ export default function HomePage() {
         stage: payload.stage ?? current.stage,
         lastCompleted: payload.lastCompleted ?? current.lastCompleted,
         isActive: payload.isActive ?? current.isActive,
+        isPaused: payload.isPaused ?? current.isPaused,
+        currentPad: payload.currentPad ?? current.currentPad,
+        totalPads: payload.totalPads ?? current.totalPads,
+        progress: payload.progress ?? current.progress,
+        error: payload.error ?? current.error,
       }))
     }
 
     window.ipc.on?.('component:height:ack', handleHeightAck)
     window.ipc.on?.('tip:status', handleTipStatus)
     window.ipc.on?.('wire:feed:status', handleWireFeedStatus)
+    window.ipc.on?.('spool:update', handleSpoolUpdate)
     window.ipc.on?.('sequence:update', handleSequenceUpdate)
 
     window.ipc.send?.('tip:status:request')
     window.ipc.send?.('wire:feed:status:request')
+    window.ipc.send?.('spool:status:request')
     window.ipc.send?.('sequence:status:request')
 
     return () => {
       window.ipc.off?.('component:height:ack', handleHeightAck)
       window.ipc.off?.('tip:status', handleTipStatus)
       window.ipc.off?.('wire:feed:status', handleWireFeedStatus)
+      window.ipc.off?.('spool:update', handleSpoolUpdate)
       window.ipc.off?.('sequence:update', handleSequenceUpdate)
     }
   }, [])
@@ -435,6 +499,161 @@ export default function HomePage() {
     return () => {
       window.ipc.off?.('position:update', handlePositionUpdate)
     }
+  }, [])
+
+  // Serial port connection handlers
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || !window.ipc) {
+      return undefined
+    }
+
+    const handleListPortsResponse = (data) => {
+      if (data.ports) {
+        setSerialPorts(data.ports)
+      }
+    }
+
+    const handleConnectResponse = (result) => {
+      setIsSerialConnecting(false)
+      if (result.error) {
+        setSerialConnectionError(result.error)
+        setIsSerialConnected(false)
+        setCurrentSerialPort(null)
+      } else {
+        setSerialConnectionError(null)
+        setIsSerialConnected(true)
+        setCurrentSerialPort(result.path || 'Connected')
+      }
+    }
+
+    const handleDisconnectResponse = (result) => {
+      setIsSerialConnecting(false)
+      if (result.error) {
+        setSerialConnectionError(result.error)
+      } else {
+        setSerialConnectionError(null)
+        setIsSerialConnected(false)
+        setCurrentSerialPort(null)
+      }
+    }
+
+    const handleSerialError = (data) => {
+      setSerialConnectionError(`${data.type}: ${data.error}`)
+      setIsSerialConnected(false)
+      setIsSerialConnecting(false)
+    }
+
+    window.ipc.on?.('serial:list-ports:response', handleListPortsResponse)
+    window.ipc.on?.('serial:connect:response', handleConnectResponse)
+    window.ipc.on?.('serial:disconnect:response', handleDisconnectResponse)
+    window.ipc.on?.('serial:error', handleSerialError)
+
+    return () => {
+      window.ipc.off?.('serial:list-ports:response', handleListPortsResponse)
+      window.ipc.off?.('serial:connect:response', handleConnectResponse)
+      window.ipc.off?.('serial:disconnect:response', handleDisconnectResponse)
+      window.ipc.off?.('serial:error', handleSerialError)
+    }
+  }, [])
+
+  // G-code command monitoring
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || !window.ipc) {
+      return undefined
+    }
+
+    const handleGcodeCommand = (data) => {
+      // Command will be added to history by the history handler
+    }
+
+    const handleGcodeResponse = (data) => {
+      // Response will be added to history by the history handler
+    }
+
+    const handleGcodeError = (data) => {
+      // Error will be added to history by the history handler
+    }
+
+    const handleGcodeHistory = (data) => {
+      if (data.commands) {
+        setGcodeCommands(data.commands)
+      }
+    }
+
+    window.ipc.on?.('gcode:command', handleGcodeCommand)
+    window.ipc.on?.('gcode:response', handleGcodeResponse)
+    window.ipc.on?.('gcode:error', handleGcodeError)
+    window.ipc.on?.('gcode:history', handleGcodeHistory)
+
+    // Request initial history
+    window.ipc.send?.('gcode:history:request')
+
+    return () => {
+      window.ipc.off?.('gcode:command', handleGcodeCommand)
+      window.ipc.off?.('gcode:response', handleGcodeResponse)
+      window.ipc.off?.('gcode:error', handleGcodeError)
+      window.ipc.off?.('gcode:history', handleGcodeHistory)
+    }
+  }, [])
+
+  const handleRefreshPorts = React.useCallback(() => {
+    if (typeof window === 'undefined' || !window.ipc?.send) {
+      return Promise.resolve()
+    }
+    window.ipc.send('serial:list-ports')
+    return Promise.resolve()
+  }, [])
+
+  const handleSerialConnect = React.useCallback((config) => {
+    if (typeof window === 'undefined' || !window.ipc?.send) {
+      return
+    }
+    setIsSerialConnecting(true)
+    setSerialConnectionError(null)
+    window.ipc.send('serial:connect', config)
+  }, [])
+
+  const handleSerialDisconnect = React.useCallback(() => {
+    if (typeof window === 'undefined' || !window.ipc?.send) {
+      return
+    }
+    setIsSerialConnecting(true)
+    setSerialConnectionError(null)
+    window.ipc.send('serial:disconnect')
+  }, [])
+
+  // Sequence control handlers
+  const handleSequenceStart = React.useCallback((padPositions) => {
+    if (typeof window === 'undefined' || !window.ipc?.send) {
+      return
+    }
+    window.ipc.send('sequence:start', {
+      padPositions,
+      options: {
+        wireLength: wireUsed, // Use calculated wire length from pad metrics
+      }
+    })
+  }, [wireUsed])
+
+  const handleSequenceStop = React.useCallback(() => {
+    if (typeof window === 'undefined' || !window.ipc?.send) {
+      return
+    }
+    window.ipc.send('sequence:stop')
+  }, [])
+
+  const handleSequencePause = React.useCallback(() => {
+    if (typeof window === 'undefined' || !window.ipc?.send) {
+      return
+    }
+    window.ipc.send('sequence:pause')
+  }, [])
+
+  const handleSequenceResume = React.useCallback(() => {
+    if (typeof window === 'undefined' || !window.ipc?.send) {
+      return
+    }
+    window.ipc.send('sequence:resume')
   }, [])
 
   const handleHeightChange = React.useCallback((event) => {
@@ -523,7 +742,7 @@ export default function HomePage() {
       setWireFeedMessage('Please calculate wire length in Pad Soldering Metrics first.')
       return
     }
-    
+
     const lengthToUse = wireUsed
 
     const diameterNumeric = Number.parseFloat(wireDiameter)
@@ -538,7 +757,7 @@ export default function HomePage() {
     }
 
     setWireFeedStatus('pending')
-    setWireFeedMessage(wireUsed !== null && wireUsed > 0 
+    setWireFeedMessage(wireUsed !== null && wireUsed > 0
       ? `Feeding ${lengthToUse.toFixed(2)} mm (calculated from pad metrics)...`
       : 'Feeding wire...'
     )
@@ -571,6 +790,74 @@ export default function HomePage() {
 
       return updated
     })
+  }, [])
+
+  const handleSpoolConfigSubmit = React.useCallback((config) => {
+    if (typeof window === 'undefined' || !window.ipc?.send) {
+      setSpoolStatusMessage('IPC unavailable; cannot update spool config.')
+      return
+    }
+
+    // If wire diameter is being updated, also sync it to WireFeedControl
+    if (config.wireDiameter !== undefined) {
+      setWireDiameter(config.wireDiameter)
+    }
+
+    setSpoolStatusMessage('Updating spool configuration...')
+    window.ipc.send('spool:config:set', config)
+    
+    // Listen for response
+    const handleResponse = (event, result) => {
+      if (result.error) {
+        setSpoolStatusMessage(`Error: ${result.error}`)
+      } else {
+        setSpoolStatusMessage(result.status || 'Spool configuration updated')
+      }
+      window.ipc.off?.('spool:config:response', handleResponse)
+    }
+    window.ipc.on?.('spool:config:response', handleResponse)
+  }, [])
+
+  const handleResetSpool = React.useCallback(() => {
+    if (typeof window === 'undefined' || !window.ipc?.send) {
+      setSpoolStatusMessage('IPC unavailable; cannot reset spool.')
+      return
+    }
+
+    setSpoolStatusMessage('Resetting spool...')
+    window.ipc.send('spool:reset')
+
+    // Listen for response
+    const handleResponse = (event, result) => {
+      if (result.error) {
+        setSpoolStatusMessage(`Error: ${result.error}`)
+      } else {
+        setSpoolStatusMessage(result.status || 'Spool reset')
+      }
+      window.ipc.off?.('spool:reset:response', handleResponse)
+    }
+    window.ipc.on?.('spool:reset:response', handleResponse)
+  }, [])
+
+  const handleTareSpool = React.useCallback(() => {
+    if (typeof window === 'undefined' || !window.ipc?.send) {
+      setSpoolStatusMessage('IPC unavailable; cannot tare spool.')
+      return
+    }
+
+    setSpoolStatusMessage('Taring spool weight...')
+    window.ipc.send('spool:tare')
+
+    // Listen for response
+    const handleResponse = (event, result) => {
+      if (result.error) {
+        setSpoolStatusMessage(`Error: ${result.error}`)
+      } else {
+        setSpoolStatusMessage(result.status || 'Spool weight tared (zeroed)')
+      }
+      window.ipc.off?.('spool:tare:response', handleResponse)
+    }
+    window.ipc.on?.('spool:tare:response', handleResponse)
   }, [])
 
   const handleJog = React.useCallback(
@@ -693,7 +980,7 @@ export default function HomePage() {
           const outerRadius = Number.parseFloat(padDimensions.outerRadius)
           const innerRadius = Number.parseFloat(padDimensions.innerRadius)
           if (!Number.isFinite(outerRadius) || !Number.isFinite(innerRadius) ||
-              outerRadius <= 0 || innerRadius <= 0 || outerRadius <= innerRadius) {
+            outerRadius <= 0 || innerRadius <= 0 || outerRadius <= innerRadius) {
             setPadArea(null)
             setWireUsed(null)
             setStepsMoved(null)
@@ -715,7 +1002,7 @@ export default function HomePage() {
       }
 
       setPadArea(calculatedArea)
-      
+
       // Calculate pad volume: Area × Solder Height
       const heightNumeric = Number.parseFloat(solderHeight)
       if (!Number.isFinite(heightNumeric) || heightNumeric <= 0) {
@@ -725,10 +1012,10 @@ export default function HomePage() {
         setIsCalculatingMetrics(false)
         return
       }
-      
+
       const calculatedVolume = calculatedArea * heightNumeric // Volume = Area × Height (mm³)
       setPadVolume(calculatedVolume)
-      
+
       // Calculate wire length using volume: Wire Length = Pad Volume / Volume per 1mm
       if (!volumePerMm || volumePerMm <= 0) {
         setWireUsed(null)
@@ -736,7 +1023,7 @@ export default function HomePage() {
         setIsCalculatingMetrics(false)
         return
       }
-      
+
       const calculatedWireUsed = calculatedVolume / volumePerMm // Wire length in mm
       setWireUsed(calculatedWireUsed)
 
@@ -781,6 +1068,17 @@ export default function HomePage() {
           </p>
         </header>
 
+        <SerialPortConnection
+          isConnected={isSerialConnected}
+          isConnecting={isSerialConnecting}
+          currentPort={currentSerialPort}
+          availablePorts={serialPorts}
+          onRefreshPorts={handleRefreshPorts}
+          onConnect={handleSerialConnect}
+          onDisconnect={handleSerialDisconnect}
+          connectionError={serialConnectionError}
+        />
+
         <ComponentHeightControl
           value={componentHeight}
           onChange={handleHeightChange}
@@ -824,6 +1122,15 @@ export default function HomePage() {
             currentTemperature={calibration.find((entry) => entry.label === 'Tip Temp')?.value}
           />
 
+          <SpoolWireControl
+            spoolState={spoolState}
+            onSpoolConfigChange={() => { }}
+            onSpoolConfigSubmit={handleSpoolConfigSubmit}
+            onResetSpool={handleResetSpool}
+            onTareSpool={handleTareSpool}
+            statusMessage={spoolStatusMessage}
+          />
+
           <WireFeedControl
             calculatedLength={wireUsed}
             wireDiameter={wireDiameter}
@@ -834,7 +1141,20 @@ export default function HomePage() {
             onStart={handleWireFeedStart}
           />
 
-          <SequenceMonitor sequenceState={sequenceState} />
+          <SequenceMonitor
+            sequenceState={sequenceState}
+            onStart={handleSequenceStart}
+            onStop={handleSequenceStop}
+            onPause={handleSequencePause}
+            onResume={handleSequenceResume}
+            padPositions={[
+              {
+                x: currentPosition.x,
+                y: currentPosition.y,
+                z: Number.parseFloat(solderHeight || 0),
+              }
+            ]}
+          />
         </section>
 
 
@@ -859,6 +1179,17 @@ export default function HomePage() {
               </React.Fragment>
             }
           />
+        </section>
+
+        <section className={styles.gcodeSection} aria-label="G-code command monitor">
+          <GCodeMonitor
+            commands={gcodeCommands}
+            isConnected={isSerialConnected}
+          />
+        </section>
+
+        <section className={styles.cameraSection} aria-label="Camera view">
+          <CameraView isActive={true} />
         </section>
       </main>
     </React.Fragment>

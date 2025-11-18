@@ -16,7 +16,7 @@
 
 .solderingControls {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(3, minmax(280px, 1fr));
   gap: 28px;
 }
 
@@ -36,6 +36,20 @@
 .lcdSection {
   display: grid;
   grid-template-columns: minmax(320px, auto);
+  gap: 40px;
+  align-items: start;
+}
+
+.gcodeSection {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 40px;
+  align-items: start;
+}
+
+.cameraSection {
+  display: grid;
+  grid-template-columns: 1fr;
   gap: 40px;
   align-items: start;
 }
@@ -69,6 +83,12 @@
 }
 
 
+@media (max-width: 1400px) {
+  .solderingControls {
+    grid-template-columns: repeat(2, minmax(280px, 1fr));
+  }
+}
+
 @media (max-width: 900px) {
   .page {
     padding: 32px 24px;
@@ -84,6 +104,14 @@
   }
 
   .lcdSection {
+    grid-template-columns: 1fr;
+  }
+
+  .gcodeSection {
+    grid-template-columns: 1fr;
+  }
+
+  .cameraSection {
     grid-template-columns: 1fr;
   }
 }

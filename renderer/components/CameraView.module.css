@@ -1,0 +1,219 @@
+.cameraCard {
+  background: linear-gradient(145deg, #1f2225, #363b42);
+  border-radius: 12px;
+  padding: 20px 24px;
+  border: 1px solid rgba(115, 255, 238, 0.2);
+  box-shadow:
+    inset 0 2px 4px rgba(255, 255, 255, 0.05),
+    0 4px 12px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+}
+
+.cameraHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(115, 255, 238, 0.15);
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.cameraHeaderInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cameraTitle {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9ff7ff;
+  text-shadow: 0 0 8px rgba(115, 255, 238, 0.6);
+  margin: 0;
+}
+
+.cameraSubtitle {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: rgba(159, 247, 204, 0.65);
+  text-transform: uppercase;
+}
+
+.cameraActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.deviceSelect {
+  padding: 6px 12px;
+  background: rgba(18, 55, 41, 0.6);
+  border: 1px solid rgba(115, 255, 238, 0.25);
+  border-radius: 6px;
+  color: #9ff7ff;
+  font-family: 'Share Tech Mono', 'VT323', 'Roboto Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 150px;
+}
+
+.deviceSelect:hover:not(:disabled) {
+  background: rgba(18, 55, 41, 0.8);
+  border-color: rgba(115, 255, 238, 0.45);
+}
+
+.deviceSelect:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.toggleButton,
+.snapshotButton {
+  padding: 6px 12px;
+  background: rgba(18, 55, 41, 0.6);
+  border: 1px solid rgba(115, 255, 238, 0.25);
+  border-radius: 6px;
+  color: #9ff7ff;
+  font-family: 'Share Tech Mono', 'VT323', 'Roboto Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.toggleButton:hover:not(:disabled) {
+  background: rgba(18, 55, 41, 0.8);
+  border-color: rgba(115, 255, 238, 0.45);
+}
+
+.toggleButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.snapshotButton {
+  font-size: 16px;
+  padding: 6px 10px;
+  min-width: 40px;
+}
+
+.snapshotButton:hover:not(:disabled) {
+  background: rgba(18, 55, 41, 0.8);
+  border-color: rgba(115, 255, 238, 0.45);
+  transform: scale(1.05);
+}
+
+.snapshotButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cameraContent {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.errorMessage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(220, 53, 69, 0.15);
+  border: 1px solid rgba(220, 53, 69, 0.4);
+  border-radius: 8px;
+  color: #ff6b6b;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+}
+
+.errorIcon {
+  font-size: 16px;
+}
+
+.videoContainer {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #0a0e1a;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(115, 255, 238, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.placeholder {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: rgba(159, 247, 204, 0.4);
+}
+
+.placeholderIcon {
+  font-size: 48px;
+  opacity: 0.5;
+}
+
+.placeholderText {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(159, 247, 204, 0.5);
+}
+
+.videoInfo {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: rgba(159, 247, 204, 0.6);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 768px) {
+  .cameraCard {
+    padding: 16px;
+  }
+
+  .cameraHeader {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .cameraActions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .deviceSelect {
+    flex: 1;
+    min-width: 0;
+  }
+}
+

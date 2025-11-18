@@ -1,0 +1,259 @@
+.monitorCard {
+  background: linear-gradient(145deg, #1f2225, #363b42);
+  border-radius: 12px;
+  padding: 20px 24px;
+  border: 1px solid rgba(115, 255, 238, 0.2);
+  box-shadow:
+    inset 0 2px 4px rgba(255, 255, 255, 0.05),
+    0 4px 12px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  max-height: 500px;
+}
+
+.monitorHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(115, 255, 238, 0.15);
+}
+
+.monitorHeaderInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.monitorTitle {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9ff7ff;
+  text-shadow: 0 0 8px rgba(115, 255, 238, 0.6);
+  margin: 0;
+}
+
+.monitorSubtitle {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: rgba(159, 247, 204, 0.65);
+  text-transform: uppercase;
+}
+
+.monitorActions {
+  display: flex;
+  gap: 8px;
+}
+
+.clearButton {
+  padding: 6px 12px;
+  background: rgba(18, 55, 41, 0.6);
+  border: 1px solid rgba(115, 255, 238, 0.25);
+  border-radius: 6px;
+  color: #9ff7ff;
+  font-family: 'Share Tech Mono', 'VT323', 'Roboto Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.clearButton:hover:not(:disabled) {
+  background: rgba(18, 55, 41, 0.8);
+  border-color: rgba(115, 255, 238, 0.45);
+}
+
+.clearButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.monitorContent {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 200px;
+}
+
+.disconnectedMessage,
+.emptyMessage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: rgba(159, 247, 204, 0.5);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.commandList {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.commandList::-webkit-scrollbar {
+  width: 6px;
+}
+
+.commandList::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 3px;
+}
+
+.commandList::-webkit-scrollbar-thumb {
+  background: rgba(115, 255, 238, 0.3);
+  border-radius: 3px;
+}
+
+.commandList::-webkit-scrollbar-thumb:hover {
+  background: rgba(115, 255, 238, 0.5);
+}
+
+.commandItem {
+  padding: 10px 12px;
+  background: rgba(9, 31, 25, 0.6);
+  border: 1px solid rgba(115, 255, 238, 0.15);
+  border-radius: 8px;
+  font-family: 'Share Tech Mono', 'VT323', 'Roboto Mono', monospace;
+  transition: all 0.2s ease;
+}
+
+.commandItem:hover {
+  background: rgba(9, 31, 25, 0.8);
+  border-color: rgba(115, 255, 238, 0.25);
+}
+
+.commandItem.commandSent {
+  border-left: 3px solid rgba(74, 222, 128, 0.6);
+  background: rgba(9, 31, 25, 0.7);
+}
+
+.commandItem.commandReceived {
+  border-left: 3px solid rgba(96, 165, 250, 0.6);
+  background: rgba(9, 31, 25, 0.7);
+}
+
+.commandItem.commandError {
+  border-left: 3px solid rgba(220, 53, 69, 0.6);
+  background: rgba(220, 53, 69, 0.1);
+}
+
+.commandMeta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.commandTime {
+  font-size: 10px;
+  color: rgba(159, 247, 204, 0.5);
+  letter-spacing: 0.1em;
+}
+
+.commandStatus {
+  font-size: 12px;
+  color: rgba(159, 247, 204, 0.7);
+  font-weight: 600;
+}
+
+.commandCode {
+  margin-bottom: 4px;
+}
+
+.gcode {
+  font-size: 13px;
+  color: #c9fff3;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+  text-shadow: 0 0 4px rgba(107, 232, 201, 0.5);
+}
+
+.commandResponse {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(115, 255, 238, 0.1);
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.responseLabel {
+  font-size: 10px;
+  color: rgba(159, 247, 204, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.responseCode {
+  font-size: 11px;
+  color: rgba(96, 165, 250, 0.9);
+  font-family: 'Share Tech Mono', 'VT323', 'Roboto Mono', monospace;
+}
+
+.commandError {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(220, 53, 69, 0.2);
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.errorLabel {
+  font-size: 10px;
+  color: rgba(255, 107, 107, 0.7);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.errorMessage {
+  font-size: 11px;
+  color: #ff6b6b;
+  font-family: 'Share Tech Mono', 'VT323', 'Roboto Mono', monospace;
+}
+
+.monitorFooter {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(115, 255, 238, 0.15);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.commandCount {
+  font-size: 11px;
+  color: rgba(159, 247, 204, 0.6);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 480px) {
+  .monitorCard {
+    padding: 16px;
+    max-height: 400px;
+  }
+
+  .monitorHeader {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .monitorActions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
