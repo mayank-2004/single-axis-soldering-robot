@@ -5,6 +5,7 @@ import ComponentHeightControl from '../components/ComponentHeightControl'
 import TipHeatingControl from '../components/TipHeatingControl'
 import WireFeedControl from '../components/WireFeedControl'
 import SpoolWireControl from '../components/SpoolWireControl'
+import FumeExtractorControl from '../components/FumeExtractorControl'
 import SequenceMonitor from '../components/SequenceMonitor'
 import ManualMovementControl from '../components/ManualMovementControl'
 import PadSolderingMetrics from '../components/PadSolderingMetrics'
@@ -29,10 +30,18 @@ const initialFanState = {
   tip: false,
 }
 
+const initialFumeExtractorState = {
+  enabled: false,
+  speed: 80,
+  autoMode: true,
+}
+
 export default function HomePage() {
   const [calibration, setCalibration] = React.useState(initialCalibration)
   const [localTime, setLocalTime] = React.useState('')
   const [fans, setFans] = React.useState(initialFanState)
+  const [fumeExtractor, setFumeExtractor] = React.useState(initialFumeExtractorState)
+  const [fumeExtractorStatusMessage, setFumeExtractorStatusMessage] = React.useState('')
   const [componentHeight, setComponentHeight] = React.useState('')
   const [heightStatus, setHeightStatus] = React.useState('')
   const [tipTarget, setTipTarget] = React.useState('345')
@@ -41,6 +50,11 @@ export default function HomePage() {
   const [wireDiameter, setWireDiameter] = React.useState('')
   const [wireFeedStatus, setWireFeedStatus] = React.useState('idle')
   const [wireFeedMessage, setWireFeedMessage] = React.useState('')
+  const [wireBreak, setWireBreak] = React.useState({
+    detected: false,
+    timestamp: null,
+    message: null,
+  })
   const [spoolState, setSpoolState] = React.useState({
     spoolDiameter: 50.0,
     wireDiameter: 0.5,
@@ -384,6 +398,40 @@ export default function HomePage() {
       if (payload.completedAt) {
         setWireFeedMessage((current) => `${current ? `${current} • ` : ''}Completed ${new Date(payload.completedAt).toLocaleTimeString()}`)
       }
+
+      // Update wire break status
+      if (payload.wireBreak) {
+        setWireBreak(payload.wireBreak)
+      }
+    }
+
+    const handleWireBreak = (payload) => {
+      if (!payload || typeof payload !== 'object') {
+        return
+      }
+      setWireBreak(payload)
+    }
+
+    const handleFanState = (payload) => {
+      if (!payload || typeof payload !== 'object') {
+        return
+      }
+
+      setFans((current) => ({
+        machine: typeof payload.machine === 'boolean' ? payload.machine : current.machine,
+        tip: typeof payload.tip === 'boolean' ? payload.tip : current.tip,
+      }))
+    }
+
+    const handleFumeExtractorState = (payload) => {
+      if (!payload || typeof payload !== 'object') {
+        return
+      }
+
+      setFumeExtractor((current) => ({
+        ...current,
+        ...payload,
+      }))
     }
 
     const handleSpoolUpdate = (payload) => {
@@ -421,47 +469,31 @@ export default function HomePage() {
     window.ipc.on?.('component:height:ack', handleHeightAck)
     window.ipc.on?.('tip:status', handleTipStatus)
     window.ipc.on?.('wire:feed:status', handleWireFeedStatus)
+    window.ipc.on?.('wire:break', handleWireBreak)
     window.ipc.on?.('spool:update', handleSpoolUpdate)
     window.ipc.on?.('sequence:update', handleSequenceUpdate)
+    window.ipc.on?.('fan:update', handleFanState)
+    window.ipc.on?.('fumeExtractor:update', handleFumeExtractorState)
 
     window.ipc.send?.('tip:status:request')
     window.ipc.send?.('wire:feed:status:request')
     window.ipc.send?.('spool:status:request')
     window.ipc.send?.('sequence:status:request')
+    window.ipc.send?.('fan:state:request')
+    window.ipc.send?.('fumeExtractor:state:request')
 
     return () => {
       window.ipc.off?.('component:height:ack', handleHeightAck)
       window.ipc.off?.('tip:status', handleTipStatus)
       window.ipc.off?.('wire:feed:status', handleWireFeedStatus)
+      window.ipc.off?.('wire:break', handleWireBreak)
       window.ipc.off?.('spool:update', handleSpoolUpdate)
       window.ipc.off?.('sequence:update', handleSequenceUpdate)
-    }
-  }, [])
-
-  React.useEffect(() => {
-    if (typeof window === 'undefined' || !window.ipc) {
-      return undefined
-    }
-
-    const handleFanState = (payload) => {
-      if (!payload || typeof payload !== 'object') {
-        return
-      }
-
-      setFans((current) => ({
-        machine:
-          typeof payload.machine === 'boolean' ? payload.machine : current.machine,
-        tip: typeof payload.tip === 'boolean' ? payload.tip : current.tip,
-      }))
-    }
-
-    window.ipc.on?.('fan:update', handleFanState)
-    window.ipc.send?.('fan:state:request')
-
-    return () => {
       window.ipc.off?.('fan:update', handleFanState)
+      window.ipc.off?.('fumeExtractor:update', handleFumeExtractorState)
     }
   }, [])
+
 
   React.useEffect(() => {
     if (typeof window === 'undefined' || !window.ipc) {
@@ -791,6 +823,59 @@ export default function HomePage() {
       return updated
     })
   }, [])
+
+  const toggleFumeExtractor = React.useCallback(() => {
+    const nextState = !fumeExtractor.enabled
+
+    if (typeof window !== 'undefined' && window.ipc?.send) {
+      window.ipc.send('fumeExtractor:enable', {
+        enabled: nextState,
+        timestamp: Date.now(),
+      })
+    }
+
+    setFumeExtractor((current) => ({
+      ...current,
+      enabled: nextState,
+    }))
+  }, [fumeExtractor.enabled])
+
+  const handleFumeExtractorSpeedChange = React.useCallback((speed) => {
+    const speedNumeric = Number.parseFloat(speed)
+    if (!Number.isFinite(speedNumeric) || speedNumeric < 0 || speedNumeric > 100) {
+      setFumeExtractorStatusMessage('Speed must be between 0 and 100')
+      return
+    }
+
+    if (typeof window !== 'undefined' && window.ipc?.send) {
+      window.ipc.send('fumeExtractor:speed:set', {
+        speed: speedNumeric,
+        timestamp: Date.now(),
+      })
+    }
+
+    setFumeExtractor((current) => ({
+      ...current,
+      speed: speedNumeric,
+    }))
+    setFumeExtractorStatusMessage('')
+  }, [])
+
+  const toggleFumeExtractorAutoMode = React.useCallback(() => {
+    const nextState = !fumeExtractor.autoMode
+
+    if (typeof window !== 'undefined' && window.ipc?.send) {
+      window.ipc.send('fumeExtractor:autoMode:set', {
+        autoMode: nextState,
+        timestamp: Date.now(),
+      })
+    }
+
+    setFumeExtractor((current) => ({
+      ...current,
+      autoMode: nextState,
+    }))
+  }, [fumeExtractor.autoMode])
 
   const handleSpoolConfigSubmit = React.useCallback((config) => {
     if (typeof window === 'undefined' || !window.ipc?.send) {
@@ -1141,6 +1226,16 @@ export default function HomePage() {
             onStart={handleWireFeedStart}
           />
 
+          <FumeExtractorControl
+            enabled={fumeExtractor.enabled}
+            speed={fumeExtractor.speed}
+            autoMode={fumeExtractor.autoMode}
+            onToggle={toggleFumeExtractor}
+            onSpeedChange={handleFumeExtractorSpeedChange}
+            onAutoModeToggle={toggleFumeExtractorAutoMode}
+            statusMessage={fumeExtractorStatusMessage}
+          />
+
           <SequenceMonitor
             sequenceState={sequenceState}
             onStart={handleSequenceStart}
@@ -1165,6 +1260,38 @@ export default function HomePage() {
               Wire remaining is critically low at {wirePercentage.toFixed(1)}%. Replace the spool soon.
             </span>
             {wireLength ? <span className={styles.wireAlertLength}>Remaining length: {wireLength}</span> : null}
+          </div>
+        ) : null}
+
+        {wireBreak.detected ? (
+          <div className={styles.wireBreakAlert} role="alert">
+            <div className={styles.wireBreakAlertContent}>
+              <div className={styles.wireBreakAlertIcon}>⚠️</div>
+              <div className={styles.wireBreakAlertText}>
+                <span className={styles.wireBreakAlertTitle}>WIRE BREAK DETECTED</span>
+                <span className={styles.wireBreakAlertMessage}>
+                  {wireBreak.message || 'Solder wire has broken during feeding. Please check the wire and reconnect.'}
+                </span>
+                {wireBreak.timestamp && (
+                  <span className={styles.wireBreakAlertTime}>
+                    Detected at {new Date(wireBreak.timestamp).toLocaleTimeString()}
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                className={styles.wireBreakAlertDismiss}
+                onClick={() => {
+                  if (typeof window !== 'undefined' && window.ipc?.send) {
+                    window.ipc.send('wire:break:clear')
+                  }
+                  setWireBreak({ detected: false, timestamp: null, message: null })
+                }}
+                aria-label="Dismiss wire break alert"
+              >
+                ×
+              </button>
+            </div>
           </div>
         ) : null}
 

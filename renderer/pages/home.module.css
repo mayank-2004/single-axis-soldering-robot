@@ -82,6 +82,135 @@
   color: #fecaca;
 }
 
+.wireBreakAlert {
+  display: flex;
+  align-items: center;
+  padding: 20px 24px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(220, 38, 38, 0.15));
+  border: 2px solid rgba(239, 68, 68, 0.6);
+  box-shadow: 0 8px 24px rgba(239, 68, 68, 0.3), inset 0 1px 0 rgba(254, 226, 226, 0.2);
+  animation: wireBreakPulse 2s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+}
+
+.wireBreakAlert::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  animation: wireBreakShine 3s ease-in-out infinite;
+}
+
+@keyframes wireBreakPulse {
+  0%, 100% {
+    box-shadow: 0 8px 24px rgba(239, 68, 68, 0.3), inset 0 1px 0 rgba(254, 226, 226, 0.2);
+    border-color: rgba(239, 68, 68, 0.6);
+  }
+  50% {
+    box-shadow: 0 8px 32px rgba(239, 68, 68, 0.5), 0 0 20px rgba(239, 68, 68, 0.4), inset 0 1px 0 rgba(254, 226, 226, 0.2);
+    border-color: rgba(239, 68, 68, 0.9);
+  }
+}
+
+@keyframes wireBreakShine {
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+.wireBreakAlertContent {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  position: relative;
+  z-index: 1;
+}
+
+.wireBreakAlertIcon {
+  font-size: 32px;
+  line-height: 1;
+  animation: wireBreakIconShake 0.5s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes wireBreakIconShake {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(-5deg);
+  }
+  75% {
+    transform: rotate(5deg);
+  }
+}
+
+.wireBreakAlertText {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.wireBreakAlertTitle {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #fee2e2;
+  text-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+}
+
+.wireBreakAlertMessage {
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  color: #fecaca;
+  line-height: 1.5;
+}
+
+.wireBreakAlertTime {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: #fca5a5;
+  font-style: italic;
+}
+
+.wireBreakAlertDismiss {
+  background: rgba(239, 68, 68, 0.3);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  color: #fee2e2;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 200ms ease;
+  flex-shrink: 0;
+  font-weight: 300;
+}
+
+.wireBreakAlertDismiss:hover {
+  background: rgba(239, 68, 68, 0.5);
+  border-color: rgba(239, 68, 68, 0.8);
+  transform: scale(1.1);
+}
+
+.wireBreakAlertDismiss:active {
+  transform: scale(0.95);
+}
 
 @media (max-width: 1400px) {
   .solderingControls {

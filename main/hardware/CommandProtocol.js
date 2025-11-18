@@ -230,6 +230,37 @@ export default class CommandProtocol {
   }
 
   /**
+   * Control fume extractor - Marlin: M106 P<fan> S<speed>
+   * Typically uses a dedicated fan port (e.g., P2 for fume extractor)
+   * M106 P2 S255 - Set fume extractor to speed 255 (0-255)
+   * M107 P2 - Turn off fume extractor
+   */
+  async setFumeExtractor(speed) {
+    // Marlin: M106 P<fan_number> S<speed> where speed is 0-255
+    // Using P2 as the fume extractor fan port (can be configured)
+    const fanPort = 2 // Fume extractor fan port (adjust if needed)
+    const speedValue = Math.max(0, Math.min(255, Math.round(speed * 2.55))) // 0-100 to 0-255
+    const gcode = `M106 P${fanPort} S${speedValue}`
+    // G-CODE COMMAND COMMENTED OUT
+    // return this.serial.sendCommand(gcode, { waitForResponse: false })
+    console.log('[CommandProtocol] G-code (commented out):', gcode)
+    return Promise.resolve({ status: 'simulated', command: gcode })
+  }
+
+  /**
+   * Turn off fume extractor - Marlin: M107 P<fan>
+   */
+  async turnOffFumeExtractor() {
+    // Using P2 as the fume extractor fan port (can be configured)
+    const fanPort = 2 // Fume extractor fan port (adjust if needed)
+    const gcode = `M107 P${fanPort}`
+    // G-CODE COMMAND COMMENTED OUT
+    // return this.serial.sendCommand(gcode, { waitForResponse: false })
+    console.log('[CommandProtocol] G-code (commented out):', gcode)
+    return Promise.resolve({ status: 'simulated', command: gcode })
+  }
+
+  /**
    * Emergency stop - Marlin: M112
    * Immediately stops all motion and disables heaters
    */

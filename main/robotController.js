@@ -43,6 +43,10 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
     sendToRenderer('fan:update', payload ?? hardware.getFanState(), target)
   }
 
+  const sendFumeExtractorUpdate = (target, payload) => {
+    sendToRenderer('fumeExtractor:update', payload ?? hardware.getFumeExtractorState(), target)
+  }
+
   const sendTipStatus = (target, payload) => {
     sendToRenderer('tip:status', payload ?? hardware.getTipStatus(), target)
   }
@@ -100,6 +104,14 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
     sendWireFeedStatus(undefined, payload)
   })
 
+  registerHardwareListener('wireBreak', (payload) => {
+    sendToRenderer('wire:break', payload)
+  })
+
+  registerHardwareListener('fumeExtractor', (payload) => {
+    sendFumeExtractorUpdate(undefined, payload)
+  })
+
   registerHardwareListener('spool', (payload) => {
     sendSpoolState(undefined, payload)
   })
@@ -135,6 +147,29 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
     sendFanUpdate(event.sender)
   })
 
+  registerIpcListener('fumeExtractor:state:request', (event) => {
+    sendFumeExtractorUpdate(event.sender)
+  })
+
+  registerIpcListener('fumeExtractor:enable', (event, payload = {}) => {
+    hardware.setFumeExtractorEnabled(payload.enabled)
+    sendFumeExtractorUpdate(event.sender)
+  })
+
+  registerIpcListener('fumeExtractor:speed:set', (event, payload = {}) => {
+    const result = hardware.setFumeExtractorSpeed(payload.speed)
+    if (result.error) {
+      event.sender.send('fumeExtractor:error', result)
+    } else {
+      sendFumeExtractorUpdate(event.sender)
+    }
+  })
+
+  registerIpcListener('fumeExtractor:autoMode:set', (event, payload = {}) => {
+    hardware.setFumeExtractorAutoMode(payload.autoMode)
+    sendFumeExtractorUpdate(event.sender)
+  })
+
   registerIpcListener('tip:status:request', (event) => {
     sendTipStatus(event.sender)
   })
@@ -155,6 +190,11 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
 
   registerIpcListener('wire:feed:start', (event, payload = {}) => {
     hardware.startWireFeed(payload.length, payload.rate)
+    sendWireFeedStatus(event.sender)
+  })
+
+  registerIpcListener('wire:break:clear', (event) => {
+    hardware.clearWireBreak()
     sendWireFeedStatus(event.sender)
   })
 

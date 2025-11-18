@@ -60,6 +60,11 @@ export default class SolderingHardware extends EventEmitter {
       componentHeightMm: null,
       calibration: initialCalibration.map((entry) => ({ ...entry })),
       fans: { machine: false, tip: false },
+      fumeExtractor: {
+        enabled: false,
+        speed: 80, // 0-100% speed
+        autoMode: true, // Auto-activate during soldering
+      },
       flux: {
         percentage: 82,
         remainingMl: 68,
@@ -74,6 +79,11 @@ export default class SolderingHardware extends EventEmitter {
       wireFeed: {
         status: 'idle',
         message: 'Ready to feed',
+        wireBreak: {
+          detected: false,
+          timestamp: null,
+          message: null,
+        },
       },
       spool: {
         // Spool physical properties
@@ -182,6 +192,7 @@ export default class SolderingHardware extends EventEmitter {
       calibration: this.state.calibration.map((entry) => ({ ...entry })),
       flux: this.getFluxState(),
       fans: this.getFanState(),
+      fumeExtractor: this.getFumeExtractorState(),
       tip: this.getTipStatus(),
       wireFeed: this.getWireFeedStatus(),
       spool: this.getSpoolState(),
@@ -213,6 +224,14 @@ export default class SolderingHardware extends EventEmitter {
     return { ...this.state.fans }
   }
 
+  getFumeExtractorState() {
+    return {
+      enabled: this.state.fumeExtractor.enabled,
+      speed: this.state.fumeExtractor.speed,
+      autoMode: this.state.fumeExtractor.autoMode,
+    }
+  }
+
   getTipStatus() {
     return {
       target: this.state.tip.target,
@@ -225,7 +244,71 @@ export default class SolderingHardware extends EventEmitter {
     return {
       status: this.state.wireFeed.status,
       message: this.state.wireFeed.message,
+      wireBreak: this.state.wireFeed.wireBreak,
     }
+  }
+
+  /**
+   * Detect wire break during feeding
+   * In hardware mode, this would check:
+   * - Motor current/load (sudden drop indicates no resistance)
+   * - Encoder feedback (expected vs actual rotation)
+   * - Tension sensor readings
+   * - Wire presence sensor
+   * For simulation, we'll use a configurable detection method
+   */
+  detectWireBreak() {
+    const { wireFeed, spool } = this.state
+    
+    // Only check during active feeding
+    if (wireFeed.status !== 'feeding') {
+      return false
+    }
+
+    // In hardware mode, check actual sensors/feedback
+    if (this.mode === 'hardware' && this.commandProtocol) {
+      // TODO: Implement real hardware detection
+      // Example: Check motor current, encoder feedback, tension sensor
+      // For now, return false (no break detected)
+      return false
+    }
+
+    // Simulation mode: Random chance for demonstration (can be removed or made configurable)
+    // In real implementation, this would be replaced with actual sensor readings
+    const breakChance = 0.02 // 2% chance for demo purposes (very low)
+    const detected = Math.random() < breakChance
+
+    if (detected) {
+      this.state.wireFeed.wireBreak = {
+        detected: true,
+        timestamp: Date.now(),
+        message: 'Wire break detected during feeding!',
+      }
+      this.state.wireFeed.status = 'error'
+      this.state.wireFeed.message = 'Wire break detected - feeding stopped'
+      this.state.spool.isFeeding = false
+      
+      this.emit('wireFeed', this.getWireFeedStatus())
+      this.emit('wireBreak', this.state.wireFeed.wireBreak)
+      this.emit('spool', this.getSpoolState())
+      
+      return true
+    }
+
+    return false
+  }
+
+  /**
+   * Clear wire break alert
+   */
+  clearWireBreak() {
+    this.state.wireFeed.wireBreak = {
+      detected: false,
+      timestamp: null,
+      message: null,
+    }
+    this.emit('wireFeed', this.getWireFeedStatus())
+    this.emit('wireBreak', this.state.wireFeed.wireBreak)
   }
 
   /**
@@ -539,6 +622,54 @@ export default class SolderingHardware extends EventEmitter {
     return { status: this.getFanState() }
   }
 
+  setFumeExtractorEnabled(enabled) {
+    this.state.fumeExtractor.enabled = Boolean(enabled)
+    
+    if (this.mode === 'hardware' && this.commandProtocol) {
+      try {
+        if (enabled) {
+          this.commandProtocol.setFumeExtractor(this.state.fumeExtractor.speed)
+        } else {
+          this.commandProtocol.turnOffFumeExtractor()
+        }
+      } catch (error) {
+        console.error('[SolderingHardware] Error controlling fume extractor:', error)
+      }
+    }
+    
+    this.emit('fumeExtractor', this.getFumeExtractorState())
+    return { status: this.getFumeExtractorState() }
+  }
+
+  setFumeExtractorSpeed(speed) {
+    const speedNumeric = Number.parseFloat(speed)
+    if (!Number.isFinite(speedNumeric) || speedNumeric < 0 || speedNumeric > 100) {
+      return {
+        error: 'Fume extractor speed must be between 0 and 100.',
+      }
+    }
+
+    this.state.fumeExtractor.speed = Math.round(speedNumeric)
+    
+    // If extractor is enabled, update hardware immediately
+    if (this.state.fumeExtractor.enabled && this.mode === 'hardware' && this.commandProtocol) {
+      try {
+        this.commandProtocol.setFumeExtractor(this.state.fumeExtractor.speed)
+      } catch (error) {
+        console.error('[SolderingHardware] Error setting fume extractor speed:', error)
+      }
+    }
+    
+    this.emit('fumeExtractor', this.getFumeExtractorState())
+    return { status: this.getFumeExtractorState() }
+  }
+
+  setFumeExtractorAutoMode(autoMode) {
+    this.state.fumeExtractor.autoMode = Boolean(autoMode)
+    this.emit('fumeExtractor', this.getFumeExtractorState())
+    return { status: this.getFumeExtractorState() }
+  }
+
   async setTipTarget(target) {
     const numeric = Number.parseFloat(target)
     if (!Number.isFinite(numeric) || numeric <= 0) {
@@ -630,7 +761,39 @@ export default class SolderingHardware extends EventEmitter {
         
         const durationMs = Math.max(1200, (lengthNumeric / rateNumeric) * 1000)
         
+        // Check for wire break during feeding (periodic checks)
+        const checkInterval = Math.max(200, durationMs / 10) // Check 10 times during feed
+        let checksDone = 0
+        const maxChecks = Math.floor(durationMs / checkInterval)
+        let breakCheckIntervalId = null
+        
+        breakCheckIntervalId = this._registerInterval(() => {
+          checksDone++
+          if (this.detectWireBreak()) {
+            // Wire break detected, stop checking
+            if (breakCheckIntervalId) {
+              clearInterval(breakCheckIntervalId)
+              this.timers = this.timers.filter(t => t.id !== breakCheckIntervalId)
+            }
+            return
+          }
+          
+          // Stop checking if feed should be complete
+          if (checksDone >= maxChecks) {
+            if (breakCheckIntervalId) {
+              clearInterval(breakCheckIntervalId)
+              this.timers = this.timers.filter(t => t.id !== breakCheckIntervalId)
+            }
+          }
+        }, checkInterval)
+        
         this._registerTimeout(() => {
+          // Final check for wire break before completing
+          if (this.state.wireFeed.wireBreak.detected) {
+            // Wire break was detected, don't update spool
+            return
+          }
+          
           // Update spool state after feed completes
           this._updateSpoolAfterFeed(lengthNumeric, rotationsNeeded)
           
@@ -654,7 +817,40 @@ export default class SolderingHardware extends EventEmitter {
     } else {
       // Simulation mode
       const durationMs = Math.max(1200, (lengthNumeric / rateNumeric) * 1000)
+      
+      // Check for wire break during feeding (periodic checks)
+      const checkInterval = Math.max(200, durationMs / 10) // Check 10 times during feed
+      let checksDone = 0
+      const maxChecks = Math.floor(durationMs / checkInterval)
+      let breakCheckIntervalId = null
+      
+      breakCheckIntervalId = this._registerInterval(() => {
+        checksDone++
+        if (this.detectWireBreak()) {
+          // Wire break detected, stop checking
+          if (breakCheckIntervalId) {
+            clearInterval(breakCheckIntervalId)
+            this.timers = this.timers.filter(t => t.id !== breakCheckIntervalId)
+          }
+          return
+        }
+        
+        // Stop checking if feed should be complete
+        if (checksDone >= maxChecks) {
+          if (breakCheckIntervalId) {
+            clearInterval(breakCheckIntervalId)
+            this.timers = this.timers.filter(t => t.id !== breakCheckIntervalId)
+          }
+        }
+      }, checkInterval)
+      
       this._registerTimeout(() => {
+        // Final check for wire break before completing
+        if (this.state.wireFeed.wireBreak.detected) {
+          // Wire break was detected, don't update spool
+          return
+        }
+        
         // Update spool state after feed completes
         this._updateSpoolAfterFeed(lengthNumeric, rotationsNeeded)
         
@@ -811,6 +1007,15 @@ export default class SolderingHardware extends EventEmitter {
       sequence.stage = 'idle'
       sequence.lastCompleted = 'All pads complete'
       sequence.progress = 100
+      
+      // Deactivate fume extractor if auto mode is enabled
+      if (this.state.fumeExtractor.autoMode && this.state.fumeExtractor.enabled) {
+        // Keep running for a short time after sequence completes to clear remaining fumes
+        this._registerTimeout(() => {
+          this.setFumeExtractorEnabled(false)
+        }, 5000) // 5 seconds delay
+      }
+      
       this.emit('sequence', this.getSequenceState())
       return
     }
@@ -881,6 +1086,11 @@ export default class SolderingHardware extends EventEmitter {
         break
 
       case 'dispense':
+        // Activate fume extractor if auto mode is enabled
+        if (this.state.fumeExtractor.autoMode && !this.state.fumeExtractor.enabled) {
+          this.setFumeExtractorEnabled(true)
+        }
+        
         // Feed wire - use wire length from calibration if available, otherwise default
         const wireEntry = this.state.calibration.find((entry) => entry.label === 'Wire Remaining')
         let wireLength = 5.0 // Default 5mm
@@ -969,7 +1179,9 @@ export default class SolderingHardware extends EventEmitter {
   }
 
   _registerInterval(callback, delay) {
-    const id = setInterval(callback, delay)
+    const id = setInterval(() => {
+      callback()
+    }, delay)
     this.timers.push({ type: 'interval', id })
     return id
   }
