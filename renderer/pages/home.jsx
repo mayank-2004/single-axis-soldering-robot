@@ -6,6 +6,8 @@ import TipHeatingControl from '../components/TipHeatingControl'
 import WireFeedControl from '../components/WireFeedControl'
 import SpoolWireControl from '../components/SpoolWireControl'
 import FumeExtractorControl from '../components/FumeExtractorControl'
+import FluxMistControl from '../components/FluxMistControl'
+import AirBreezeControl from '../components/AirBreezeControl'
 import SequenceMonitor from '../components/SequenceMonitor'
 import ManualMovementControl from '../components/ManualMovementControl'
 import PadSolderingMetrics from '../components/PadSolderingMetrics'
@@ -36,12 +38,33 @@ const initialFumeExtractorState = {
   autoMode: true,
 }
 
+const initialFluxMistState = {
+  isDispensing: false,
+  duration: 500,
+  flowRate: 50,
+  autoMode: true,
+  lastDispensed: null,
+}
+
+const initialAirBreezeState = {
+  enabled: false,
+  isActive: false,
+  duration: 2000,
+  intensity: 60,
+  autoMode: true,
+  lastActivated: null,
+}
+
 export default function HomePage() {
   const [calibration, setCalibration] = React.useState(initialCalibration)
   const [localTime, setLocalTime] = React.useState('')
   const [fans, setFans] = React.useState(initialFanState)
   const [fumeExtractor, setFumeExtractor] = React.useState(initialFumeExtractorState)
   const [fumeExtractorStatusMessage, setFumeExtractorStatusMessage] = React.useState('')
+  const [fluxMist, setFluxMist] = React.useState(initialFluxMistState)
+  const [fluxMistStatusMessage, setFluxMistStatusMessage] = React.useState('')
+  const [airBreeze, setAirBreeze] = React.useState(initialAirBreezeState)
+  const [airBreezeStatusMessage, setAirBreezeStatusMessage] = React.useState('')
   const [componentHeight, setComponentHeight] = React.useState('')
   const [heightStatus, setHeightStatus] = React.useState('')
   const [tipTarget, setTipTarget] = React.useState('345')
@@ -434,6 +457,28 @@ export default function HomePage() {
       }))
     }
 
+    const handleFluxMistState = (payload) => {
+      if (!payload || typeof payload !== 'object') {
+        return
+      }
+
+      setFluxMist((current) => ({
+        ...current,
+        ...payload,
+      }))
+    }
+
+    const handleAirBreezeState = (payload) => {
+      if (!payload || typeof payload !== 'object') {
+        return
+      }
+
+      setAirBreeze((current) => ({
+        ...current,
+        ...payload,
+      }))
+    }
+
     const handleSpoolUpdate = (payload) => {
       if (!payload || typeof payload !== 'object') {
         return
@@ -474,6 +519,8 @@ export default function HomePage() {
     window.ipc.on?.('sequence:update', handleSequenceUpdate)
     window.ipc.on?.('fan:update', handleFanState)
     window.ipc.on?.('fumeExtractor:update', handleFumeExtractorState)
+    window.ipc.on?.('fluxMist:update', handleFluxMistState)
+    window.ipc.on?.('airBreeze:update', handleAirBreezeState)
 
     window.ipc.send?.('tip:status:request')
     window.ipc.send?.('wire:feed:status:request')
@@ -481,6 +528,8 @@ export default function HomePage() {
     window.ipc.send?.('sequence:status:request')
     window.ipc.send?.('fan:state:request')
     window.ipc.send?.('fumeExtractor:state:request')
+    window.ipc.send?.('fluxMist:state:request')
+    window.ipc.send?.('airBreeze:state:request')
 
     return () => {
       window.ipc.off?.('component:height:ack', handleHeightAck)
@@ -491,6 +540,8 @@ export default function HomePage() {
       window.ipc.off?.('sequence:update', handleSequenceUpdate)
       window.ipc.off?.('fan:update', handleFanState)
       window.ipc.off?.('fumeExtractor:update', handleFumeExtractorState)
+      window.ipc.off?.('fluxMist:update', handleFluxMistState)
+      window.ipc.off?.('airBreeze:update', handleAirBreezeState)
     }
   }, [])
 
@@ -877,6 +928,168 @@ export default function HomePage() {
     }))
   }, [fumeExtractor.autoMode])
 
+  const handleFluxMistDispense = React.useCallback(() => {
+    if (fluxMist.isDispensing) {
+      return
+    }
+
+    if (typeof window !== 'undefined' && window.ipc?.send) {
+      setFluxMistStatusMessage('Dispensing flux mist...')
+      window.ipc.send('fluxMist:dispense', {
+        duration: fluxMist.duration,
+        flowRate: fluxMist.flowRate,
+        timestamp: Date.now(),
+      })
+    }
+  }, [fluxMist])
+
+  const handleFluxMistDurationChange = React.useCallback((duration) => {
+    const durationNumeric = Number.parseFloat(duration)
+    if (!Number.isFinite(durationNumeric) || durationNumeric <= 0) {
+      setFluxMistStatusMessage('Duration must be greater than zero')
+      return
+    }
+
+    if (typeof window !== 'undefined' && window.ipc?.send) {
+      window.ipc.send('fluxMist:duration:set', {
+        duration: durationNumeric,
+        timestamp: Date.now(),
+      })
+    }
+
+    setFluxMist((current) => ({
+      ...current,
+      duration: durationNumeric,
+    }))
+    setFluxMistStatusMessage('')
+  }, [])
+
+  const handleFluxMistFlowRateChange = React.useCallback((flowRate) => {
+    const flowRateNumeric = Number.parseFloat(flowRate)
+    if (!Number.isFinite(flowRateNumeric) || flowRateNumeric < 0 || flowRateNumeric > 100) {
+      setFluxMistStatusMessage('Flow rate must be between 0 and 100')
+      return
+    }
+
+    if (typeof window !== 'undefined' && window.ipc?.send) {
+      window.ipc.send('fluxMist:flowRate:set', {
+        flowRate: flowRateNumeric,
+        timestamp: Date.now(),
+      })
+    }
+
+    setFluxMist((current) => ({
+      ...current,
+      flowRate: flowRateNumeric,
+    }))
+    setFluxMistStatusMessage('')
+  }, [])
+
+  const toggleFluxMistAutoMode = React.useCallback(() => {
+    const nextState = !fluxMist.autoMode
+
+    if (typeof window !== 'undefined' && window.ipc?.send) {
+      window.ipc.send('fluxMist:autoMode:set', {
+        autoMode: nextState,
+        timestamp: Date.now(),
+      })
+    }
+
+    setFluxMist((current) => ({
+      ...current,
+      autoMode: nextState,
+    }))
+  }, [fluxMist.autoMode])
+
+  const toggleAirBreeze = React.useCallback(() => {
+    const nextState = !airBreeze.enabled
+
+    if (typeof window !== 'undefined' && window.ipc?.send) {
+      window.ipc.send('airBreeze:enable', {
+        enabled: nextState,
+        timestamp: Date.now(),
+      })
+    }
+
+    setAirBreeze((current) => ({
+      ...current,
+      enabled: nextState,
+    }))
+  }, [airBreeze.enabled])
+
+  const handleAirBreezeActivate = React.useCallback(() => {
+    if (airBreeze.isActive) {
+      return
+    }
+
+    if (typeof window !== 'undefined' && window.ipc?.send) {
+      setAirBreezeStatusMessage('Activating air breeze...')
+      window.ipc.send('airBreeze:activate', {
+        duration: airBreeze.duration,
+        intensity: airBreeze.intensity,
+        timestamp: Date.now(),
+      })
+    }
+  }, [airBreeze])
+
+  const handleAirBreezeDurationChange = React.useCallback((duration) => {
+    const durationNumeric = Number.parseFloat(duration)
+    if (!Number.isFinite(durationNumeric) || durationNumeric <= 0) {
+      setAirBreezeStatusMessage('Duration must be greater than zero')
+      return
+    }
+
+    if (typeof window !== 'undefined' && window.ipc?.send) {
+      window.ipc.send('airBreeze:duration:set', {
+        duration: durationNumeric,
+        timestamp: Date.now(),
+      })
+    }
+
+    setAirBreeze((current) => ({
+      ...current,
+      duration: durationNumeric,
+    }))
+    setAirBreezeStatusMessage('')
+  }, [])
+
+  const handleAirBreezeIntensityChange = React.useCallback((intensity) => {
+    const intensityNumeric = Number.parseFloat(intensity)
+    if (!Number.isFinite(intensityNumeric) || intensityNumeric < 0 || intensityNumeric > 100) {
+      setAirBreezeStatusMessage('Intensity must be between 0 and 100')
+      return
+    }
+
+    if (typeof window !== 'undefined' && window.ipc?.send) {
+      window.ipc.send('airBreeze:intensity:set', {
+        intensity: intensityNumeric,
+        timestamp: Date.now(),
+      })
+    }
+
+    setAirBreeze((current) => ({
+      ...current,
+      intensity: intensityNumeric,
+    }))
+    setAirBreezeStatusMessage('')
+  }, [])
+
+  const toggleAirBreezeAutoMode = React.useCallback(() => {
+    const nextState = !airBreeze.autoMode
+
+    if (typeof window !== 'undefined' && window.ipc?.send) {
+      window.ipc.send('airBreeze:autoMode:set', {
+        autoMode: nextState,
+        timestamp: Date.now(),
+      })
+    }
+
+    setAirBreeze((current) => ({
+      ...current,
+      autoMode: nextState,
+    }))
+  }, [airBreeze.autoMode])
+
   const handleSpoolConfigSubmit = React.useCallback((config) => {
     if (typeof window === 'undefined' || !window.ipc?.send) {
       setSpoolStatusMessage('IPC unavailable; cannot update spool config.')
@@ -1234,6 +1447,34 @@ export default function HomePage() {
             onSpeedChange={handleFumeExtractorSpeedChange}
             onAutoModeToggle={toggleFumeExtractorAutoMode}
             statusMessage={fumeExtractorStatusMessage}
+          />
+
+          <FluxMistControl
+            isDispensing={fluxMist.isDispensing}
+            duration={fluxMist.duration}
+            flowRate={fluxMist.flowRate}
+            autoMode={fluxMist.autoMode}
+            onDispense={handleFluxMistDispense}
+            onDurationChange={handleFluxMistDurationChange}
+            onFlowRateChange={handleFluxMistFlowRateChange}
+            onAutoModeToggle={toggleFluxMistAutoMode}
+            statusMessage={fluxMistStatusMessage}
+            lastDispensed={fluxMist.lastDispensed}
+          />
+
+          <AirBreezeControl
+            enabled={airBreeze.enabled}
+            isActive={airBreeze.isActive}
+            duration={airBreeze.duration}
+            intensity={airBreeze.intensity}
+            autoMode={airBreeze.autoMode}
+            onToggle={toggleAirBreeze}
+            onActivate={handleAirBreezeActivate}
+            onDurationChange={handleAirBreezeDurationChange}
+            onIntensityChange={handleAirBreezeIntensityChange}
+            onAutoModeToggle={toggleAirBreezeAutoMode}
+            statusMessage={airBreezeStatusMessage}
+            lastActivated={airBreeze.lastActivated}
           />
 
           <SequenceMonitor
