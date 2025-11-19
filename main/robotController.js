@@ -55,6 +55,10 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
     sendToRenderer('airBreeze:update', payload ?? hardware.getAirBreezeState(), target)
   }
 
+  const sendAirJetPressureUpdate = (target, payload) => {
+    sendToRenderer('airJetPressure:update', payload ?? hardware.getAirJetPressureState(), target)
+  }
+
   const sendTipStatus = (target, payload) => {
     sendToRenderer('tip:status', payload ?? hardware.getTipStatus(), target)
   }
@@ -126,6 +130,10 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
 
   registerHardwareListener('airBreeze', (payload) => {
     sendAirBreezeUpdate(undefined, payload)
+  })
+
+  registerHardwareListener('airJetPressure', (payload) => {
+    sendAirJetPressureUpdate(undefined, payload)
   })
 
   registerHardwareListener('spool', (payload) => {
@@ -264,6 +272,48 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
   registerIpcListener('airBreeze:autoMode:set', (event, payload = {}) => {
     hardware.setAirBreezeAutoMode(payload.autoMode)
     sendAirBreezeUpdate(event.sender)
+  })
+
+  registerIpcListener('airJetPressure:activate', (event, payload = {}) => {
+    hardware.activateAirJetPressure(payload.duration, payload.pressure).then((result) => {
+      if (result.error) {
+        event.sender.send('airJetPressure:error', result)
+      } else {
+        sendAirJetPressureUpdate(event.sender)
+      }
+    })
+  })
+
+  registerIpcListener('airJetPressure:enable', (event, payload = {}) => {
+    hardware.setAirJetPressureEnabled(payload.enabled)
+    sendAirJetPressureUpdate(event.sender)
+  })
+
+  registerIpcListener('airJetPressure:duration:set', (event, payload = {}) => {
+    const result = hardware.setAirJetPressureDuration(payload.duration)
+    if (result.error) {
+      event.sender.send('airJetPressure:error', result)
+    } else {
+      sendAirJetPressureUpdate(event.sender)
+    }
+  })
+
+  registerIpcListener('airJetPressure:pressure:set', (event, payload = {}) => {
+    const result = hardware.setAirJetPressurePressure(payload.pressure)
+    if (result.error) {
+      event.sender.send('airJetPressure:error', result)
+    } else {
+      sendAirJetPressureUpdate(event.sender)
+    }
+  })
+
+  registerIpcListener('airJetPressure:autoMode:set', (event, payload = {}) => {
+    hardware.setAirJetPressureAutoMode(payload.autoMode)
+    sendAirJetPressureUpdate(event.sender)
+  })
+
+  registerIpcListener('airJetPressure:state:request', (event) => {
+    sendAirJetPressureUpdate(event.sender)
   })
 
   registerIpcListener('tip:status:request', (event) => {

@@ -323,6 +323,45 @@ export default class CommandProtocol {
   }
 
   /**
+   * Activate air jet pressure for tip cleaning
+   * Custom command: M705 D<duration_ms> P<pressure>
+   * Duration in milliseconds, pressure 0-100%
+   * Example: M705 D200 P80 - Activate for 200ms at 80% pressure
+   * Uses solenoid valve or pneumatic control port P4 (can be configured)
+   */
+  async activateAirJetPressure(duration, pressure) {
+    // Custom G-code command for air jet pressure
+    // M705 D<duration> P<pressure>
+    const durationMs = Math.round(duration)
+    const pressureValue = Math.max(0, Math.min(100, Math.round(pressure)))
+    
+    // Option 1: Custom command with duration and pressure
+    const gcode = `M705 D${durationMs} P${pressureValue}`
+    // Option 2: Using solenoid control (if hardware supports it)
+    // const gcode = `M42 P4 S255` // Activate solenoid on port 4 at max speed
+    
+    // G-CODE COMMAND COMMENTED OUT
+    // return this.serial.sendCommand(gcode, { waitForResponse: false })
+    console.log('[CommandProtocol] G-code (commented out):', gcode)
+    return Promise.resolve({ status: 'simulated', command: gcode })
+  }
+
+  /**
+   * Deactivate air jet pressure
+   * Custom command: M706 or M42 P4 S0
+   */
+  async deactivateAirJetPressure() {
+    // Using solenoid control: M42 P<port> S0
+    const solenoidPort = 4 // Air jet pressure solenoid port (adjust if needed)
+    const gcode = `M42 P${solenoidPort} S0`
+    
+    // G-CODE COMMAND COMMENTED OUT
+    // return this.serial.sendCommand(gcode, { waitForResponse: false })
+    console.log('[CommandProtocol] G-code (commented out):', gcode)
+    return Promise.resolve({ status: 'simulated', command: gcode })
+  }
+
+  /**
    * Emergency stop - Marlin: M112
    * Immediately stops all motion and disables heaters
    */

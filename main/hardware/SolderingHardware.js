@@ -7,6 +7,7 @@ const sequenceStages = [
   { name: 'Positioning Y axis', action: 'moveY' },
   { name: 'Lowering Z axis', action: 'lowerZ' },
   { name: 'Dispensing solder', action: 'dispense' },
+  { name: 'Cleaning tip', action: 'cleanTip' },
   { name: 'Retracting head', action: 'retract' },
   { name: 'Advancing to next pad', action: 'advance' },
 ]
@@ -84,6 +85,14 @@ export default class SolderingHardware extends EventEmitter {
         duration: 2000, // milliseconds - default 2 seconds
         intensity: 60, // 0-100% air flow intensity
         autoMode: true, // Auto-activate after soldering
+        lastActivated: null,
+      },
+      airJetPressure: {
+        enabled: false,
+        isActive: false,
+        duration: 200, // milliseconds - default 200ms for quick blast
+        pressure: 80, // 0-100% pressure level
+        autoMode: true, // Auto-activate after each soldering operation
         lastActivated: null,
       },
       tip: {
@@ -949,6 +958,143 @@ export default class SolderingHardware extends EventEmitter {
     return { status: this.getAirBreezeState() }
   }
 
+  /**
+   * Get air jet pressure state
+   */
+  getAirJetPressureState() {
+    return {
+      enabled: this.state.airJetPressure.enabled,
+      isActive: this.state.airJetPressure.isActive,
+      duration: this.state.airJetPressure.duration,
+      pressure: this.state.airJetPressure.pressure,
+      autoMode: this.state.airJetPressure.autoMode,
+      lastActivated: this.state.airJetPressure.lastActivated,
+    }
+  }
+
+  /**
+   * Activate air jet pressure for tip cleaning
+   * @param {number} duration - Duration in milliseconds (optional, uses default if not provided)
+   * @param {number} pressure - Pressure 0-100% (optional, uses default if not provided)
+   */
+  async activateAirJetPressure(duration = null, pressure = null) {
+    // Use provided values or defaults
+    const jetDuration = duration !== null ? duration : this.state.airJetPressure.duration
+    const jetPressure = pressure !== null ? pressure : this.state.airJetPressure.pressure
+
+    // Validate duration
+    const durationNumeric = Number.parseFloat(jetDuration)
+    if (!Number.isFinite(durationNumeric) || durationNumeric <= 0) {
+      return { error: 'Duration must be greater than zero.' }
+    }
+
+    // Validate pressure
+    const pressureNumeric = Number.parseFloat(jetPressure)
+    if (!Number.isFinite(pressureNumeric) || pressureNumeric < 0 || pressureNumeric > 100) {
+      return { error: 'Pressure must be between 0 and 100.' }
+    }
+
+    // Check if already active
+    if (this.state.airJetPressure.isActive) {
+      return { error: 'Air jet pressure is already active.' }
+    }
+
+    this.state.airJetPressure.isActive = true
+    this.state.airJetPressure.enabled = true
+    this.emit('airJetPressure', this.getAirJetPressureState())
+
+    if (this.mode === 'hardware' && this.commandProtocol) {
+      try {
+        await this.commandProtocol.activateAirJetPressure(durationNumeric, pressureNumeric)
+        
+        // Wait for duration
+        await new Promise(resolve => setTimeout(resolve, durationNumeric))
+        
+        this.state.airJetPressure.isActive = false
+        this.state.airJetPressure.lastActivated = Date.now()
+        this.emit('airJetPressure', this.getAirJetPressureState())
+        
+        return { status: `Air jet pressure activated for ${durationNumeric}ms at ${pressureNumeric}% pressure` }
+      } catch (error) {
+        this.state.airJetPressure.isActive = false
+        this.emit('airJetPressure', this.getAirJetPressureState())
+        return { error: error.message }
+      }
+    } else {
+      // Simulation mode
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          this.state.airJetPressure.isActive = false
+          this.state.airJetPressure.lastActivated = Date.now()
+          this.emit('airJetPressure', this.getAirJetPressureState())
+          
+          resolve({ status: `Air jet pressure activated for ${durationNumeric}ms at ${pressureNumeric}% pressure` })
+        }, durationNumeric)
+      })
+    }
+  }
+
+  setAirJetPressureEnabled(enabled) {
+    this.state.airJetPressure.enabled = Boolean(enabled)
+    
+    // If disabling while active, stop it
+    if (!enabled && this.state.airJetPressure.isActive) {
+      this.state.airJetPressure.isActive = false
+      if (this.mode === 'hardware' && this.commandProtocol) {
+        try {
+          this.commandProtocol.deactivateAirJetPressure()
+        } catch (error) {
+          console.error('[SolderingHardware] Error deactivating air jet pressure:', error)
+        }
+      }
+    }
+    
+    this.emit('airJetPressure', this.getAirJetPressureState())
+    return { status: this.getAirJetPressureState() }
+  }
+
+  setAirJetPressureDuration(duration) {
+    const durationNumeric = Number.parseFloat(duration)
+    if (!Number.isFinite(durationNumeric) || durationNumeric <= 0) {
+      return {
+        error: 'Duration must be greater than zero.',
+      }
+    }
+
+    this.state.airJetPressure.duration = Math.round(durationNumeric)
+    this.emit('airJetPressure', this.getAirJetPressureState())
+    return { status: this.getAirJetPressureState() }
+  }
+
+  setAirJetPressurePressure(pressure) {
+    const pressureNumeric = Number.parseFloat(pressure)
+    if (!Number.isFinite(pressureNumeric) || pressureNumeric < 0 || pressureNumeric > 100) {
+      return {
+        error: 'Pressure must be between 0 and 100.',
+      }
+    }
+
+    this.state.airJetPressure.pressure = Math.round(pressureNumeric)
+    
+    // If air jet is active, update hardware immediately
+    if (this.state.airJetPressure.isActive && this.mode === 'hardware' && this.commandProtocol) {
+      try {
+        this.commandProtocol.activateAirJetPressure(this.state.airJetPressure.duration, this.state.airJetPressure.pressure)
+      } catch (error) {
+        console.error('[SolderingHardware] Error updating air jet pressure:', error)
+      }
+    }
+    
+    this.emit('airJetPressure', this.getAirJetPressureState())
+    return { status: this.getAirJetPressureState() }
+  }
+
+  setAirJetPressureAutoMode(autoMode) {
+    this.state.airJetPressure.autoMode = Boolean(autoMode)
+    this.emit('airJetPressure', this.getAirJetPressureState())
+    return { status: this.getAirJetPressureState() }
+  }
+
   async setTipTarget(target) {
     const numeric = Number.parseFloat(target)
     if (!Number.isFinite(numeric) || numeric <= 0) {
@@ -1387,6 +1533,13 @@ export default class SolderingHardware extends EventEmitter {
         // Wait for wire feed to complete
         while (this.state.wireFeed.status === 'feeding') {
           await new Promise(resolve => setTimeout(resolve, 100))
+        }
+        break
+
+      case 'cleanTip':
+        // Activate air jet pressure to clean the tip after soldering
+        if (this.state.airJetPressure.autoMode && !this.state.airJetPressure.isActive) {
+          await this.activateAirJetPressure()
         }
         break
 

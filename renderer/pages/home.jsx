@@ -8,6 +8,7 @@ import SpoolWireControl from '../components/SpoolWireControl'
 import FumeExtractorControl from '../components/FumeExtractorControl'
 import FluxMistControl from '../components/FluxMistControl'
 import AirBreezeControl from '../components/AirBreezeControl'
+import AirJetPressureControl from '../components/AirJetPressureControl'
 import SequenceMonitor from '../components/SequenceMonitor'
 import ManualMovementControl from '../components/ManualMovementControl'
 import PadSolderingMetrics from '../components/PadSolderingMetrics'
@@ -55,6 +56,15 @@ const initialAirBreezeState = {
   lastActivated: null,
 }
 
+const initialAirJetPressureState = {
+  enabled: false,
+  isActive: false,
+  duration: 200,
+  pressure: 80,
+  autoMode: true,
+  lastActivated: null,
+}
+
 export default function HomePage() {
   const [calibration, setCalibration] = React.useState(initialCalibration)
   const [localTime, setLocalTime] = React.useState('')
@@ -65,6 +75,8 @@ export default function HomePage() {
   const [fluxMistStatusMessage, setFluxMistStatusMessage] = React.useState('')
   const [airBreeze, setAirBreeze] = React.useState(initialAirBreezeState)
   const [airBreezeStatusMessage, setAirBreezeStatusMessage] = React.useState('')
+  const [airJetPressure, setAirJetPressure] = React.useState(initialAirJetPressureState)
+  const [airJetPressureStatusMessage, setAirJetPressureStatusMessage] = React.useState('')
   const [componentHeight, setComponentHeight] = React.useState('')
   const [heightStatus, setHeightStatus] = React.useState('')
   const [tipTarget, setTipTarget] = React.useState('345')
@@ -479,6 +491,17 @@ export default function HomePage() {
       }))
     }
 
+    const handleAirJetPressureState = (payload) => {
+      if (!payload || typeof payload !== 'object') {
+        return
+      }
+
+      setAirJetPressure((current) => ({
+        ...current,
+        ...payload,
+      }))
+    }
+
     const handleSpoolUpdate = (payload) => {
       if (!payload || typeof payload !== 'object') {
         return
@@ -521,6 +544,7 @@ export default function HomePage() {
     window.ipc.on?.('fumeExtractor:update', handleFumeExtractorState)
     window.ipc.on?.('fluxMist:update', handleFluxMistState)
     window.ipc.on?.('airBreeze:update', handleAirBreezeState)
+    window.ipc.on?.('airJetPressure:update', handleAirJetPressureState)
 
     window.ipc.send?.('tip:status:request')
     window.ipc.send?.('wire:feed:status:request')
@@ -530,6 +554,7 @@ export default function HomePage() {
     window.ipc.send?.('fumeExtractor:state:request')
     window.ipc.send?.('fluxMist:state:request')
     window.ipc.send?.('airBreeze:state:request')
+    window.ipc.send?.('airJetPressure:state:request')
 
     return () => {
       window.ipc.off?.('component:height:ack', handleHeightAck)
@@ -542,6 +567,7 @@ export default function HomePage() {
       window.ipc.off?.('fumeExtractor:update', handleFumeExtractorState)
       window.ipc.off?.('fluxMist:update', handleFluxMistState)
       window.ipc.off?.('airBreeze:update', handleAirBreezeState)
+      window.ipc.off?.('airJetPressure:update', handleAirJetPressureState)
     }
   }, [])
 
@@ -1090,6 +1116,95 @@ export default function HomePage() {
     }))
   }, [airBreeze.autoMode])
 
+  const toggleAirJetPressure = React.useCallback(() => {
+    const nextState = !airJetPressure.enabled
+
+    if (typeof window !== 'undefined' && window.ipc?.send) {
+      window.ipc.send('airJetPressure:enable', {
+        enabled: nextState,
+        timestamp: Date.now(),
+      })
+    }
+
+    setAirJetPressure((current) => ({
+      ...current,
+      enabled: nextState,
+    }))
+  }, [airJetPressure.enabled])
+
+  const handleAirJetPressureActivate = React.useCallback(() => {
+    if (airJetPressure.isActive) {
+      return
+    }
+
+    if (typeof window !== 'undefined' && window.ipc?.send) {
+      setAirJetPressureStatusMessage('Activating air jet pressure...')
+      window.ipc.send('airJetPressure:activate', {
+        duration: airJetPressure.duration,
+        pressure: airJetPressure.pressure,
+        timestamp: Date.now(),
+      })
+    }
+  }, [airJetPressure])
+
+  const handleAirJetPressureDurationChange = React.useCallback((duration) => {
+    const durationNumeric = Number.parseFloat(duration)
+    if (!Number.isFinite(durationNumeric) || durationNumeric <= 0) {
+      setAirJetPressureStatusMessage('Duration must be greater than zero')
+      return
+    }
+
+    if (typeof window !== 'undefined' && window.ipc?.send) {
+      window.ipc.send('airJetPressure:duration:set', {
+        duration: durationNumeric,
+        timestamp: Date.now(),
+      })
+    }
+
+    setAirJetPressure((current) => ({
+      ...current,
+      duration: durationNumeric,
+    }))
+    setAirJetPressureStatusMessage('')
+  }, [])
+
+  const handleAirJetPressurePressureChange = React.useCallback((pressure) => {
+    const pressureNumeric = Number.parseFloat(pressure)
+    if (!Number.isFinite(pressureNumeric) || pressureNumeric < 0 || pressureNumeric > 100) {
+      setAirJetPressureStatusMessage('Pressure must be between 0 and 100')
+      return
+    }
+
+    if (typeof window !== 'undefined' && window.ipc?.send) {
+      window.ipc.send('airJetPressure:pressure:set', {
+        pressure: pressureNumeric,
+        timestamp: Date.now(),
+      })
+    }
+
+    setAirJetPressure((current) => ({
+      ...current,
+      pressure: pressureNumeric,
+    }))
+    setAirJetPressureStatusMessage('')
+  }, [])
+
+  const toggleAirJetPressureAutoMode = React.useCallback(() => {
+    const nextState = !airJetPressure.autoMode
+
+    if (typeof window !== 'undefined' && window.ipc?.send) {
+      window.ipc.send('airJetPressure:autoMode:set', {
+        autoMode: nextState,
+        timestamp: Date.now(),
+      })
+    }
+
+    setAirJetPressure((current) => ({
+      ...current,
+      autoMode: nextState,
+    }))
+  }, [airJetPressure.autoMode])
+
   const handleSpoolConfigSubmit = React.useCallback((config) => {
     if (typeof window === 'undefined' || !window.ipc?.send) {
       setSpoolStatusMessage('IPC unavailable; cannot update spool config.')
@@ -1475,6 +1590,21 @@ export default function HomePage() {
             onAutoModeToggle={toggleAirBreezeAutoMode}
             statusMessage={airBreezeStatusMessage}
             lastActivated={airBreeze.lastActivated}
+          />
+
+          <AirJetPressureControl
+            enabled={airJetPressure.enabled}
+            isActive={airJetPressure.isActive}
+            duration={airJetPressure.duration}
+            pressure={airJetPressure.pressure}
+            autoMode={airJetPressure.autoMode}
+            onToggle={toggleAirJetPressure}
+            onActivate={handleAirJetPressureActivate}
+            onDurationChange={handleAirJetPressureDurationChange}
+            onPressureChange={handleAirJetPressurePressureChange}
+            onAutoModeToggle={toggleAirJetPressureAutoMode}
+            statusMessage={airJetPressureStatusMessage}
+            lastActivated={airJetPressure.lastActivated}
           />
 
           <SequenceMonitor
