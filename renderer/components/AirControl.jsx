@@ -138,7 +138,8 @@ export default function AirControl({
                   .join(' ')}
                 onClick={onAirJetToggle}
                 aria-pressed={airJetEnabled}
-                disabled={airJetActive}
+                disabled={airJetActive || airBreezeActive}
+                title={airBreezeActive ? 'Air Breeze is active - valve locked' : ''}
               >
                 {airJetEnabled ? 'ON' : 'OFF'}
               </button>
@@ -146,6 +147,11 @@ export default function AirControl({
                 <span className={[styles.activeIndicator, styles.activeIndicatorJet].join(' ')}>
                   <span className={styles.activeDot}></span>
                   Active
+                </span>
+              )}
+              {airBreezeActive && !airJetActive && (
+                <span className={styles.lockedIndicator} title="Other valve is active">
+                  🔒 Locked
                 </span>
               )}
             </div>
@@ -166,7 +172,7 @@ export default function AirControl({
                   value={airJetDuration}
                   onChange={handleAirJetDurationInputChange}
                   onBlur={handleAirJetDurationInputBlur}
-                  disabled={airJetActive}
+                  disabled={airJetActive || airBreezeActive}
                 />
                 <span className={styles.controlUnit}>ms</span>
               </div>
@@ -187,7 +193,7 @@ export default function AirControl({
                   className={styles.controlSlider}
                   value={airJetPressure}
                   onChange={handleAirJetPressureInputChange}
-                  disabled={airJetActive}
+                  disabled={airJetActive || airBreezeActive}
                 />
                 <input
                   type="number"
@@ -198,7 +204,7 @@ export default function AirControl({
                   value={airJetPressure}
                   onChange={handleAirJetPressureInputChange}
                   onBlur={handleAirJetPressureInputBlur}
-                  disabled={airJetActive}
+                  disabled={airJetActive || airBreezeActive}
                 />
                 <span className={styles.controlUnit}>%</span>
               </div>
@@ -235,8 +241,9 @@ export default function AirControl({
                 onClick={onAirJetActivate}
                 disabled={airJetActive || airBreezeActive}
                 aria-pressed={airJetActive}
+                title={airBreezeActive ? 'Air Breeze is active - valve locked' : ''}
               >
-                {airJetActive ? 'Blasting...' : 'Activate Air Jet'}
+                {airJetActive ? 'Blasting...' : airBreezeActive ? 'Locked (Breeze Active)' : 'Activate Air Jet'}
               </button>
             </div>
 
@@ -277,7 +284,8 @@ export default function AirControl({
                   .join(' ')}
                 onClick={onAirBreezeToggle}
                 aria-pressed={airBreezeEnabled}
-                disabled={airBreezeActive}
+                disabled={airBreezeActive || airJetActive}
+                title={airJetActive ? 'Air Jet is active - valve locked' : ''}
               >
                 {airBreezeEnabled ? 'ON' : 'OFF'}
               </button>
@@ -285,6 +293,11 @@ export default function AirControl({
                 <span className={[styles.activeIndicator, styles.activeIndicatorBreeze].join(' ')}>
                   <span className={styles.activeDot}></span>
                   Active
+                </span>
+              )}
+              {airJetActive && !airBreezeActive && (
+                <span className={styles.lockedIndicator} title="Other valve is active">
+                  🔒 Locked
                 </span>
               )}
             </div>
@@ -305,7 +318,7 @@ export default function AirControl({
                   value={airBreezeDuration}
                   onChange={handleAirBreezeDurationInputChange}
                   onBlur={handleAirBreezeDurationInputBlur}
-                  disabled={airBreezeActive}
+                  disabled={airBreezeActive || airJetActive}
                 />
                 <span className={styles.controlUnit}>ms</span>
               </div>
@@ -326,7 +339,7 @@ export default function AirControl({
                   className={styles.controlSlider}
                   value={airBreezeIntensity}
                   onChange={handleAirBreezeIntensityInputChange}
-                  disabled={airBreezeActive}
+                  disabled={airBreezeActive || airJetActive}
                 />
                 <input
                   type="number"
@@ -337,7 +350,7 @@ export default function AirControl({
                   value={airBreezeIntensity}
                   onChange={handleAirBreezeIntensityInputChange}
                   onBlur={handleAirBreezeIntensityInputBlur}
-                  disabled={airBreezeActive}
+                  disabled={airBreezeActive || airJetActive}
                 />
                 <span className={styles.controlUnit}>%</span>
               </div>
@@ -374,8 +387,9 @@ export default function AirControl({
                 onClick={onAirBreezeActivate}
                 disabled={airBreezeActive || airJetActive}
                 aria-pressed={airBreezeActive}
+                title={airJetActive ? 'Air Jet is active - valve locked' : ''}
               >
-                {airBreezeActive ? 'Cooling...' : 'Activate Air Breeze'}
+                {airBreezeActive ? 'Cooling...' : airJetActive ? 'Locked (Jet Active)' : 'Activate Air Breeze'}
               </button>
             </div>
 

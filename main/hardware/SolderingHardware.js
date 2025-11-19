@@ -862,6 +862,11 @@ export default class SolderingHardware extends EventEmitter {
       return { error: 'Air breeze is already active.' }
     }
 
+    // Check if air jet pressure is active (mutual exclusion - only one valve can be active at a time)
+    if (this.state.airJetPressure.isActive) {
+      return { error: 'Air jet pressure is currently active. Please wait for it to complete before activating air breeze.' }
+    }
+
     this.state.airBreeze.isActive = true
     this.state.airBreeze.enabled = true
     this.emit('airBreeze', this.getAirBreezeState())
@@ -997,6 +1002,11 @@ export default class SolderingHardware extends EventEmitter {
     // Check if already active
     if (this.state.airJetPressure.isActive) {
       return { error: 'Air jet pressure is already active.' }
+    }
+
+    // Check if air breeze is active (mutual exclusion - only one valve can be active at a time)
+    if (this.state.airBreeze.isActive) {
+      return { error: 'Air breeze is currently active. Please wait for it to complete before activating air jet pressure.' }
     }
 
     this.state.airJetPressure.isActive = true
