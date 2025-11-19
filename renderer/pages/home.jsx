@@ -7,8 +7,7 @@ import WireFeedControl from '../components/WireFeedControl'
 import SpoolWireControl from '../components/SpoolWireControl'
 import FumeExtractorControl from '../components/FumeExtractorControl'
 import FluxMistControl from '../components/FluxMistControl'
-import AirBreezeControl from '../components/AirBreezeControl'
-import AirJetPressureControl from '../components/AirJetPressureControl'
+import AirControl from '../components/AirControl'
 import SequenceMonitor from '../components/SequenceMonitor'
 import ManualMovementControl from '../components/ManualMovementControl'
 import PadSolderingMetrics from '../components/PadSolderingMetrics'
@@ -1577,34 +1576,33 @@ export default function HomePage() {
             lastDispensed={fluxMist.lastDispensed}
           />
 
-          <AirBreezeControl
-            enabled={airBreeze.enabled}
-            isActive={airBreeze.isActive}
-            duration={airBreeze.duration}
-            intensity={airBreeze.intensity}
-            autoMode={airBreeze.autoMode}
-            onToggle={toggleAirBreeze}
-            onActivate={handleAirBreezeActivate}
-            onDurationChange={handleAirBreezeDurationChange}
-            onIntensityChange={handleAirBreezeIntensityChange}
-            onAutoModeToggle={toggleAirBreezeAutoMode}
-            statusMessage={airBreezeStatusMessage}
-            lastActivated={airBreeze.lastActivated}
-          />
-
-          <AirJetPressureControl
-            enabled={airJetPressure.enabled}
-            isActive={airJetPressure.isActive}
-            duration={airJetPressure.duration}
-            pressure={airJetPressure.pressure}
-            autoMode={airJetPressure.autoMode}
-            onToggle={toggleAirJetPressure}
-            onActivate={handleAirJetPressureActivate}
-            onDurationChange={handleAirJetPressureDurationChange}
-            onPressureChange={handleAirJetPressurePressureChange}
-            onAutoModeToggle={toggleAirJetPressureAutoMode}
-            statusMessage={airJetPressureStatusMessage}
-            lastActivated={airJetPressure.lastActivated}
+          <AirControl
+            // Air Breeze props
+            airBreezeEnabled={airBreeze.enabled}
+            airBreezeActive={airBreeze.isActive}
+            airBreezeDuration={airBreeze.duration}
+            airBreezeIntensity={airBreeze.intensity}
+            airBreezeAutoMode={airBreeze.autoMode}
+            onAirBreezeToggle={toggleAirBreeze}
+            onAirBreezeActivate={handleAirBreezeActivate}
+            onAirBreezeDurationChange={handleAirBreezeDurationChange}
+            onAirBreezeIntensityChange={handleAirBreezeIntensityChange}
+            onAirBreezeAutoModeToggle={toggleAirBreezeAutoMode}
+            airBreezeLastActivated={airBreeze.lastActivated}
+            airBreezeStatusMessage={airBreezeStatusMessage}
+            // Air Jet Pressure props
+            airJetEnabled={airJetPressure.enabled}
+            airJetActive={airJetPressure.isActive}
+            airJetDuration={airJetPressure.duration}
+            airJetPressure={airJetPressure.pressure}
+            airJetAutoMode={airJetPressure.autoMode}
+            onAirJetToggle={toggleAirJetPressure}
+            onAirJetActivate={handleAirJetPressureActivate}
+            onAirJetDurationChange={handleAirJetPressureDurationChange}
+            onAirJetPressureChange={handleAirJetPressurePressureChange}
+            onAirJetAutoModeToggle={toggleAirJetPressureAutoMode}
+            airJetLastActivated={airJetPressure.lastActivated}
+            airJetStatusMessage={airJetPressureStatusMessage}
           />
 
           <SequenceMonitor
