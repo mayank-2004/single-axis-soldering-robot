@@ -47,6 +47,14 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
     sendToRenderer('fumeExtractor:update', payload ?? hardware.getFumeExtractorState(), target)
   }
 
+  const sendFluxMistUpdate = (target, payload) => {
+    sendToRenderer('fluxMist:update', payload ?? hardware.getFluxMistState(), target)
+  }
+
+  const sendAirBreezeUpdate = (target, payload) => {
+    sendToRenderer('airBreeze:update', payload ?? hardware.getAirBreezeState(), target)
+  }
+
   const sendTipStatus = (target, payload) => {
     sendToRenderer('tip:status', payload ?? hardware.getTipStatus(), target)
   }
@@ -112,6 +120,14 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
     sendFumeExtractorUpdate(undefined, payload)
   })
 
+  registerHardwareListener('fluxMist', (payload) => {
+    sendFluxMistUpdate(undefined, payload)
+  })
+
+  registerHardwareListener('airBreeze', (payload) => {
+    sendAirBreezeUpdate(undefined, payload)
+  })
+
   registerHardwareListener('spool', (payload) => {
     sendSpoolState(undefined, payload)
   })
@@ -168,6 +184,86 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
   registerIpcListener('fumeExtractor:autoMode:set', (event, payload = {}) => {
     hardware.setFumeExtractorAutoMode(payload.autoMode)
     sendFumeExtractorUpdate(event.sender)
+  })
+
+  registerIpcListener('fluxMist:state:request', (event) => {
+    sendFluxMistUpdate(event.sender)
+  })
+
+  registerIpcListener('fluxMist:dispense', (event, payload = {}) => {
+    hardware.dispenseFluxMist(payload.duration, payload.flowRate).then((result) => {
+      if (result.error) {
+        event.sender.send('fluxMist:error', result)
+      } else {
+        sendFluxMistUpdate(event.sender)
+        sendFluxUpdate(event.sender) // Also update flux state
+      }
+    })
+  })
+
+  registerIpcListener('fluxMist:duration:set', (event, payload = {}) => {
+    const result = hardware.setFluxMistDuration(payload.duration)
+    if (result.error) {
+      event.sender.send('fluxMist:error', result)
+    } else {
+      sendFluxMistUpdate(event.sender)
+    }
+  })
+
+  registerIpcListener('fluxMist:flowRate:set', (event, payload = {}) => {
+    const result = hardware.setFluxMistFlowRate(payload.flowRate)
+    if (result.error) {
+      event.sender.send('fluxMist:error', result)
+    } else {
+      sendFluxMistUpdate(event.sender)
+    }
+  })
+
+  registerIpcListener('fluxMist:autoMode:set', (event, payload = {}) => {
+    hardware.setFluxMistAutoMode(payload.autoMode)
+    sendFluxMistUpdate(event.sender)
+  })
+
+  registerIpcListener('airBreeze:state:request', (event) => {
+    sendAirBreezeUpdate(event.sender)
+  })
+
+  registerIpcListener('airBreeze:activate', (event, payload = {}) => {
+    hardware.activateAirBreeze(payload.duration, payload.intensity).then((result) => {
+      if (result.error) {
+        event.sender.send('airBreeze:error', result)
+      } else {
+        sendAirBreezeUpdate(event.sender)
+      }
+    })
+  })
+
+  registerIpcListener('airBreeze:enable', (event, payload = {}) => {
+    hardware.setAirBreezeEnabled(payload.enabled)
+    sendAirBreezeUpdate(event.sender)
+  })
+
+  registerIpcListener('airBreeze:duration:set', (event, payload = {}) => {
+    const result = hardware.setAirBreezeDuration(payload.duration)
+    if (result.error) {
+      event.sender.send('airBreeze:error', result)
+    } else {
+      sendAirBreezeUpdate(event.sender)
+    }
+  })
+
+  registerIpcListener('airBreeze:intensity:set', (event, payload = {}) => {
+    const result = hardware.setAirBreezeIntensity(payload.intensity)
+    if (result.error) {
+      event.sender.send('airBreeze:error', result)
+    } else {
+      sendAirBreezeUpdate(event.sender)
+    }
+  })
+
+  registerIpcListener('airBreeze:autoMode:set', (event, payload = {}) => {
+    hardware.setAirBreezeAutoMode(payload.autoMode)
+    sendAirBreezeUpdate(event.sender)
   })
 
   registerIpcListener('tip:status:request', (event) => {

@@ -261,6 +261,68 @@ export default class CommandProtocol {
   }
 
   /**
+   * Dispense flux mist
+   * Custom command: M702 D<duration_ms> F<flow_rate>
+   * Duration in milliseconds, flow rate 0-100%
+   * Example: M702 D500 F50 - Dispense for 500ms at 50% flow rate
+   */
+  async dispenseFluxMist(duration, flowRate) {
+    // Custom G-code command for flux mist dispenser
+    // M702 D<duration> F<flow_rate>
+    const durationMs = Math.round(duration)
+    const flowRateValue = Math.max(0, Math.min(100, Math.round(flowRate)))
+    const gcode = `M702 D${durationMs} F${flowRateValue}`
+    // G-CODE COMMAND COMMENTED OUT
+    // return this.serial.sendCommand(gcode, { waitForResponse: true })
+    console.log('[CommandProtocol] G-code (commented out):', gcode)
+    return Promise.resolve({ status: 'simulated', command: gcode })
+  }
+
+  /**
+   * Activate air breeze for cooling
+   * Custom command: M703 D<duration_ms> I<intensity>
+   * Duration in milliseconds, intensity 0-100%
+   * Example: M703 D2000 I60 - Activate for 2000ms at 60% intensity
+   * Uses fan port P3 for air breeze (can be configured)
+   */
+  async activateAirBreeze(duration, intensity) {
+    // Custom G-code command for air breeze
+    // M703 D<duration> I<intensity>
+    // Or using fan control: M106 P3 S<intensity_0-255>
+    const fanPort = 3 // Air breeze fan port (adjust if needed)
+    const durationMs = Math.round(duration)
+    const intensityValue = Math.max(0, Math.min(100, Math.round(intensity)))
+    const speedValue = Math.max(0, Math.min(255, Math.round(intensityValue * 2.55))) // 0-100 to 0-255
+    
+    // Option 1: Custom command with duration
+    const gcode = `M703 D${durationMs} I${intensityValue}`
+    // Option 2: Using fan control (if hardware supports it)
+    // const gcode = `M106 P${fanPort} S${speedValue}`
+    
+    // G-CODE COMMAND COMMENTED OUT
+    // return this.serial.sendCommand(gcode, { waitForResponse: false })
+    console.log('[CommandProtocol] G-code (commented out):', gcode)
+    return Promise.resolve({ status: 'simulated', command: gcode })
+  }
+
+  /**
+   * Deactivate air breeze
+   * Custom command: M704 or M107 P3
+   */
+  async deactivateAirBreeze() {
+    // Using fan control: M107 P<fan_port>
+    const fanPort = 3 // Air breeze fan port (adjust if needed)
+    const gcode = `M107 P${fanPort}`
+    // Or custom command: M704
+    // const gcode = 'M704'
+    
+    // G-CODE COMMAND COMMENTED OUT
+    // return this.serial.sendCommand(gcode, { waitForResponse: false })
+    console.log('[CommandProtocol] G-code (commented out):', gcode)
+    return Promise.resolve({ status: 'simulated', command: gcode })
+  }
+
+  /**
    * Emergency stop - Marlin: M112
    * Immediately stops all motion and disables heaters
    */

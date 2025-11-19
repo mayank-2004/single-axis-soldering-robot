@@ -70,6 +70,22 @@ export default class SolderingHardware extends EventEmitter {
         remainingMl: 68,
         lastUpdated: Date.now(),
       },
+      fluxMist: {
+        enabled: false,
+        isDispensing: false,
+        duration: 500, // milliseconds
+        flowRate: 50, // 0-100% flow rate
+        autoMode: true, // Auto-apply during soldering sequence
+        lastDispensed: null,
+      },
+      airBreeze: {
+        enabled: false,
+        isActive: false,
+        duration: 2000, // milliseconds - default 2 seconds
+        intensity: 60, // 0-100% air flow intensity
+        autoMode: true, // Auto-activate after soldering
+        lastActivated: null,
+      },
       tip: {
         target: 345,
         heaterEnabled: false,
@@ -193,6 +209,8 @@ export default class SolderingHardware extends EventEmitter {
       flux: this.getFluxState(),
       fans: this.getFanState(),
       fumeExtractor: this.getFumeExtractorState(),
+      fluxMist: this.getFluxMistState(),
+      airBreeze: this.getAirBreezeState(),
       tip: this.getTipStatus(),
       wireFeed: this.getWireFeedStatus(),
       spool: this.getSpoolState(),
@@ -229,6 +247,28 @@ export default class SolderingHardware extends EventEmitter {
       enabled: this.state.fumeExtractor.enabled,
       speed: this.state.fumeExtractor.speed,
       autoMode: this.state.fumeExtractor.autoMode,
+    }
+  }
+
+  getFluxMistState() {
+    return {
+      enabled: this.state.fluxMist.enabled,
+      isDispensing: this.state.fluxMist.isDispensing,
+      duration: this.state.fluxMist.duration,
+      flowRate: this.state.fluxMist.flowRate,
+      autoMode: this.state.fluxMist.autoMode,
+      lastDispensed: this.state.fluxMist.lastDispensed,
+    }
+  }
+
+  getAirBreezeState() {
+    return {
+      enabled: this.state.airBreeze.enabled,
+      isActive: this.state.airBreeze.isActive,
+      duration: this.state.airBreeze.duration,
+      intensity: this.state.airBreeze.intensity,
+      autoMode: this.state.airBreeze.autoMode,
+      lastActivated: this.state.airBreeze.lastActivated,
     }
   }
 
@@ -670,6 +710,245 @@ export default class SolderingHardware extends EventEmitter {
     return { status: this.getFumeExtractorState() }
   }
 
+  /**
+   * Dispense flux mist
+   * @param {number} duration - Duration in milliseconds (optional, uses default if not provided)
+   * @param {number} flowRate - Flow rate 0-100% (optional, uses default if not provided)
+   */
+  async dispenseFluxMist(duration = null, flowRate = null) {
+    // Check if flux is available
+    if (this.state.flux.percentage <= 0 || this.state.flux.remainingMl <= 0) {
+      const error = 'No flux available. Please refill flux container.'
+      this.emit('fluxMist', this.getFluxMistState())
+      return { error }
+    }
+
+    // Use provided values or defaults
+    const dispenseDuration = duration !== null ? duration : this.state.fluxMist.duration
+    const dispenseFlowRate = flowRate !== null ? flowRate : this.state.fluxMist.flowRate
+
+    // Validate duration
+    const durationNumeric = Number.parseFloat(dispenseDuration)
+    if (!Number.isFinite(durationNumeric) || durationNumeric <= 0) {
+      return { error: 'Duration must be greater than zero.' }
+    }
+
+    // Validate flow rate
+    const flowRateNumeric = Number.parseFloat(dispenseFlowRate)
+    if (!Number.isFinite(flowRateNumeric) || flowRateNumeric < 0 || flowRateNumeric > 100) {
+      return { error: 'Flow rate must be between 0 and 100.' }
+    }
+
+    // Check if already dispensing
+    if (this.state.fluxMist.isDispensing) {
+      return { error: 'Flux mist is already dispensing.' }
+    }
+
+    this.state.fluxMist.isDispensing = true
+    this.emit('fluxMist', this.getFluxMistState())
+
+    // Calculate flux consumption (approximate: 0.1-0.5 ml per second depending on flow rate)
+    const fluxConsumptionPerSecond = (flowRateNumeric / 100) * 0.3 // Max 0.3 ml/s at 100%
+    const fluxConsumption = (durationNumeric / 1000) * fluxConsumptionPerSecond
+
+    if (this.mode === 'hardware' && this.commandProtocol) {
+      try {
+        await this.commandProtocol.dispenseFluxMist(durationNumeric, flowRateNumeric)
+        
+        // Wait for duration
+        await new Promise(resolve => setTimeout(resolve, durationNumeric))
+        
+        // Update flux consumption
+        this.state.flux.remainingMl = Math.max(0, this.state.flux.remainingMl - fluxConsumption)
+        this.state.flux.percentage = Math.max(0, (this.state.flux.remainingMl / maxFluxMl) * 100)
+        this._updateCalibration('Flux Remaining', { value: Math.round(this.state.flux.percentage) })
+        this._emitFlux()
+        
+        this.state.fluxMist.isDispensing = false
+        this.state.fluxMist.lastDispensed = Date.now()
+        this.emit('fluxMist', this.getFluxMistState())
+        
+        return { status: `Flux mist dispensed for ${durationNumeric}ms at ${flowRateNumeric}% flow rate` }
+      } catch (error) {
+        this.state.fluxMist.isDispensing = false
+        this.emit('fluxMist', this.getFluxMistState())
+        return { error: error.message }
+      }
+    } else {
+      // Simulation mode
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          // Update flux consumption
+          this.state.flux.remainingMl = Math.max(0, this.state.flux.remainingMl - fluxConsumption)
+          this.state.flux.percentage = Math.max(0, (this.state.flux.remainingMl / maxFluxMl) * 100)
+          this._updateCalibration('Flux Remaining', { value: Math.round(this.state.flux.percentage) })
+          this._emitFlux()
+          
+          this.state.fluxMist.isDispensing = false
+          this.state.fluxMist.lastDispensed = Date.now()
+          this.emit('fluxMist', this.getFluxMistState())
+          
+          resolve({ status: `Flux mist dispensed for ${durationNumeric}ms at ${flowRateNumeric}% flow rate` })
+        }, durationNumeric)
+      })
+    }
+  }
+
+  setFluxMistDuration(duration) {
+    const durationNumeric = Number.parseFloat(duration)
+    if (!Number.isFinite(durationNumeric) || durationNumeric <= 0) {
+      return {
+        error: 'Duration must be greater than zero.',
+      }
+    }
+
+    this.state.fluxMist.duration = Math.round(durationNumeric)
+    this.emit('fluxMist', this.getFluxMistState())
+    return { status: this.getFluxMistState() }
+  }
+
+  setFluxMistFlowRate(flowRate) {
+    const flowRateNumeric = Number.parseFloat(flowRate)
+    if (!Number.isFinite(flowRateNumeric) || flowRateNumeric < 0 || flowRateNumeric > 100) {
+      return {
+        error: 'Flow rate must be between 0 and 100.',
+      }
+    }
+
+    this.state.fluxMist.flowRate = Math.round(flowRateNumeric)
+    this.emit('fluxMist', this.getFluxMistState())
+    return { status: this.getFluxMistState() }
+  }
+
+  setFluxMistAutoMode(autoMode) {
+    this.state.fluxMist.autoMode = Boolean(autoMode)
+    this.emit('fluxMist', this.getFluxMistState())
+    return { status: this.getFluxMistState() }
+  }
+
+  /**
+   * Activate air breeze for cooling
+   * @param {number} duration - Duration in milliseconds (optional, uses default if not provided)
+   * @param {number} intensity - Intensity 0-100% (optional, uses default if not provided)
+   */
+  async activateAirBreeze(duration = null, intensity = null) {
+    // Use provided values or defaults
+    const breezeDuration = duration !== null ? duration : this.state.airBreeze.duration
+    const breezeIntensity = intensity !== null ? intensity : this.state.airBreeze.intensity
+
+    // Validate duration
+    const durationNumeric = Number.parseFloat(breezeDuration)
+    if (!Number.isFinite(durationNumeric) || durationNumeric <= 0) {
+      return { error: 'Duration must be greater than zero.' }
+    }
+
+    // Validate intensity
+    const intensityNumeric = Number.parseFloat(breezeIntensity)
+    if (!Number.isFinite(intensityNumeric) || intensityNumeric < 0 || intensityNumeric > 100) {
+      return { error: 'Intensity must be between 0 and 100.' }
+    }
+
+    // Check if already active
+    if (this.state.airBreeze.isActive) {
+      return { error: 'Air breeze is already active.' }
+    }
+
+    this.state.airBreeze.isActive = true
+    this.state.airBreeze.enabled = true
+    this.emit('airBreeze', this.getAirBreezeState())
+
+    if (this.mode === 'hardware' && this.commandProtocol) {
+      try {
+        await this.commandProtocol.activateAirBreeze(durationNumeric, intensityNumeric)
+        
+        // Wait for duration
+        await new Promise(resolve => setTimeout(resolve, durationNumeric))
+        
+        this.state.airBreeze.isActive = false
+        this.state.airBreeze.lastActivated = Date.now()
+        this.emit('airBreeze', this.getAirBreezeState())
+        
+        return { status: `Air breeze activated for ${durationNumeric}ms at ${intensityNumeric}% intensity` }
+      } catch (error) {
+        this.state.airBreeze.isActive = false
+        this.emit('airBreeze', this.getAirBreezeState())
+        return { error: error.message }
+      }
+    } else {
+      // Simulation mode
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          this.state.airBreeze.isActive = false
+          this.state.airBreeze.lastActivated = Date.now()
+          this.emit('airBreeze', this.getAirBreezeState())
+          
+          resolve({ status: `Air breeze activated for ${durationNumeric}ms at ${intensityNumeric}% intensity` })
+        }, durationNumeric)
+      })
+    }
+  }
+
+  setAirBreezeEnabled(enabled) {
+    this.state.airBreeze.enabled = Boolean(enabled)
+    
+    // If disabling while active, stop it
+    if (!enabled && this.state.airBreeze.isActive) {
+      this.state.airBreeze.isActive = false
+      if (this.mode === 'hardware' && this.commandProtocol) {
+        try {
+          this.commandProtocol.deactivateAirBreeze()
+        } catch (error) {
+          console.error('[SolderingHardware] Error deactivating air breeze:', error)
+        }
+      }
+    }
+    
+    this.emit('airBreeze', this.getAirBreezeState())
+    return { status: this.getAirBreezeState() }
+  }
+
+  setAirBreezeDuration(duration) {
+    const durationNumeric = Number.parseFloat(duration)
+    if (!Number.isFinite(durationNumeric) || durationNumeric <= 0) {
+      return {
+        error: 'Duration must be greater than zero.',
+      }
+    }
+
+    this.state.airBreeze.duration = Math.round(durationNumeric)
+    this.emit('airBreeze', this.getAirBreezeState())
+    return { status: this.getAirBreezeState() }
+  }
+
+  setAirBreezeIntensity(intensity) {
+    const intensityNumeric = Number.parseFloat(intensity)
+    if (!Number.isFinite(intensityNumeric) || intensityNumeric < 0 || intensityNumeric > 100) {
+      return {
+        error: 'Intensity must be between 0 and 100.',
+      }
+    }
+
+    this.state.airBreeze.intensity = Math.round(intensityNumeric)
+    
+    // If air breeze is active, update hardware immediately
+    if (this.state.airBreeze.isActive && this.mode === 'hardware' && this.commandProtocol) {
+      try {
+        this.commandProtocol.activateAirBreeze(this.state.airBreeze.duration, this.state.airBreeze.intensity)
+      } catch (error) {
+        console.error('[SolderingHardware] Error updating air breeze intensity:', error)
+      }
+    }
+    
+    this.emit('airBreeze', this.getAirBreezeState())
+    return { status: this.getAirBreezeState() }
+  }
+
+  setAirBreezeAutoMode(autoMode) {
+    this.state.airBreeze.autoMode = Boolean(autoMode)
+    this.emit('airBreeze', this.getAirBreezeState())
+    return { status: this.getAirBreezeState() }
+  }
+
   async setTipTarget(target) {
     const numeric = Number.parseFloat(target)
     if (!Number.isFinite(numeric) || numeric <= 0) {
@@ -1083,6 +1362,11 @@ export default class SolderingHardware extends EventEmitter {
         // Lower to soldering height
         const solderingZ = z || 0
         await this._moveToPosition(x, y, solderingZ)
+        
+        // Apply flux mist before soldering if auto mode is enabled
+        if (this.state.fluxMist.autoMode && !this.state.fluxMist.isDispensing) {
+          await this.dispenseFluxMist()
+        }
         break
 
       case 'dispense':
@@ -1109,6 +1393,11 @@ export default class SolderingHardware extends EventEmitter {
       case 'retract':
         // Retract to safe height
         await this._moveToPosition(x, y, safeZ)
+        
+        // Activate air breeze after retraction if auto mode is enabled
+        if (this.state.airBreeze.autoMode && !this.state.airBreeze.isActive) {
+          await this.activateAirBreeze()
+        }
         break
 
       case 'advance':
