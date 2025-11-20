@@ -12,7 +12,8 @@ import SequenceMonitor from '../components/SequenceMonitor'
 import ManualMovementControl from '../components/ManualMovementControl'
 import PadSolderingMetrics from '../components/PadSolderingMetrics'
 import SerialPortConnection from '../components/SerialPortConnection'
-import GCodeMonitor from '../components/GCodeMonitor'
+// G-CODE MONITOR COMPONENT IMPORT COMMENTED OUT
+// import GCodeMonitor from '../components/GCodeMonitor'
 import CameraView from '../components/CameraView'
 import styles from './home.module.css'
 
@@ -23,7 +24,7 @@ const initialCalibration = [
   { label: 'Wire Remaining', value: '100', unit: '%', length: '14.3 m', icon: '⚡' },
   { label: 'Flux Remaining', value: '82', unit: '%', icon: '💧' },
   { label: 'Tip Temp', value: '345', unit: '°C', icon: '🌡️' },
-  { label: 'Feed Rate', value: '12.0', unit: 'mm/s', icon: '⏩' },
+  { label: 'Feed Rate', value: '8.0', unit: 'mm/s', icon: '⏩' },
   { label: 'Speed', value: '210', unit: 'mm/s', icon: '⚡' },
 ]
 
@@ -81,6 +82,7 @@ export default function HomePage() {
   const [tipTarget, setTipTarget] = React.useState('345')
   const [isHeaterEnabled, setIsHeaterEnabled] = React.useState(false)
   const [heaterStatus, setHeaterStatus] = React.useState('')
+  const [currentTipTemperature, setCurrentTipTemperature] = React.useState(null)
   const [wireDiameter, setWireDiameter] = React.useState('')
   const [wireFeedStatus, setWireFeedStatus] = React.useState('idle')
   const [wireFeedMessage, setWireFeedMessage] = React.useState('')
@@ -164,8 +166,9 @@ export default function HomePage() {
   const [currentSerialPort, setCurrentSerialPort] = React.useState(null)
   const [serialConnectionError, setSerialConnectionError] = React.useState(null)
 
+  // G-CODE COMMAND HISTORY COMMENTED OUT
   // G-code command history
-  const [gcodeCommands, setGcodeCommands] = React.useState([])
+  // const [gcodeCommands, setGcodeCommands] = React.useState([])
   const wireStatus = React.useMemo(
     () => calibration.find((entry) => entry.label === 'Wire Remaining'),
     [calibration]
@@ -413,6 +416,11 @@ export default function HomePage() {
 
       if (payload.status) {
         setHeaterStatus(payload.status)
+      }
+
+      // Update current temperature from tip state (synced with LcdDisplay)
+      if (payload.current !== undefined) {
+        setCurrentTipTemperature(payload.current)
       }
     }
 
@@ -664,45 +672,46 @@ export default function HomePage() {
     }
   }, [])
 
+  // G-CODE COMMAND MONITORING COMMENTED OUT
   // G-code command monitoring
-  React.useEffect(() => {
-    if (typeof window === 'undefined' || !window.ipc) {
-      return undefined
-    }
+  // React.useEffect(() => {
+  //   if (typeof window === 'undefined' || !window.ipc) {
+  //     return undefined
+  //   }
 
-    const handleGcodeCommand = (data) => {
-      // Command will be added to history by the history handler
-    }
+  //   const handleGcodeCommand = (data) => {
+  //     // Command will be added to history by the history handler
+  //   }
 
-    const handleGcodeResponse = (data) => {
-      // Response will be added to history by the history handler
-    }
+  //   const handleGcodeResponse = (data) => {
+  //     // Response will be added to history by the history handler
+  //   }
 
-    const handleGcodeError = (data) => {
-      // Error will be added to history by the history handler
-    }
+  //   const handleGcodeError = (data) => {
+  //     // Error will be added to history by the history handler
+  //   }
 
-    const handleGcodeHistory = (data) => {
-      if (data.commands) {
-        setGcodeCommands(data.commands)
-      }
-    }
+  //   const handleGcodeHistory = (data) => {
+  //     if (data.commands) {
+  //       setGcodeCommands(data.commands)
+  //     }
+  //   }
 
-    window.ipc.on?.('gcode:command', handleGcodeCommand)
-    window.ipc.on?.('gcode:response', handleGcodeResponse)
-    window.ipc.on?.('gcode:error', handleGcodeError)
-    window.ipc.on?.('gcode:history', handleGcodeHistory)
+  //   window.ipc.on?.('gcode:command', handleGcodeCommand)
+  //   window.ipc.on?.('gcode:response', handleGcodeResponse)
+  //   window.ipc.on?.('gcode:error', handleGcodeError)
+  //   window.ipc.on?.('gcode:history', handleGcodeHistory)
 
-    // Request initial history
-    window.ipc.send?.('gcode:history:request')
+  //   // Request initial history
+  //   window.ipc.send?.('gcode:history:request')
 
-    return () => {
-      window.ipc.off?.('gcode:command', handleGcodeCommand)
-      window.ipc.off?.('gcode:response', handleGcodeResponse)
-      window.ipc.off?.('gcode:error', handleGcodeError)
-      window.ipc.off?.('gcode:history', handleGcodeHistory)
-    }
-  }, [])
+  //   return () => {
+  //     window.ipc.off?.('gcode:command', handleGcodeCommand)
+  //     window.ipc.off?.('gcode:response', handleGcodeResponse)
+  //     window.ipc.off?.('gcode:error', handleGcodeError)
+  //     window.ipc.off?.('gcode:history', handleGcodeHistory)
+  //   }
+  // }, [])
 
   const handleRefreshPorts = React.useCallback(() => {
     if (typeof window === 'undefined' || !window.ipc?.send) {
@@ -1531,7 +1540,7 @@ export default function HomePage() {
             isHeaterEnabled={isHeaterEnabled}
             onToggleHeater={handleToggleHeater}
             heaterStatus={heaterStatus}
-            currentTemperature={calibration.find((entry) => entry.label === 'Tip Temp')?.value}
+            currentTemperature={currentTipTemperature ?? calibration.find((entry) => entry.label === 'Tip Temp')?.value}
           />
 
           <SpoolWireControl
@@ -1677,12 +1686,13 @@ export default function HomePage() {
           />
         </section>
 
-        <section className={styles.gcodeSection} aria-label="G-code command monitor">
+        {/* G-CODE MONITOR SECTION COMMENTED OUT */}
+        {/* <section className={styles.gcodeSection} aria-label="G-code command monitor">
           <GCodeMonitor
             commands={gcodeCommands}
             isConnected={isSerialConnected}
           />
-        </section>
+        </section> */}
 
         <section className={styles.cameraSection} aria-label="Camera view">
           <CameraView isActive={true} />

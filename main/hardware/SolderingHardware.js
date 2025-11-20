@@ -19,13 +19,21 @@ const initialCalibration = [
   { label: 'Wire Remaining', value: 100, unit: '%', length: '14.3 m' },
   { label: 'Flux Remaining', value: 82, unit: '%' },
   { label: 'Tip Temp', value: 345, unit: '°C' },
-  { label: 'Feed Rate', value: '12.0', unit: 'mm/s' },
+  { label: 'Feed Rate', value: '8.0', unit: 'mm/s' },
   { label: 'Flow Rate', value: '1.0', unit: 'mm³/s' },
   { label: 'Speed', value: '210', unit: 'mm/s' },
 ]
 
 const ambientTipTemp = 45
 const maxFluxMl = 120
+
+// Bed size limits (220mm x 220mm)
+const BED_SIZE_X = 220.0 // mm
+const BED_SIZE_Y = 220.0 // mm
+const MIN_POSITION_X = 0.0 // mm
+const MIN_POSITION_Y = 0.0 // mm
+const MAX_POSITION_X = BED_SIZE_X // mm
+const MAX_POSITION_Y = BED_SIZE_Y // mm
 
 const randomIntInclusive = (min, max) => {
   const lower = Math.ceil(min)
@@ -104,6 +112,7 @@ export default class SolderingHardware extends EventEmitter {
       wireFeed: {
         status: 'idle',
         message: 'Ready to feed',
+        currentFeedRate: 8.0, // mm/s - current wire feed rate
         wireBreak: {
           detected: false,
           timestamp: null,
@@ -132,6 +141,8 @@ export default class SolderingHardware extends EventEmitter {
         isFeeding: false,
         lastFeedLength: 0,
         lastUpdated: Date.now(),
+        // Cycle tracking
+        lastCycleWireLengthUsed: 0, // Total wire length used in last complete PCB cycle (mm)
       },
       sequence: {
         stage: 'idle',
@@ -145,6 +156,8 @@ export default class SolderingHardware extends EventEmitter {
         padPositions: [],
         progress: 0,
         error: null,
+        totalWireLengthUsed: 0, // Total wire length used for complete PCB cycle
+        wireLengthPerPad: [], // Array to track wire length used per pad
       },
       position: {
         x: 120.0,
@@ -153,6 +166,11 @@ export default class SolderingHardware extends EventEmitter {
         isMoving: false,
       },
     }
+
+    // Sync Feed Rate calibration with wireFeed state on initialization
+    this._updateCalibration('Feed Rate', {
+      value: this.state.wireFeed.currentFeedRate.toFixed(1),
+    })
   }
 
   async connect(portPath = null) {
@@ -286,6 +304,7 @@ export default class SolderingHardware extends EventEmitter {
       target: this.state.tip.target,
       heater: this.state.tip.heaterEnabled,
       status: this.state.tip.statusMessage,
+      current: Number(this.state.tip.current.toFixed(1)), // Current temperature with 1 decimal for consistency
     }
   }
 
@@ -293,6 +312,7 @@ export default class SolderingHardware extends EventEmitter {
     return {
       status: this.state.wireFeed.status,
       message: this.state.wireFeed.message,
+      currentFeedRate: this.state.wireFeed.currentFeedRate,
       wireBreak: this.state.wireFeed.wireBreak,
     }
   }
@@ -379,7 +399,7 @@ export default class SolderingHardware extends EventEmitter {
   }
 
   getSpoolState() {
-    const { spool } = this.state
+    const { spool, sequence } = this.state
     // Calculate effective spool diameter (core + wire layers)
     // Approximate: assume wire wraps in layers
     const wireRadius = spool.wireDiameter / 2
@@ -425,6 +445,10 @@ export default class SolderingHardware extends EventEmitter {
       initialWeight: spool.initialWeight,
       tareWeight: spool.tareWeight,
       isTared: spool.isTared, // Whether spool has been tared
+      // Cycle tracking
+      lastCycleWireLengthUsed: spool.lastCycleWireLengthUsed || 0, // Total wire length used in last complete PCB cycle (mm)
+      // Feed rate (synced with LcdDisplay)
+      currentFeedRate: this.state.wireFeed.currentFeedRate || 8.0, // Current wire feed rate in mm/s
     }
   }
 
@@ -517,20 +541,15 @@ export default class SolderingHardware extends EventEmitter {
     // This preserves the tare setting even after reset
     this.state.spool.lastUpdated = Date.now()
     
-    // Update wire remaining in calibration
-    const remainingPercentage = (this.state.spool.currentWireLength / this.state.spool.initialWireLength) * 100
-    const remainingLength = this.state.spool.currentWireLength / 1000 // convert to meters
-    this._updateCalibration('Wire Remaining', {
-      value: Math.round(remainingPercentage),
-      length: `${remainingLength.toFixed(1)} m`,
-    })
+    // Update wire remaining in calibration (uses same method for consistency)
+    this._updateWireRemainingDisplay()
     
     this.emit('spool', this.getSpoolState())
     return { status: 'Spool reset to initial state' }
   }
 
   getSequenceState() {
-    const { stage, isActive, isPaused, lastCompleted, currentPad, totalPads, progress, error } = this.state.sequence
+    const { stage, isActive, isPaused, lastCompleted, currentPad, totalPads, progress, error, totalWireLengthUsed, wireLengthPerPad } = this.state.sequence
     return { 
       stage, 
       isActive, 
@@ -540,6 +559,8 @@ export default class SolderingHardware extends EventEmitter {
       totalPads,
       progress,
       error,
+      totalWireLengthUsed: totalWireLengthUsed || 0,
+      wireLengthPerPad: wireLengthPerPad || [],
     }
   }
 
@@ -564,6 +585,30 @@ export default class SolderingHardware extends EventEmitter {
     }
 
     const step = direction > 0 ? stepSize : -stepSize
+    
+    // Calculate new position
+    const currentPos = this.state.position[axisKey]
+    const newPos = currentPos + step
+    
+    // Boundary checking for X and Y axes (bed size limits)
+    if (axisKey === 'x') {
+      if (newPos < MIN_POSITION_X) {
+        return { error: `Cannot move X axis below ${MIN_POSITION_X}mm (bed limit)` }
+      }
+      if (newPos > MAX_POSITION_X) {
+        return { error: `Cannot move X axis above ${MAX_POSITION_X}mm (bed limit)` }
+      }
+    }
+    
+    if (axisKey === 'y') {
+      if (newPos < MIN_POSITION_Y) {
+        return { error: `Cannot move Y axis below ${MIN_POSITION_Y}mm (bed limit)` }
+      }
+      if (newPos > MAX_POSITION_Y) {
+        return { error: `Cannot move Y axis above ${MAX_POSITION_Y}mm (bed limit)` }
+      }
+    }
+    
     this.state.position.isMoving = true
     this.emit('position:update', this.getPosition())
 
@@ -1145,7 +1190,7 @@ export default class SolderingHardware extends EventEmitter {
     return { status: this.state.tip.statusMessage }
   }
 
-  async startWireFeed(length, rate) {
+  async startWireFeed(length, rate, skipWireRemainingUpdate = false) {
     const lengthNumeric = Number.parseFloat(length)
     const rateNumeric = Number.parseFloat(rate)
 
@@ -1176,8 +1221,15 @@ export default class SolderingHardware extends EventEmitter {
 
     this.state.wireFeed.status = 'feeding'
     this.state.wireFeed.message = `Feeding ${lengthNumeric.toFixed(1)} mm at ${rateNumeric.toFixed(1)} mm/s`
+    this.state.wireFeed.currentFeedRate = rateNumeric // Store current feed rate
     this.state.spool.isFeeding = true
     this.state.spool.lastFeedLength = lengthNumeric
+    
+    // Update calibration display (LCD) - sync feed rate
+    this._updateCalibration('Feed Rate', {
+      value: rateNumeric.toFixed(1), // 1 decimal for consistency
+    })
+    
     this.emit('wireFeed', this.getWireFeedStatus())
     this.emit('spool', this.getSpoolState())
 
@@ -1230,7 +1282,7 @@ export default class SolderingHardware extends EventEmitter {
           }
           
           // Update spool state after feed completes
-          this._updateSpoolAfterFeed(lengthNumeric, rotationsNeeded)
+          this._updateSpoolAfterFeed(lengthNumeric, rotationsNeeded, skipWireRemainingUpdate)
           
           this.state.wireFeed.status = 'completed'
           this.state.wireFeed.message = `Completed feed of ${lengthNumeric.toFixed(1)} mm`
@@ -1287,7 +1339,7 @@ export default class SolderingHardware extends EventEmitter {
         }
         
         // Update spool state after feed completes
-        this._updateSpoolAfterFeed(lengthNumeric, rotationsNeeded)
+        this._updateSpoolAfterFeed(lengthNumeric, rotationsNeeded, skipWireRemainingUpdate)
         
         this.state.wireFeed.status = 'completed'
         this.state.wireFeed.message = `Completed feed of ${lengthNumeric.toFixed(1)} mm`
@@ -1303,28 +1355,68 @@ export default class SolderingHardware extends EventEmitter {
     return { status: this.state.wireFeed.message }
   }
 
-  _updateSpoolAfterFeed(feedLength, rotations) {
+  _updateSpoolAfterFeed(feedLength, rotations, skipWireRemainingUpdate = false) {
+    const { spool } = this.state
+    
+    // Update wire remaining (skip during sequence - will update after complete cycle)
+    if (!skipWireRemainingUpdate) {
+      spool.currentWireLength = Math.max(0, spool.currentWireLength - feedLength)
+      // Update weight (recalculate from current length)
+      spool.currentWeight = this._calculateWireWeight(spool.currentWireLength)
+      // Update wire remaining in calibration display
+      this._updateWireRemainingDisplay()
+    }
+    // Note: During sequence, we skip updating currentWireLength here
+    // It will be updated once after complete cycle in _updateSpoolAfterCompleteCycle
+    
+    // Update rotation tracking (always update, even during sequence)
+    spool.totalRotations += rotations
+    spool.currentRotation = (spool.currentRotation + (rotations * 360)) % 360
+    
+    spool.lastUpdated = Date.now()
+  }
+
+  /**
+   * Update wire remaining after complete PCB cycle
+   * @param {number} totalWireLengthUsed - Total wire length used in mm for complete cycle
+   */
+  _updateSpoolAfterCompleteCycle(totalWireLengthUsed) {
     const { spool } = this.state
     
     // Update wire remaining
-    spool.currentWireLength = Math.max(0, spool.currentWireLength - feedLength)
+    spool.currentWireLength = Math.max(0, spool.currentWireLength - totalWireLengthUsed)
     
     // Update weight (recalculate from current length)
     spool.currentWeight = this._calculateWireWeight(spool.currentWireLength)
     
-    // Update rotation tracking
-    spool.totalRotations += rotations
-    spool.currentRotation = (spool.currentRotation + (rotations * 360)) % 360
+    // Update wire remaining in calibration display (LCD)
+    this._updateWireRemainingDisplay()
     
-    // Update wire remaining in calibration display
-    const remainingPercentage = (spool.currentWireLength / spool.initialWireLength) * 100
-    const remainingLength = spool.currentWireLength / 1000 // convert to meters
-    this._updateCalibration('Wire Remaining', {
-      value: Math.round(remainingPercentage),
-      length: `${remainingLength.toFixed(1)} m`,
-    })
+    // Store total wire length used for this cycle
+    spool.lastCycleWireLengthUsed = totalWireLengthUsed
     
     spool.lastUpdated = Date.now()
+    
+    // Emit spool update
+    this.emit('spool', this.getSpoolState())
+  }
+
+  /**
+   * Update wire remaining display in calibration (LCD)
+   * Uses same calculation and formatting as getSpoolState() for consistency
+   */
+  _updateWireRemainingDisplay() {
+    const { spool } = this.state
+    // Use exact same calculation as getSpoolState() for consistency
+    const remainingPercentage = (spool.currentWireLength / spool.initialWireLength) * 100
+    const clampedPercentage = Math.max(0, Math.min(100, remainingPercentage))
+    const remainingLength = spool.currentWireLength / 1000 // convert to meters
+    
+    // Format to match SpoolWireControl display (1 decimal for percentage, 2 decimals for length)
+    this._updateCalibration('Wire Remaining', {
+      value: clampedPercentage.toFixed(1), // 1 decimal to match SpoolWireControl
+      length: `${remainingLength.toFixed(2)} m`, // 2 decimals to match SpoolWireControl
+    })
   }
 
   handleWireAlert(payload) {
@@ -1360,6 +1452,8 @@ export default class SolderingHardware extends EventEmitter {
     this.state.sequence.error = null
     this.state.sequence.stage = 'idle'
     this.state.sequence.wireLength = options.wireLength || null // Store wire length for dispense stage
+    this.state.sequence.totalWireLengthUsed = 0 // Reset total wire length for new cycle
+    this.state.sequence.wireLengthPerPad = [] // Reset wire length per pad tracking
 
     this.emit('sequence', this.getSequenceState())
 
@@ -1442,6 +1536,11 @@ export default class SolderingHardware extends EventEmitter {
       sequence.stage = 'idle'
       sequence.lastCompleted = 'All pads complete'
       sequence.progress = 100
+      
+      // Update spool with total wire length used for complete PCB cycle
+      if (sequence.totalWireLengthUsed > 0) {
+        this._updateSpoolAfterCompleteCycle(sequence.totalWireLengthUsed)
+      }
       
       // Deactivate fume extractor if auto mode is enabled
       if (this.state.fumeExtractor.autoMode && this.state.fumeExtractor.enabled) {
@@ -1538,8 +1637,18 @@ export default class SolderingHardware extends EventEmitter {
         if (this.state.sequence.wireLength) {
           wireLength = this.state.sequence.wireLength
         }
+        
+        // Track wire length used for this pad (for complete cycle tracking)
+        const currentPadIndex = this.state.sequence.currentPad
+        if (!this.state.sequence.wireLengthPerPad[currentPadIndex]) {
+          this.state.sequence.wireLengthPerPad[currentPadIndex] = 0
+        }
+        this.state.sequence.wireLengthPerPad[currentPadIndex] += wireLength
+        this.state.sequence.totalWireLengthUsed += wireLength
+        
         const feedRate = 8.0 // mm/s
-        await this.startWireFeed(wireLength, feedRate)
+        // During sequence, skip wire remaining update (will update after complete cycle)
+        await this.startWireFeed(wireLength, feedRate, true) // Pass true to skip wire remaining update
         // Wait for wire feed to complete
         while (this.state.wireFeed.status === 'feeding') {
           await new Promise(resolve => setTimeout(resolve, 100))
@@ -1576,12 +1685,26 @@ export default class SolderingHardware extends EventEmitter {
    * Move to absolute position
    */
   async _moveToPosition(x, y, z) {
+    // Boundary checking for X and Y axes (bed size limits)
+    if (x !== null && x !== undefined) {
+      if (x < MIN_POSITION_X || x > MAX_POSITION_X) {
+        throw new Error(`X position ${x}mm is outside bed range (${MIN_POSITION_X}-${MAX_POSITION_X}mm)`)
+      }
+    }
+    
+    if (y !== null && y !== undefined) {
+      if (y < MIN_POSITION_Y || y > MAX_POSITION_Y) {
+        throw new Error(`Y position ${y}mm is outside bed range (${MIN_POSITION_Y}-${MAX_POSITION_Y}mm)`)
+      }
+    }
+    
     if (this.mode === 'hardware' && this.commandProtocol) {
       try {
         await this.commandProtocol.moveTo(x, y, z)
-        this.state.position.x = x
-        this.state.position.y = y
-        this.state.position.z = z
+        // Update position only if within bounds (don't update if null/undefined)
+        if (x !== null && x !== undefined) this.state.position.x = x
+        if (y !== null && y !== undefined) this.state.position.y = y
+        if (z !== null && z !== undefined) this.state.position.z = z
         this.emit('position:update', this.getPosition())
       } catch (error) {
         throw new Error(`Movement failed: ${error.message}`)
@@ -1593,9 +1716,10 @@ export default class SolderingHardware extends EventEmitter {
       
       await new Promise(resolve => setTimeout(resolve, 500)) // Simulate movement time
       
-      this.state.position.x = x
-      this.state.position.y = y
-      this.state.position.z = z
+      // Update position only if within bounds (don't update if null/undefined)
+      if (x !== null && x !== undefined) this.state.position.x = x
+      if (y !== null && y !== undefined) this.state.position.y = y
+      if (z !== null && z !== undefined) this.state.position.z = z
       this.state.position.isMoving = false
       this.emit('position:update', this.getPosition())
     }
@@ -1697,8 +1821,10 @@ export default class SolderingHardware extends EventEmitter {
 
       const step = Math.max(0.2, Math.min(6, Math.abs(delta) / 5))
       this.state.tip.current = current + Math.sign(delta) * step
+      
+      // Update calibration display (LCD) - uses same formatting for consistency
       this._updateCalibration('Tip Temp', {
-        value: Number(this.state.tip.current.toFixed(1)),
+        value: Number(this.state.tip.current.toFixed(1)), // 1 decimal to match TipHeatingControl
       })
 
       if (heaterEnabled) {
@@ -1706,6 +1832,8 @@ export default class SolderingHardware extends EventEmitter {
       } else {
         this.state.tip.statusMessage = `Cooling to ${ambientTipTemp.toFixed(0)}°C`
       }
+      
+      // Emit tip update (TipHeatingControl) - both components now show same values
       this.emit('tip', this.getTipStatus())
     }, 1500)
 
@@ -1729,21 +1857,33 @@ export default class SolderingHardware extends EventEmitter {
 
     // Wire remaining depletion
     this._registerInterval(() => {
-      const entry = this.state.calibration.find((item) => item.label === 'Wire Remaining')
-      if (!entry) {
+      const { spool } = this.state
+      // Only simulate if there's wire remaining
+      if (spool.currentWireLength <= 0 || spool.initialWireLength <= 0) {
         return
       }
 
-      const numeric = Number.parseFloat(entry.value)
-      if (!Number.isFinite(numeric)) {
-        return
-      }
-
+      // Randomly decrease wire by 0 or 1% (simulating usage)
       const drop = Math.random() < 0.5 ? 0 : 1
-      const next = Math.max(0, numeric - drop)
-      if (next !== numeric) {
-        this._updateCalibration('Wire Remaining', { value: next })
+      if (drop === 0) {
+        return // No change this cycle
       }
+
+      // Calculate length change based on percentage drop
+      const percentageDrop = 1 // 1% drop
+      const lengthChange = (percentageDrop / 100) * spool.initialWireLength
+      const newLength = Math.max(0, spool.currentWireLength - lengthChange)
+      
+      // Update the source of truth (spool state)
+      spool.currentWireLength = newLength
+      spool.currentWeight = this._calculateWireWeight(spool.currentWireLength)
+      spool.lastUpdated = Date.now()
+      
+      // Update calibration display (LCD) - uses same calculation for consistency
+      this._updateWireRemainingDisplay()
+      
+      // Emit spool update (SpoolWireControl) - both components now show same values
+      this.emit('spool', this.getSpoolState())
     }, 12000)
   }
 
@@ -1771,9 +1911,16 @@ export default class SolderingHardware extends EventEmitter {
     // Handle Marlin position updates (M114 response)
     this.serialManager.on('position', (position) => {
       if (position) {
-        this.state.position.x = position.x || this.state.position.x
-        this.state.position.y = position.y || this.state.position.y
-        this.state.position.z = position.z || this.state.position.z
+        // Clamp X and Y positions to bed boundaries
+        if (position.x !== undefined && position.x !== null) {
+          this.state.position.x = Math.max(MIN_POSITION_X, Math.min(MAX_POSITION_X, position.x))
+        }
+        if (position.y !== undefined && position.y !== null) {
+          this.state.position.y = Math.max(MIN_POSITION_Y, Math.min(MAX_POSITION_Y, position.y))
+        }
+        if (position.z !== undefined && position.z !== null) {
+          this.state.position.z = position.z
+        }
 
         this._updateCalibrationEntry('X Axis', {
           value: `${this.state.position.x.toFixed(2)}`,
@@ -1793,9 +1940,11 @@ export default class SolderingHardware extends EventEmitter {
     this.serialManager.on('temperature', (temp) => {
       if (temp && temp.hotend) {
         this.state.tip.current = temp.hotend.current || this.state.tip.current
+        // Update calibration display (LCD) - uses same formatting for consistency
         this._updateCalibrationEntry('Tip Temp', {
-          value: Number(this.state.tip.current.toFixed(1)),
+          value: Number(this.state.tip.current.toFixed(1)), // 1 decimal to match TipHeatingControl
         })
+        // Emit tip update (TipHeatingControl) - both components now show same values
         this.emit('tip', this.getTipStatus())
       }
     })
@@ -1804,9 +1953,16 @@ export default class SolderingHardware extends EventEmitter {
     this.serialManager.on('status', (status) => {
       // Update position from hardware status
       if (status.position) {
-        this.state.position.x = status.position.x
-        this.state.position.y = status.position.y
-        this.state.position.z = status.position.z
+        // Clamp X and Y positions to bed boundaries
+        if (status.position.x !== undefined && status.position.x !== null) {
+          this.state.position.x = Math.max(MIN_POSITION_X, Math.min(MAX_POSITION_X, status.position.x))
+        }
+        if (status.position.y !== undefined && status.position.y !== null) {
+          this.state.position.y = Math.max(MIN_POSITION_Y, Math.min(MAX_POSITION_Y, status.position.y))
+        }
+        if (status.position.z !== undefined && status.position.z !== null) {
+          this.state.position.z = status.position.z
+        }
         this.state.position.isMoving = status.state !== 'Idle' && status.state !== 'Hold'
 
         this._updateCalibrationEntry('X Axis', {
@@ -1828,35 +1984,36 @@ export default class SolderingHardware extends EventEmitter {
       console.log('[Serial]', line)
     })
 
+    // G-CODE EVENT FORWARDING COMMENTED OUT
     // Forward G-code command events to hardware events
-    this.serialManager.on('command:sent', (data) => {
-      this.emit('gcode:command', {
-        ...data,
-        status: 'sent',
-      })
-    })
+    // this.serialManager.on('command:sent', (data) => {
+    //   this.emit('gcode:command', {
+    //     ...data,
+    //     status: 'sent',
+    //   })
+    // })
 
-    this.serialManager.on('command:received', (data) => {
-      this.emit('gcode:response', {
-        ...data,
-        status: 'received',
-      })
-    })
+    // this.serialManager.on('command:received', (data) => {
+    //   this.emit('gcode:response', {
+    //     ...data,
+    //     status: 'received',
+    //   })
+    // })
 
-    this.serialManager.on('command:error', (data) => {
-      this.emit('gcode:error', {
-        ...data,
-        status: 'error',
-      })
-    })
+    // this.serialManager.on('command:error', (data) => {
+    //   this.emit('gcode:error', {
+    //     ...data,
+    //     status: 'error',
+    //   })
+    // })
 
-    this.serialManager.on('command:timeout', (data) => {
-      this.emit('gcode:error', {
-        ...data,
-        status: 'error',
-        error: 'Command timeout',
-      })
-    })
+    // this.serialManager.on('command:timeout', (data) => {
+    //   this.emit('gcode:error', {
+    //     ...data,
+    //     status: 'error',
+    //     error: 'Command timeout',
+    //   })
+    // })
   }
 
   _startHardwareStatusPolling() {

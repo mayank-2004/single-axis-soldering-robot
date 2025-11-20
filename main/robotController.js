@@ -466,94 +466,96 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
     sendToRenderer('serial:error', { type, error })
   })
 
+  // G-CODE COMMAND MONITORING COMMENTED OUT
   // G-code command monitoring
-  registerHardwareListener('gcode:command', (data) => {
-    sendToRenderer('gcode:command', data)
-  })
+  // registerHardwareListener('gcode:command', (data) => {
+  //   sendToRenderer('gcode:command', data)
+  // })
 
-  registerHardwareListener('gcode:response', (data) => {
-    sendToRenderer('gcode:response', data)
-  })
+  // registerHardwareListener('gcode:response', (data) => {
+  //   sendToRenderer('gcode:response', data)
+  // })
 
-  registerHardwareListener('gcode:error', (data) => {
-    sendToRenderer('gcode:error', data)
-  })
+  // registerHardwareListener('gcode:error', (data) => {
+  //   sendToRenderer('gcode:error', data)
+  // })
 
+  // G-CODE COMMAND MANAGEMENT COMMENTED OUT
   // G-code command management
-  let gcodeHistory = []
-  const maxHistorySize = 100
+  // let gcodeHistory = []
+  // const maxHistorySize = 100
 
-  registerIpcListener('gcode:clear', (event) => {
-    gcodeHistory = []
-    event.sender.send('gcode:history', { commands: [] })
-  })
+  // registerIpcListener('gcode:clear', (event) => {
+  //   gcodeHistory = []
+  //   event.sender.send('gcode:history', { commands: [] })
+  // })
 
-  registerIpcListener('gcode:history:request', (event) => {
-    event.sender.send('gcode:history', { commands: gcodeHistory })
-  })
+  // registerIpcListener('gcode:history:request', (event) => {
+  //   event.sender.send('gcode:history', { commands: gcodeHistory })
+  // })
 
   // Helper to add command to history
-  const addGcodeToHistory = (data) => {
-    // Update existing entry if it's a response/error for a sent command
-    if (data.status === 'received' || data.status === 'error') {
-      // Try to find matching command by command text
-      if (data.command) {
-        // Find the most recent sent command matching this command text
-        for (let i = gcodeHistory.length - 1; i >= 0; i--) {
-          const entry = gcodeHistory[i]
-          if (entry.status === 'sent' && entry.command === data.command) {
-            entry.status = data.status
-            entry.response = data.response || null
-            entry.error = data.error || null
-            sendToRenderer('gcode:history', { commands: gcodeHistory })
-            return
-          }
-        }
-      }
-      
-      // Fallback: update last sent command if no match found
-      const lastCommand = gcodeHistory[gcodeHistory.length - 1]
-      if (lastCommand && lastCommand.status === 'sent') {
-        lastCommand.status = data.status
-        lastCommand.response = data.response || null
-        lastCommand.error = data.error || null
-        sendToRenderer('gcode:history', { commands: gcodeHistory })
-        return
-      }
-    }
+  // const addGcodeToHistory = (data) => {
+  //   // Update existing entry if it's a response/error for a sent command
+  //   if (data.status === 'received' || data.status === 'error') {
+  //     // Try to find matching command by command text
+  //     if (data.command) {
+  //       // Find the most recent sent command matching this command text
+  //       for (let i = gcodeHistory.length - 1; i >= 0; i--) {
+  //         const entry = gcodeHistory[i]
+  //         if (entry.status === 'sent' && entry.command === data.command) {
+  //           entry.status = data.status
+  //           entry.response = data.response || null
+  //           entry.error = data.error || null
+  //           sendToRenderer('gcode:history', { commands: gcodeHistory })
+  //           return
+  //         }
+  //       }
+  //     }
+  //     
+  //     // Fallback: update last sent command if no match found
+  //     const lastCommand = gcodeHistory[gcodeHistory.length - 1]
+  //     if (lastCommand && lastCommand.status === 'sent') {
+  //       lastCommand.status = data.status
+  //       lastCommand.response = data.response || null
+  //       lastCommand.error = data.error || null
+  //       sendToRenderer('gcode:history', { commands: gcodeHistory })
+  //       return
+  //     }
+  //   }
 
-    // Add new command entry
-    const commandEntry = {
-      id: Date.now() + Math.random(),
-      command: data.command || data.response || data.error || 'Unknown',
-      status: data.status || 'sent',
-      timestamp: data.timestamp || Date.now(),
-      response: data.response || null,
-      error: data.error || null,
-    }
+  //   // Add new command entry
+  //   const commandEntry = {
+  //     id: Date.now() + Math.random(),
+  //     command: data.command || data.response || data.error || 'Unknown',
+  //     status: data.status || 'sent',
+  //     timestamp: data.timestamp || Date.now(),
+  //     response: data.response || null,
+  //     error: data.error || null,
+  //   }
 
-    gcodeHistory.push(commandEntry)
+  //   gcodeHistory.push(commandEntry)
 
-    // Limit history size
-    if (gcodeHistory.length > maxHistorySize) {
-      gcodeHistory.shift()
-    }
+  //   // Limit history size
+  //   if (gcodeHistory.length > maxHistorySize) {
+  //     gcodeHistory.shift()
+  //   }
 
-    sendToRenderer('gcode:history', { commands: gcodeHistory })
-  }
+  //   sendToRenderer('gcode:history', { commands: gcodeHistory })
+  // }
 
   // Listen for G-code events and add to history
-  registerHardwareListener('gcode:command', (data) => {
-    addGcodeToHistory(data)
-  })
+  // registerHardwareListener('gcode:command', (data) => {
+  //   addGcodeToHistory(data)
+  // })
 
-  registerHardwareListener('gcode:response', (data) => {
-    addGcodeToHistory(data)
-  })
+  // registerHardwareListener('gcode:response', (data) => {
+  //   addGcodeToHistory(data)
+  // })
 
-  registerHardwareListener('gcode:error', (data) => {
-    addGcodeToHistory(data)
-  })
+  // registerHardwareListener('gcode:error', (data) => {
+  //   addGcodeToHistory(data)
+  // })
 
   // Start in simulation mode (no serial connection yet)
   // User will connect via UI, which will establish serial connection

@@ -17,6 +17,8 @@ export default function SpoolWireControl({
     netWeight,
     initialWeight,
     isTared,
+    lastCycleWireLengthUsed,
+    currentFeedRate,
   } = spoolState || {}
 
   const [localWireDiameter, setLocalWireDiameter] = React.useState(wireDiameter?.toString() || '0.5')
@@ -89,6 +91,17 @@ export default function SpoolWireControl({
           <div className={styles.divider} />
 
           <div className={styles.statusRow}>
+            <span className={styles.statusLabel}>Feed Rate</span>
+            <div className={styles.statusValueGroup}>
+              <span className={styles.statusValue}>
+                {currentFeedRate !== undefined ? `${currentFeedRate.toFixed(1)}` : '--'} mm/s
+              </span>
+            </div>
+          </div>
+
+          <div className={styles.divider} />
+
+          <div className={styles.statusRow}>
             <span className={styles.statusLabel}>Wire Weight (Remaining)</span>
             <div className={styles.statusValueGroup}>
               <span className={styles.statusValue}>
@@ -121,6 +134,23 @@ export default function SpoolWireControl({
                 <span className={styles.statusValue} style={{ color: '#94a3b8' }}>
                   {initialWeight !== undefined ? `${initialWeight.toFixed(2)}` : '0.00'} g
                 </span>
+              </div>
+            </>
+          )}
+
+          {lastCycleWireLengthUsed !== undefined && lastCycleWireLengthUsed > 0 && (
+            <>
+              <div className={styles.divider} />
+              <div className={styles.statusRow}>
+                <span className={styles.statusLabel}>Wire Used (Last Cycle)</span>
+                <div className={styles.statusValueGroup}>
+                  <span className={styles.statusValue} style={{ color: '#f59e0b' }}>
+                    {lastCycleWireLengthUsed.toFixed(2)} mm
+                  </span>
+                  <span className={styles.statusSubValue} style={{ color: '#f59e0b' }}>
+                    ({(lastCycleWireLengthUsed / 1000).toFixed(3)} m)
+                  </span>
+                </div>
               </div>
             </>
           )}
