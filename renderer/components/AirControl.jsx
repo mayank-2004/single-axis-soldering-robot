@@ -156,7 +156,8 @@ export default function AirControl({
               )}
             </div>
 
-            <div className={styles.controlRow}>
+            {/* Input fields commented out - values received from Arduino */}
+            {/* <div className={styles.controlRow}>
               <label htmlFor="jet-duration" className={styles.controlLabel}>
                 Duration
               </label>
@@ -208,6 +209,16 @@ export default function AirControl({
                 />
                 <span className={styles.controlUnit}>%</span>
               </div>
+            </div> */}
+            
+            {/* Display only - values received from Arduino */}
+            <div className={styles.controlRow}>
+              <span className={styles.controlLabel}>Duration</span>
+              <span className={styles.controlValue}>{airJetDuration ?? '--'} ms</span>
+            </div>
+            <div className={styles.controlRow}>
+              <span className={styles.controlLabel}>Pressure</span>
+              <span className={styles.controlValue}>{airJetPressure ?? '--'} %</span>
             </div>
 
             <div className={styles.controlRow}>
@@ -302,7 +313,8 @@ export default function AirControl({
               )}
             </div>
 
-            <div className={styles.controlRow}>
+            {/* Input fields commented out - values received from Arduino */}
+            {/* <div className={styles.controlRow}>
               <label htmlFor="breeze-duration" className={styles.controlLabel}>
                 Duration
               </label>
@@ -354,6 +366,16 @@ export default function AirControl({
                 />
                 <span className={styles.controlUnit}>%</span>
               </div>
+            </div> */}
+            
+            {/* Display only - values received from Arduino */}
+            <div className={styles.controlRow}>
+              <span className={styles.controlLabel}>Duration</span>
+              <span className={styles.controlValue}>{airBreezeDuration ?? '--'} ms</span>
+            </div>
+            <div className={styles.controlRow}>
+              <span className={styles.controlLabel}>Intensity</span>
+              <span className={styles.controlValue}>{airBreezeIntensity ?? '--'} %</span>
             </div>
 
             <div className={styles.controlRow}>

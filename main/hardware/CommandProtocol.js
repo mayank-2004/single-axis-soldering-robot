@@ -20,28 +20,10 @@ export default class CommandProtocol {
    * G0 is rapid move, G1 is linear move with feedrate
    */
   async moveTo(x, y, z, feedrate = null) {
-    // Bed size limits (220mm x 220mm)
-    const MIN_POSITION_X = 0.0
-    const MIN_POSITION_Y = 0.0
-    const MAX_POSITION_X = 220.0
-    const MAX_POSITION_Y = 220.0
-    
-    // Boundary checking for X and Y axes (bed size limits)
-    if (x !== null && x !== undefined) {
-      if (x < MIN_POSITION_X || x > MAX_POSITION_X) {
-        throw new Error(`X position ${x}mm is outside bed range (${MIN_POSITION_X}-${MAX_POSITION_X}mm)`)
-      }
-    }
-    
-    if (y !== null && y !== undefined) {
-      if (y < MIN_POSITION_Y || y > MAX_POSITION_Y) {
-        throw new Error(`Y position ${y}mm is outside bed range (${MIN_POSITION_Y}-${MAX_POSITION_Y}mm)`)
-      }
-    }
-    
+    // Single-axis machine: only Z-axis movement is supported
+    // X and Y positions are ignored (PCB is moved manually)
     const commands = []
-    if (x !== null && x !== undefined) commands.push(`X${x.toFixed(3)}`)
-    if (y !== null && y !== undefined) commands.push(`Y${y.toFixed(3)}`)
+    // X and Y commands are not included (machine doesn't move X/Y)
     if (z !== null && z !== undefined) commands.push(`Z${z.toFixed(3)}`)
     
     // In Marlin, G0 and G1 are equivalent, but G1 with feedrate is more explicit

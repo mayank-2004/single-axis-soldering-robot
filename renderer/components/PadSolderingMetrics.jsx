@@ -10,10 +10,14 @@ export default function PadSolderingMetrics({
   wireUsed,
   stepsMoved,
   volumePerMm,
+  padCategory,
+  compensatedTemperature,
+  baseTemperature,
   onShapeChange,
   onDimensionChange,
   onSolderHeightChange,
   onCalculate,
+  onApplyCompensatedTemperature,
   isCalculating,
 }) {
   const renderShapeInputs = () => {
@@ -300,6 +304,43 @@ export default function PadSolderingMetrics({
                   {stepsMoved.toFixed(0)} steps
                 </span>
               </div>
+            )}
+          </div>
+        )}
+
+        {/* Thermal Mass Compensation Display */}
+        {padCategory && compensatedTemperature !== null && (
+          <div className={styles.thermalCompensationContainer}>
+            <div className={styles.thermalHeader}>
+              <span className={styles.thermalTitle}>Thermal Mass Compensation</span>
+              <span className={`${styles.padCategory} ${styles[`padCategory${padCategory.charAt(0).toUpperCase() + padCategory.slice(1)}`]}`}>
+                {padCategory.toUpperCase()}
+              </span>
+            </div>
+            <div className={styles.thermalDetails}>
+              <div className={styles.thermalRow}>
+                <span className={styles.thermalLabel}>Base Temperature:</span>
+                <span className={styles.thermalValue}>{baseTemperature}°C</span>
+              </div>
+              <div className={styles.thermalRow}>
+                <span className={styles.thermalLabel}>Compensated Temperature:</span>
+                <span className={styles.thermalValueHighlight}>{compensatedTemperature}°C</span>
+              </div>
+              <div className={styles.thermalRow}>
+                <span className={styles.thermalLabel}>Compensation:</span>
+                <span className={styles.thermalValue}>
+                  +{compensatedTemperature - baseTemperature}°C
+                </span>
+              </div>
+            </div>
+            {onApplyCompensatedTemperature && (
+              <button
+                type="button"
+                className={styles.applyTemperatureButton}
+                onClick={onApplyCompensatedTemperature}
+              >
+                Apply {compensatedTemperature}°C to Tip
+              </button>
             )}
           </div>
         )}

@@ -17,7 +17,8 @@ export default function WireFeedControl({
         <span className={styles.controlSubtitle}>Advance solder wire automatically</span>
       </header>
       <div className={styles.controlBody}>
-        <div className={styles.controlRow}>
+        {/* Input field commented out - value received from Arduino */}
+        {/* <div className={styles.controlRow}>
           <label htmlFor="wire-diameter" className={styles.controlLabel}>
             Wire Diameter
           </label>
@@ -36,6 +37,12 @@ export default function WireFeedControl({
             />
             <span className={styles.controlUnit}>mm</span>
           </div>
+        </div> */}
+        
+        {/* Display only - value received from Arduino */}
+        <div className={styles.controlRow}>
+          <span className={styles.controlLabel}>Wire Diameter</span>
+          <span className={styles.controlValue}>{wireDiameter ?? '--'} mm</span>
         </div>
         {volumePerMm !== null && volumePerMm > 0 && (
           <div className={styles.volumeDisplay}>

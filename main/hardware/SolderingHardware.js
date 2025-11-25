@@ -3,18 +3,13 @@ import SerialPortManager from './SerialPortManager.js'
 import CommandProtocol from './CommandProtocol.js'
 
 const sequenceStages = [
-  { name: 'Positioning X axis', action: 'moveX' },
-  { name: 'Positioning Y axis', action: 'moveY' },
   { name: 'Lowering Z axis', action: 'lowerZ' },
   { name: 'Dispensing solder', action: 'dispense' },
   { name: 'Cleaning tip', action: 'cleanTip' },
   { name: 'Retracting head', action: 'retract' },
-  { name: 'Advancing to next pad', action: 'advance' },
 ]
 
 const initialCalibration = [
-  { label: 'X Axis', value: '120.00 → 132.50', unit: 'mm' },
-  { label: 'Y Axis', value: '045.30 → 048.10', unit: 'mm' },
   { label: 'Z Axis', value: '003.20 → 000.00', unit: 'mm' },
   { label: 'Wire Remaining', value: 100, unit: '%', length: '14.3 m' },
   { label: 'Flux Remaining', value: 82, unit: '%' },
@@ -26,14 +21,6 @@ const initialCalibration = [
 
 const ambientTipTemp = 45
 const maxFluxMl = 120
-
-// Bed size limits (220mm x 220mm)
-const BED_SIZE_X = 220.0 // mm
-const BED_SIZE_Y = 220.0 // mm
-const MIN_POSITION_X = 0.0 // mm
-const MIN_POSITION_Y = 0.0 // mm
-const MAX_POSITION_X = BED_SIZE_X // mm
-const MAX_POSITION_Y = BED_SIZE_Y // mm
 
 const randomIntInclusive = (min, max) => {
   const lower = Math.ceil(min)
@@ -160,9 +147,7 @@ export default class SolderingHardware extends EventEmitter {
         wireLengthPerPad: [], // Array to track wire length used per pad
       },
       position: {
-        x: 120.0,
-        y: 45.3,
-        z: 3.2,
+        z: 3.2,  // Single-axis machine: only Z-axis position
         isMoving: false,
       },
     }
@@ -406,23 +391,50 @@ export default class SolderingHardware extends EventEmitter {
     const layers = Math.floor((spool.initialWireLength - spool.currentWireLength) / (Math.PI * spool.spoolDiameter))
     const effectiveDiameter = spool.spoolDiameter + (layers * 2 * wireRadius)
     
-    // Calculate remaining percentage
-    const remainingPercentage = (spool.currentWireLength / spool.initialWireLength) * 100
+    // Calculate remaining percentage from wire length
+    let remainingPercentage = 0
+    if (spool.initialWireLength > 0) {
+      remainingPercentage = (spool.currentWireLength / spool.initialWireLength) * 100
+    }
+    remainingPercentage = Math.max(0, Math.min(100, remainingPercentage))
     const remainingLength = spool.currentWireLength
     
-    // Calculate current wire weight
+    // Calculate current wire weight from length
     const calculatedWeight = this._calculateWireWeight(spool.currentWireLength)
     // Net weight = calculated weight - tare weight
     // When tared with machine parts but no wire, tareWeight = machine parts weight
     // So netWeight shows only wire weight (excludes machine parts)
-    // As wire is loaded, netWeight increases (positive)
-    // As wire is used, netWeight decreases (but stays positive until empty)
-    const netWeight = calculatedWeight - spool.tareWeight
+    const netWeightFromLength = calculatedWeight - spool.tareWeight
+    
+    // Synchronize: If initialWeight is set, use it to sync percentage and weight
+    // Priority: Use weight from Arduino/sensor if available, otherwise calculate from length
+    let netWeight = netWeightFromLength
+    
+    // If initialWeight is set (wire loaded after taring), sync weight and percentage
+    if (spool.initialWeight > 0) {
+      // Calculate netWeight from remaining percentage to ensure sync
+      // netWeight = initialWeight * (remainingPercentage / 100)
+      const syncedNetWeight = spool.initialWeight * (remainingPercentage / 100)
+      // Use synced weight if we have initial weight
+      netWeight = Math.max(0, syncedNetWeight)
+      
+      // Ensure netWeight never exceeds initialWeight
+      if (netWeight > spool.initialWeight) {
+        netWeight = spool.initialWeight
+        // Recalculate percentage from weight if weight is more accurate
+        remainingPercentage = (netWeight / spool.initialWeight) * 100
+      }
+    }
     
     // Track initial weight when wire is first loaded after taring
-    // If tared, has wire, but initialWeight is 0, set it to current weight
+    // Initial wire weight = total weight of wire assembled with machine before soldering starts
+    // This is set when wire is loaded (after taring) - represents 100% wire remaining
     if (spool.isTared && spool.currentWireLength > 0 && spool.initialWeight === 0) {
-      spool.initialWeight = calculatedWeight
+      // Set initialWeight to net weight (wire only, excluding machine parts)
+      const netWeight = calculatedWeight - spool.tareWeight
+      if (netWeight > 0) {
+        spool.initialWeight = netWeight // This becomes 100% baseline
+      }
     }
     
     return {
@@ -438,10 +450,10 @@ export default class SolderingHardware extends EventEmitter {
       isFeeding: spool.isFeeding,
       lastFeedLength: spool.lastFeedLength,
       lastUpdated: spool.lastUpdated,
-      // Weight information
+      // Weight information (synchronized with percentage)
       solderDensity: spool.solderDensity,
       currentWeight: calculatedWeight,
-      netWeight: netWeight, // Weight after tare (shows only wire weight)
+      netWeight: Math.max(0, netWeight), // Weight after tare (synchronized with remaining percentage)
       initialWeight: spool.initialWeight,
       tareWeight: spool.tareWeight,
       isTared: spool.isTared, // Whether spool has been tared
@@ -516,8 +528,18 @@ export default class SolderingHardware extends EventEmitter {
     spool.tareWeight = currentCalculatedWeight
     spool.isTared = true // Mark as tared
     
-    // Reset initial weight - it will be set when wire is first loaded
-    spool.initialWeight = 0
+    // If wire is already loaded (currentWireLength > 0), set initialWeight to current net weight
+    // Otherwise, reset initial weight - it will be set when wire is first loaded
+    if (spool.currentWireLength > 0) {
+      const netWeight = currentCalculatedWeight - spool.tareWeight
+      if (netWeight > 0) {
+        spool.initialWeight = netWeight
+      } else {
+        spool.initialWeight = 0
+      }
+    } else {
+      spool.initialWeight = 0
+    }
     
     spool.lastUpdated = Date.now()
     this.emit('spool', this.getSpoolState())
@@ -531,15 +553,32 @@ export default class SolderingHardware extends EventEmitter {
   }
 
   resetSpool() {
-    this.state.spool.currentWireLength = this.state.spool.initialWireLength
-    this.state.spool.totalRotations = 0
-    this.state.spool.currentRotation = 0
-    this.state.spool.lastFeedLength = 0
-    // Reset weight calculations
-    this.state.spool.currentWeight = this._calculateWireWeight(this.state.spool.initialWireLength)
+    const { spool } = this.state
+    spool.currentWireLength = spool.initialWireLength
+    spool.totalRotations = 0
+    spool.currentRotation = 0
+    spool.lastFeedLength = 0
+    
+    // Reset weight calculations - synchronize with percentage (100% = initialWeight)
+    if (spool.isTared && spool.initialWeight > 0) {
+      // If tared and initialWeight is set, weight should be at 100% (initialWeight + tareWeight)
+      spool.currentWeight = spool.initialWeight + spool.tareWeight
+    } else {
+      // Otherwise calculate from length
+      const calculatedWeight = this._calculateWireWeight(spool.initialWireLength)
+      spool.currentWeight = calculatedWeight
+      // If tared, set initialWeight to net weight
+      if (spool.isTared) {
+        spool.initialWeight = calculatedWeight - spool.tareWeight
+      } else {
+        spool.initialWeight = calculatedWeight
+      }
+    }
+    
     // Note: tareWeight and isTared are NOT reset - user must manually tare again if needed
     // This preserves the tare setting even after reset
-    this.state.spool.lastUpdated = Date.now()
+    
+    spool.lastUpdated = Date.now()
     
     // Update wire remaining in calibration (uses same method for consistency)
     this._updateWireRemainingDisplay()
@@ -565,9 +604,8 @@ export default class SolderingHardware extends EventEmitter {
   }
 
   getPosition() {
+    // Single-axis machine: only Z-axis position
     return {
-      x: this.state.position.x,
-      y: this.state.position.y,
       z: this.state.position.z,
       isMoving: this.state.position.isMoving,
     }
@@ -578,48 +616,30 @@ export default class SolderingHardware extends EventEmitter {
       return { error: 'Machine is already moving' }
     }
 
-    const axisMap = { x: 'x', y: 'y', z: 'z' }
-    const axisKey = axisMap[axis.toLowerCase()]
-    if (!axisKey) {
-      return { error: 'Invalid axis. Use x, y, or z' }
+    // Single-axis machine: only Z-axis (up/down) movement is allowed
+    const axisLower = axis.toLowerCase()
+    if (axisLower !== 'z') {
+      return { error: 'Invalid axis. This is a single-axis machine - only Z-axis (up/down) movement is supported.' }
     }
 
+    const axisKey = 'z'
     const step = direction > 0 ? stepSize : -stepSize
-    
-    // Calculate new position
-    const currentPos = this.state.position[axisKey]
-    const newPos = currentPos + step
-    
-    // Boundary checking for X and Y axes (bed size limits)
-    if (axisKey === 'x') {
-      if (newPos < MIN_POSITION_X) {
-        return { error: `Cannot move X axis below ${MIN_POSITION_X}mm (bed limit)` }
-      }
-      if (newPos > MAX_POSITION_X) {
-        return { error: `Cannot move X axis above ${MAX_POSITION_X}mm (bed limit)` }
-      }
-    }
-    
-    if (axisKey === 'y') {
-      if (newPos < MIN_POSITION_Y) {
-        return { error: `Cannot move Y axis below ${MIN_POSITION_Y}mm (bed limit)` }
-      }
-      if (newPos > MAX_POSITION_Y) {
-        return { error: `Cannot move Y axis above ${MAX_POSITION_Y}mm (bed limit)` }
-      }
-    }
     
     this.state.position.isMoving = true
     this.emit('position:update', this.getPosition())
 
-    if (this.mode === 'hardware' && this.commandProtocol) {
+    if (this.mode === 'hardware' && this.serialManager) {
       try {
-        // Send real movement command
-        await this.commandProtocol.moveRelative(axis, step)
+        // Send JSON command to Arduino: {"command":"jog","axis":"z","distance":1.0}
+        await this._sendArduinoJsonCommand({
+          command: 'jog',
+          axis: axis.toLowerCase(),
+          distance: step
+        })
         
-        // Update position (will be confirmed by status polling)
+        // Update position (will be confirmed by Arduino JSON response)
         this.state.position[axisKey] += step
-        this.state.position.isMoving = false
+        this.state.position.isMoving = true
 
         this._updateCalibrationEntry(
           `${axis.toUpperCase()} Axis`,
@@ -627,6 +647,12 @@ export default class SolderingHardware extends EventEmitter {
             value: `${this.state.position[axisKey].toFixed(2)}`,
           }
         )
+
+        // Set isMoving to false after a delay (Arduino will update this via JSON response)
+        setTimeout(() => {
+          this.state.position.isMoving = false
+          this.emit('position:update', this.getPosition())
+        }, 500)
 
         this.emit('position:update', this.getPosition())
         return { status: 'Movement completed', position: this.getPosition() }
@@ -663,20 +689,22 @@ export default class SolderingHardware extends EventEmitter {
     this.state.position.isMoving = true
     this.emit('position:update', this.getPosition())
 
-    if (this.mode === 'hardware' && this.commandProtocol) {
+    if (this.mode === 'hardware' && this.serialManager) {
       try {
-        // Send real home command
-        await this.commandProtocol.home()
+        // Send JSON command to Arduino: {"command":"home"}
+        await this._sendArduinoJsonCommand({
+          command: 'home'
+        })
         
-        // Update position
-        this.state.position.x = 0
-        this.state.position.y = 0
+        // Update position (Z-axis only) - Arduino will confirm via JSON response
         this.state.position.z = 0
-        this.state.position.isMoving = false
-
-        this._updateCalibrationEntry('X Axis', { value: '0.00' })
-        this._updateCalibrationEntry('Y Axis', { value: '0.00' })
         this._updateCalibrationEntry('Z Axis', { value: '0.00' })
+
+        // Set isMoving to false after a delay (Arduino will update this via JSON response)
+        setTimeout(() => {
+          this.state.position.isMoving = false
+          this.emit('position:update', this.getPosition())
+        }, 1000)
 
         this.emit('position:update', this.getPosition())
         return { status: 'Homed to zero position', position: this.getPosition() }
@@ -688,13 +716,10 @@ export default class SolderingHardware extends EventEmitter {
       // Simulation mode
       return new Promise((resolve) => {
         setTimeout(() => {
-          this.state.position.x = 0
-          this.state.position.y = 0
+          // Single-axis machine: only Z-axis is homed
           this.state.position.z = 0
           this.state.position.isMoving = false
 
-          this._updateCalibrationEntry('X Axis', { value: '0.00' })
-          this._updateCalibrationEntry('Y Axis', { value: '0.00' })
           this._updateCalibrationEntry('Z Axis', { value: '0.00' })
 
           this.emit('position:update', this.getPosition())
@@ -719,13 +744,14 @@ export default class SolderingHardware extends EventEmitter {
   setFumeExtractorEnabled(enabled) {
     this.state.fumeExtractor.enabled = Boolean(enabled)
     
-    if (this.mode === 'hardware' && this.commandProtocol) {
+    if (this.mode === 'hardware' && this.serialManager) {
       try {
-        if (enabled) {
-          this.commandProtocol.setFumeExtractor(this.state.fumeExtractor.speed)
-        } else {
-          this.commandProtocol.turnOffFumeExtractor()
-        }
+        // Send JSON command: {"command":"fume","enabled":true,"speed":80}
+        this._sendArduinoJsonCommand({
+          command: 'fume',
+          enabled: Boolean(enabled),
+          speed: this.state.fumeExtractor.speed
+        })
       } catch (error) {
         console.error('[SolderingHardware] Error controlling fume extractor:', error)
       }
@@ -746,9 +772,14 @@ export default class SolderingHardware extends EventEmitter {
     this.state.fumeExtractor.speed = Math.round(speedNumeric)
     
     // If extractor is enabled, update hardware immediately
-    if (this.state.fumeExtractor.enabled && this.mode === 'hardware' && this.commandProtocol) {
+    if (this.state.fumeExtractor.enabled && this.mode === 'hardware' && this.serialManager) {
       try {
-        this.commandProtocol.setFumeExtractor(this.state.fumeExtractor.speed)
+        // Send JSON command: {"command":"fume","enabled":true,"speed":80}
+        this._sendArduinoJsonCommand({
+          command: 'fume',
+          enabled: true,
+          speed: this.state.fumeExtractor.speed
+        })
       } catch (error) {
         console.error('[SolderingHardware] Error setting fume extractor speed:', error)
       }
@@ -805,9 +836,15 @@ export default class SolderingHardware extends EventEmitter {
     const fluxConsumptionPerSecond = (flowRateNumeric / 100) * 0.3 // Max 0.3 ml/s at 100%
     const fluxConsumption = (durationNumeric / 1000) * fluxConsumptionPerSecond
 
-    if (this.mode === 'hardware' && this.commandProtocol) {
+    if (this.mode === 'hardware' && this.serialManager) {
       try {
-        await this.commandProtocol.dispenseFluxMist(durationNumeric, flowRateNumeric)
+        // Send JSON command: {"command":"fluxmist","dispense":true,"duration":500,"flowRate":50}
+        await this._sendArduinoJsonCommand({
+          command: 'fluxmist',
+          dispense: true,
+          duration: durationNumeric,
+          flowRate: flowRateNumeric
+        })
         
         // Wait for duration
         await new Promise(resolve => setTimeout(resolve, durationNumeric))
@@ -916,9 +953,15 @@ export default class SolderingHardware extends EventEmitter {
     this.state.airBreeze.enabled = true
     this.emit('airBreeze', this.getAirBreezeState())
 
-    if (this.mode === 'hardware' && this.commandProtocol) {
+    if (this.mode === 'hardware' && this.serialManager) {
       try {
-        await this.commandProtocol.activateAirBreeze(durationNumeric, intensityNumeric)
+        // Send JSON command: {"command":"airbreeze","activate":true,"duration":2000,"intensity":60}
+        await this._sendArduinoJsonCommand({
+          command: 'airbreeze',
+          activate: true,
+          duration: durationNumeric,
+          intensity: intensityNumeric
+        })
         
         // Wait for duration
         await new Promise(resolve => setTimeout(resolve, durationNumeric))
@@ -953,9 +996,13 @@ export default class SolderingHardware extends EventEmitter {
     // If disabling while active, stop it
     if (!enabled && this.state.airBreeze.isActive) {
       this.state.airBreeze.isActive = false
-      if (this.mode === 'hardware' && this.commandProtocol) {
+      if (this.mode === 'hardware' && this.serialManager) {
         try {
-          this.commandProtocol.deactivateAirBreeze()
+          // Send JSON command: {"command":"airbreeze","enabled":false}
+          this._sendArduinoJsonCommand({
+            command: 'airbreeze',
+            enabled: false
+          })
         } catch (error) {
           console.error('[SolderingHardware] Error deactivating air breeze:', error)
         }
@@ -990,9 +1037,13 @@ export default class SolderingHardware extends EventEmitter {
     this.state.airBreeze.intensity = Math.round(intensityNumeric)
     
     // If air breeze is active, update hardware immediately
-    if (this.state.airBreeze.isActive && this.mode === 'hardware' && this.commandProtocol) {
+    if (this.state.airBreeze.isActive && this.mode === 'hardware' && this.serialManager) {
       try {
-        this.commandProtocol.activateAirBreeze(this.state.airBreeze.duration, this.state.airBreeze.intensity)
+        // Send JSON command: {"command":"airbreeze","intensity":60}
+        this._sendArduinoJsonCommand({
+          command: 'airbreeze',
+          intensity: this.state.airBreeze.intensity
+        })
       } catch (error) {
         console.error('[SolderingHardware] Error updating air breeze intensity:', error)
       }
@@ -1058,9 +1109,15 @@ export default class SolderingHardware extends EventEmitter {
     this.state.airJetPressure.enabled = true
     this.emit('airJetPressure', this.getAirJetPressureState())
 
-    if (this.mode === 'hardware' && this.commandProtocol) {
+    if (this.mode === 'hardware' && this.serialManager) {
       try {
-        await this.commandProtocol.activateAirJetPressure(durationNumeric, pressureNumeric)
+        // Send JSON command: {"command":"airjet","activate":true,"duration":200,"pressure":80}
+        await this._sendArduinoJsonCommand({
+          command: 'airjet',
+          activate: true,
+          duration: durationNumeric,
+          pressure: pressureNumeric
+        })
         
         // Wait for duration
         await new Promise(resolve => setTimeout(resolve, durationNumeric))
@@ -1095,9 +1152,13 @@ export default class SolderingHardware extends EventEmitter {
     // If disabling while active, stop it
     if (!enabled && this.state.airJetPressure.isActive) {
       this.state.airJetPressure.isActive = false
-      if (this.mode === 'hardware' && this.commandProtocol) {
+      if (this.mode === 'hardware' && this.serialManager) {
         try {
-          this.commandProtocol.deactivateAirJetPressure()
+          // Send JSON command: {"command":"airjet","enabled":false}
+          this._sendArduinoJsonCommand({
+            command: 'airjet',
+            enabled: false
+          })
         } catch (error) {
           console.error('[SolderingHardware] Error deactivating air jet pressure:', error)
         }
@@ -1132,9 +1193,13 @@ export default class SolderingHardware extends EventEmitter {
     this.state.airJetPressure.pressure = Math.round(pressureNumeric)
     
     // If air jet is active, update hardware immediately
-    if (this.state.airJetPressure.isActive && this.mode === 'hardware' && this.commandProtocol) {
+    if (this.state.airJetPressure.isActive && this.mode === 'hardware' && this.serialManager) {
       try {
-        this.commandProtocol.activateAirJetPressure(this.state.airJetPressure.duration, this.state.airJetPressure.pressure)
+        // Send JSON command: {"command":"airjet","pressure":80}
+        this._sendArduinoJsonCommand({
+          command: 'airjet',
+          pressure: this.state.airJetPressure.pressure
+        })
       } catch (error) {
         console.error('[SolderingHardware] Error updating air jet pressure:', error)
       }
@@ -1162,9 +1227,13 @@ export default class SolderingHardware extends EventEmitter {
     this.state.tip.target = numeric
     this.state.tip.statusMessage = `Target set to ${numeric.toFixed(0)}°C`
 
-    if (this.mode === 'hardware' && this.commandProtocol) {
+    if (this.mode === 'hardware' && this.serialManager) {
       try {
-        await this.commandProtocol.setTemperature(numeric)
+        // Send JSON command: {"command":"temp","target":345}
+        await this._sendArduinoJsonCommand({
+          command: 'temp',
+          target: numeric
+        })
       } catch (error) {
         console.error('[SolderingHardware] Error setting temperature:', error)
       }
@@ -1178,9 +1247,13 @@ export default class SolderingHardware extends EventEmitter {
     this.state.tip.heaterEnabled = Boolean(enabled)
     this.state.tip.statusMessage = this.state.tip.heaterEnabled ? 'Heater enabled' : 'Heater disabled'
 
-    if (this.mode === 'hardware' && this.commandProtocol) {
+    if (this.mode === 'hardware' && this.serialManager) {
       try {
-        await this.commandProtocol.setHeaterEnabled(enabled)
+        // Send JSON command: {"command":"heater","enable":true}
+        await this._sendArduinoJsonCommand({
+          command: 'heater',
+          enable: Boolean(enabled)
+        })
       } catch (error) {
         console.error('[SolderingHardware] Error setting heater:', error)
       }
@@ -1240,11 +1313,13 @@ export default class SolderingHardware extends EventEmitter {
     const rotationsNeeded = lengthNumeric / circumference
     const stepsNeeded = Math.round(rotationsNeeded * spool.stepsPerRotation)
 
-    if (this.mode === 'hardware' && this.commandProtocol) {
+    if (this.mode === 'hardware' && this.serialManager) {
       try {
-        // Feed wire and rotate spool
-        await this.commandProtocol.feedWire(lengthNumeric, rateNumeric)
-        await this.commandProtocol.rotateSpool(stepsNeeded, rateNumeric)
+        // Send JSON command: {"command":"feed","length":10.5}
+        await this._sendArduinoJsonCommand({
+          command: 'feed',
+          length: lengthNumeric
+        })
         
         const durationMs = Math.max(1200, (lengthNumeric / rateNumeric) * 1000)
         
@@ -1361,8 +1436,26 @@ export default class SolderingHardware extends EventEmitter {
     // Update wire remaining (skip during sequence - will update after complete cycle)
     if (!skipWireRemainingUpdate) {
       spool.currentWireLength = Math.max(0, spool.currentWireLength - feedLength)
-      // Update weight (recalculate from current length)
-      spool.currentWeight = this._calculateWireWeight(spool.currentWireLength)
+      
+      // Synchronize weight and percentage after feed
+      // Calculate new remaining percentage
+      let remainingPercentage = 0
+      if (spool.initialWireLength > 0) {
+        remainingPercentage = (spool.currentWireLength / spool.initialWireLength) * 100
+      }
+      remainingPercentage = Math.max(0, Math.min(100, remainingPercentage))
+      
+      // Update weight to match percentage (if initialWeight is set)
+      if (spool.initialWeight > 0) {
+        // Calculate netWeight from remaining percentage to ensure sync
+        const newNetWeight = spool.initialWeight * (remainingPercentage / 100)
+        // Update currentWeight to match (add tare weight back)
+        spool.currentWeight = newNetWeight + spool.tareWeight
+      } else {
+        // If initialWeight not set, calculate from length
+        spool.currentWeight = this._calculateWireWeight(spool.currentWireLength)
+      }
+      
       // Update wire remaining in calibration display
       this._updateWireRemainingDisplay()
     }
@@ -1386,8 +1479,24 @@ export default class SolderingHardware extends EventEmitter {
     // Update wire remaining
     spool.currentWireLength = Math.max(0, spool.currentWireLength - totalWireLengthUsed)
     
-    // Update weight (recalculate from current length)
-    spool.currentWeight = this._calculateWireWeight(spool.currentWireLength)
+    // Synchronize weight and percentage after cycle
+    // Calculate new remaining percentage
+    let remainingPercentage = 0
+    if (spool.initialWireLength > 0) {
+      remainingPercentage = (spool.currentWireLength / spool.initialWireLength) * 100
+    }
+    remainingPercentage = Math.max(0, Math.min(100, remainingPercentage))
+    
+    // Update weight to match percentage (if initialWeight is set)
+    if (spool.initialWeight > 0) {
+      // Calculate netWeight from remaining percentage to ensure sync
+      const newNetWeight = spool.initialWeight * (remainingPercentage / 100)
+      // Update currentWeight to match (add tare weight back)
+      spool.currentWeight = newNetWeight + spool.tareWeight
+    } else {
+      // If initialWeight not set, calculate from length
+      spool.currentWeight = this._calculateWireWeight(spool.currentWireLength)
+    }
     
     // Update wire remaining in calibration display (LCD)
     this._updateWireRemainingDisplay()
@@ -1440,7 +1549,7 @@ export default class SolderingHardware extends EventEmitter {
     // Default to single pad at current position if none provided
     const pads = padPositions.length > 0 
       ? padPositions 
-      : [{ x: this.state.position.x, y: this.state.position.y, z: 0 }]
+        : [{ z: 0 }]  // Single-axis machine: only Z position
 
     this.state.sequence.isActive = true
     this.state.sequence.isPaused = false
@@ -1603,20 +1712,12 @@ export default class SolderingHardware extends EventEmitter {
     const safeZ = this.state.componentHeightMm ? this.state.componentHeightMm + 2 : 5 // Safe height above component
 
     switch (action) {
-      case 'moveX':
-        // Move to X position (at safe height)
-        await this._moveToPosition(x, this.state.position.y, safeZ)
-        break
-
-      case 'moveY':
-        // Move to Y position (at safe height)
-        await this._moveToPosition(x, y, safeZ)
-        break
+      // Single-axis machine: X and Y movements are not supported (PCB is moved manually)
 
       case 'lowerZ':
-        // Lower to soldering height
+        // Lower to soldering height (Z-axis only)
         const solderingZ = z || 0
-        await this._moveToPosition(x, y, solderingZ)
+        await this._moveToPosition(null, null, solderingZ)
         
         // Apply flux mist before soldering if auto mode is enabled
         if (this.state.fluxMist.autoMode && !this.state.fluxMist.isDispensing) {
@@ -1663,8 +1764,8 @@ export default class SolderingHardware extends EventEmitter {
         break
 
       case 'retract':
-        // Retract to safe height
-        await this._moveToPosition(x, y, safeZ)
+        // Retract to safe height (Z-axis only)
+        await this._moveToPosition(null, null, safeZ)
         
         // Activate air breeze after retraction if auto mode is enabled
         if (this.state.airBreeze.autoMode && !this.state.airBreeze.isActive) {
@@ -1682,30 +1783,47 @@ export default class SolderingHardware extends EventEmitter {
   }
 
   /**
+   * Send JSON command to Arduino via serial port
+   * @param {object} commandObj - Command object to send as JSON
+   */
+  async _sendArduinoJsonCommand(commandObj) {
+    if (this.mode === 'hardware' && this.serialManager && this.serialManager.isConnected) {
+      try {
+        await this.serialManager.sendJsonCommand(commandObj)
+      } catch (error) {
+        console.error('[SolderingHardware] Error sending JSON command to Arduino:', error)
+        throw error
+      }
+    } else {
+      // Simulation mode
+      console.log('[SolderingHardware] JSON command (simulation):', JSON.stringify(commandObj))
+    }
+  }
+
+  /**
    * Move to absolute position
    */
   async _moveToPosition(x, y, z) {
-    // Boundary checking for X and Y axes (bed size limits)
-    if (x !== null && x !== undefined) {
-      if (x < MIN_POSITION_X || x > MAX_POSITION_X) {
-        throw new Error(`X position ${x}mm is outside bed range (${MIN_POSITION_X}-${MAX_POSITION_X}mm)`)
-      }
-    }
-    
-    if (y !== null && y !== undefined) {
-      if (y < MIN_POSITION_Y || y > MAX_POSITION_Y) {
-        throw new Error(`Y position ${y}mm is outside bed range (${MIN_POSITION_Y}-${MAX_POSITION_Y}mm)`)
-      }
-    }
-    
-    if (this.mode === 'hardware' && this.commandProtocol) {
+    // Single-axis machine: only Z-axis movement is supported
+    // X and Y positions are ignored (PCB is moved manually)
+    if (this.mode === 'hardware' && this.serialManager) {
       try {
-        await this.commandProtocol.moveTo(x, y, z)
-        // Update position only if within bounds (don't update if null/undefined)
-        if (x !== null && x !== undefined) this.state.position.x = x
-        if (y !== null && y !== undefined) this.state.position.y = y
-        if (z !== null && z !== undefined) this.state.position.z = z
-        this.emit('position:update', this.getPosition())
+        // Send JSON command to Arduino: {"command":"move","z":5.0}
+        if (z !== null && z !== undefined) {
+          await this._sendArduinoJsonCommand({
+            command: 'move',
+            z: z
+          })
+          // Update only Z position
+          this.state.position.z = z
+          this.state.position.isMoving = true
+          this.emit('position:update', this.getPosition())
+          // Set isMoving to false after a delay (Arduino will update this via JSON response)
+          setTimeout(() => {
+            this.state.position.isMoving = false
+            this.emit('position:update', this.getPosition())
+          }, 1000)
+        }
       } catch (error) {
         throw new Error(`Movement failed: ${error.message}`)
       }
@@ -1716,9 +1834,7 @@ export default class SolderingHardware extends EventEmitter {
       
       await new Promise(resolve => setTimeout(resolve, 500)) // Simulate movement time
       
-      // Update position only if within bounds (don't update if null/undefined)
-      if (x !== null && x !== undefined) this.state.position.x = x
-      if (y !== null && y !== undefined) this.state.position.y = y
+      // Update only Z position
       if (z !== null && z !== undefined) this.state.position.z = z
       this.state.position.isMoving = false
       this.emit('position:update', this.getPosition())
@@ -1911,23 +2027,11 @@ export default class SolderingHardware extends EventEmitter {
     // Handle Marlin position updates (M114 response)
     this.serialManager.on('position', (position) => {
       if (position) {
-        // Clamp X and Y positions to bed boundaries
-        if (position.x !== undefined && position.x !== null) {
-          this.state.position.x = Math.max(MIN_POSITION_X, Math.min(MAX_POSITION_X, position.x))
-        }
-        if (position.y !== undefined && position.y !== null) {
-          this.state.position.y = Math.max(MIN_POSITION_Y, Math.min(MAX_POSITION_Y, position.y))
-        }
+        // Single-axis machine: only update Z position
         if (position.z !== undefined && position.z !== null) {
           this.state.position.z = position.z
         }
 
-        this._updateCalibrationEntry('X Axis', {
-          value: `${this.state.position.x.toFixed(2)}`,
-        })
-        this._updateCalibrationEntry('Y Axis', {
-          value: `${this.state.position.y.toFixed(2)}`,
-        })
         this._updateCalibrationEntry('Z Axis', {
           value: `${this.state.position.z.toFixed(2)}`,
         })
@@ -1951,26 +2055,14 @@ export default class SolderingHardware extends EventEmitter {
 
     // Handle GRBL status reports (for backward compatibility)
     this.serialManager.on('status', (status) => {
-      // Update position from hardware status
+      // Update position from hardware status (Z-axis only)
       if (status.position) {
-        // Clamp X and Y positions to bed boundaries
-        if (status.position.x !== undefined && status.position.x !== null) {
-          this.state.position.x = Math.max(MIN_POSITION_X, Math.min(MAX_POSITION_X, status.position.x))
-        }
-        if (status.position.y !== undefined && status.position.y !== null) {
-          this.state.position.y = Math.max(MIN_POSITION_Y, Math.min(MAX_POSITION_Y, status.position.y))
-        }
+        // Only update Z position (single-axis machine)
         if (status.position.z !== undefined && status.position.z !== null) {
           this.state.position.z = status.position.z
         }
         this.state.position.isMoving = status.state !== 'Idle' && status.state !== 'Hold'
 
-        this._updateCalibrationEntry('X Axis', {
-          value: `${this.state.position.x.toFixed(2)}`,
-        })
-        this._updateCalibrationEntry('Y Axis', {
-          value: `${this.state.position.y.toFixed(2)}`,
-        })
         this._updateCalibrationEntry('Z Axis', {
           value: `${this.state.position.z.toFixed(2)}`,
         })
@@ -1982,6 +2074,13 @@ export default class SolderingHardware extends EventEmitter {
     this.serialManager.on('data', (line) => {
       // Log incoming data for debugging
       console.log('[Serial]', line)
+    })
+
+    // Handle Arduino JSON data updates
+    this.serialManager.on('arduino:data', (updates) => {
+      // Mark this data as coming from Arduino (for frontend tracking)
+      this.emit('arduino:data:received', { timestamp: Date.now(), updates })
+      this._handleArduinoData(updates)
     })
 
     // G-CODE EVENT FORWARDING COMMENTED OUT
@@ -2014,6 +2113,179 @@ export default class SolderingHardware extends EventEmitter {
     //     error: 'Command timeout',
     //   })
     // })
+  }
+
+  /**
+   * Handle Arduino data updates
+   */
+  _handleArduinoData(updates) {
+    try {
+      // Update position (Z-axis only - single-axis machine)
+      if (updates.position) {
+        // Only update Z position (X and Y are not controlled by machine)
+        this.state.position.z = updates.position.z ?? this.state.position.z
+        this.state.position.isMoving = updates.position.isMoving ?? this.state.position.isMoving
+        this._updateCalibrationEntry('Z Axis', { value: `${this.state.position.z.toFixed(2)}` })
+        this.emit('position:update', this.getPosition())
+      }
+
+      // Update temperature
+      if (updates.temperature) {
+        this.state.tip.target = updates.temperature.target ?? this.state.tip.target
+        this.state.tip.current = updates.temperature.current ?? this.state.tip.current
+        this.state.tip.heaterEnabled = updates.temperature.heaterEnabled ?? this.state.tip.heaterEnabled
+        this._updateCalibrationEntry('Tip Temp', { value: Math.round(this.state.tip.current) })
+        this.emit('tip', this.getTipStatus())
+      }
+
+      // Update wire feed
+      if (updates.wireFeed) {
+        this.state.wireFeed.status = updates.wireFeed.status ?? this.state.wireFeed.status
+        this.state.wireFeed.currentFeedRate = updates.wireFeed.feedRate ?? this.state.wireFeed.currentFeedRate
+        if (updates.wireFeed.wireBreak) {
+          this.state.wireFeed.wireBreak = {
+            detected: true,
+            timestamp: Date.now(),
+            message: 'Wire break detected',
+          }
+          this.emit('wireBreak', this.state.wireFeed.wireBreak)
+        }
+        this.emit('wireFeed', this.getWireFeedStatus())
+      }
+
+      // Update spool (synchronize percentage and weight)
+      if (updates.spool) {
+        const { spool } = this.state
+        
+        // Update wire diameter if provided
+        if (updates.spool.wireDiameter !== undefined) {
+          spool.wireDiameter = updates.spool.wireDiameter
+        }
+        
+        // Update isFeeding status
+        if (updates.spool.isFeeding !== undefined) {
+          spool.isFeeding = updates.spool.isFeeding
+        }
+        
+        // Priority 1: If remainingPercentage is provided from Arduino, use it to sync weight
+        if (updates.spool.remainingPercentage !== undefined && spool.initialWeight > 0) {
+          const arduinoPercentage = Math.max(0, Math.min(100, updates.spool.remainingPercentage))
+          
+          // Calculate netWeight from percentage
+          const syncedNetWeight = spool.initialWeight * (arduinoPercentage / 100)
+          
+          // Update currentWeight (add tare weight back to get total weight)
+          spool.currentWeight = syncedNetWeight + spool.tareWeight
+          
+          // Calculate wire length from percentage
+          if (spool.initialWireLength > 0) {
+            spool.currentWireLength = spool.initialWireLength * (arduinoPercentage / 100)
+          }
+        }
+        // Priority 2: If weight is provided from Arduino, use it to sync percentage
+        else if (updates.spool.weight !== undefined && spool.initialWeight > 0) {
+          const arduinoWeight = Math.max(0, updates.spool.weight)
+          // Calculate net weight (subtract tare)
+          const arduinoNetWeight = Math.max(0, arduinoWeight - spool.tareWeight)
+          
+          // Ensure netWeight doesn't exceed initialWeight
+          const clampedNetWeight = Math.min(arduinoNetWeight, spool.initialWeight)
+          
+          // Calculate percentage from weight
+          const calculatedPercentage = (clampedNetWeight / spool.initialWeight) * 100
+          
+          // Update currentWeight
+          spool.currentWeight = clampedNetWeight + spool.tareWeight
+          
+          // Calculate wire length from percentage
+          if (spool.initialWireLength > 0) {
+            spool.currentWireLength = spool.initialWireLength * (calculatedPercentage / 100)
+          }
+        }
+        // Priority 3: If wireLength is provided, calculate from length
+        else if (updates.spool.wireLength !== undefined) {
+          spool.currentWireLength = Math.max(0, updates.spool.wireLength)
+          // Calculate weight from length
+          spool.currentWeight = this._calculateWireWeight(spool.currentWireLength)
+        }
+        
+        // Update initial weight if not set and we have current weight
+        if (spool.isTared && spool.currentWireLength > 0 && spool.initialWeight === 0) {
+          const calculatedNetWeight = spool.currentWeight - spool.tareWeight
+          if (calculatedNetWeight > 0) {
+            spool.initialWeight = calculatedNetWeight
+          }
+        }
+        
+        // Update calibration display
+        this._updateWireRemainingDisplay()
+        this.emit('spool', this.getSpoolState())
+      }
+
+      // Update flux
+      if (updates.flux) {
+        this.state.flux.percentage = updates.flux.percentage ?? this.state.flux.percentage
+        this.state.flux.remainingMl = updates.flux.remainingMl ?? this.state.flux.remainingMl
+        this._updateCalibrationEntry('Flux Remaining', { value: Math.round(this.state.flux.percentage) })
+        this.emit('flux', this.getFluxState())
+      }
+
+      // Update fans
+      if (updates.fans) {
+        this.state.fans.machine = updates.fans.machine ?? this.state.fans.machine
+        this.state.fans.tip = updates.fans.tip ?? this.state.fans.tip
+        this.emit('fan', this.getFanState())
+      }
+
+      // Update fume extractor
+      if (updates.fumeExtractor) {
+        this.state.fumeExtractor.enabled = updates.fumeExtractor.enabled ?? this.state.fumeExtractor.enabled
+        this.state.fumeExtractor.speed = updates.fumeExtractor.speed ?? this.state.fumeExtractor.speed
+        this.emit('fumeExtractor', this.getFumeExtractorState())
+      }
+
+      // Update flux mist
+      if (updates.fluxMist) {
+        this.state.fluxMist.enabled = updates.fluxMist.enabled ?? this.state.fluxMist.enabled
+        this.state.fluxMist.isDispensing = updates.fluxMist.isDispensing ?? this.state.fluxMist.isDispensing
+        this.state.fluxMist.flowRate = updates.fluxMist.flowRate ?? this.state.fluxMist.flowRate
+        this.emit('fluxMist', this.getFluxMistState())
+      }
+
+      // Update air breeze
+      if (updates.airBreeze) {
+        this.state.airBreeze.enabled = updates.airBreeze.enabled ?? this.state.airBreeze.enabled
+        this.state.airBreeze.isActive = updates.airBreeze.isActive ?? this.state.airBreeze.isActive
+        this.state.airBreeze.intensity = updates.airBreeze.intensity ?? this.state.airBreeze.intensity
+        this.emit('airBreeze', this.getAirBreezeState())
+      }
+
+      // Update air jet pressure
+      if (updates.airJetPressure) {
+        this.state.airJetPressure.enabled = updates.airJetPressure.enabled ?? this.state.airJetPressure.enabled
+        this.state.airJetPressure.isActive = updates.airJetPressure.isActive ?? this.state.airJetPressure.isActive
+        this.state.airJetPressure.pressure = updates.airJetPressure.pressure ?? this.state.airJetPressure.pressure
+        this.emit('airJetPressure', this.getAirJetPressureState())
+      }
+
+      // Update sequence
+      if (updates.sequence) {
+        this.state.sequence.stage = updates.sequence.stage ?? this.state.sequence.stage
+        this.state.sequence.isActive = updates.sequence.isActive ?? this.state.sequence.isActive
+        this.state.sequence.currentPad = updates.sequence.currentPad ?? this.state.sequence.currentPad
+        this.state.sequence.totalPads = updates.sequence.totalPads ?? this.state.sequence.totalPads
+        this.state.sequence.progress = updates.sequence.progress ?? this.state.sequence.progress
+        this.state.sequence.error = updates.sequence.error ?? this.state.sequence.error
+        this.emit('sequence', this.getSequenceState())
+      }
+
+      // Update component height
+      if (updates.componentHeight !== undefined && updates.componentHeight !== null) {
+        this.state.componentHeightMm = updates.componentHeight
+      }
+    } catch (error) {
+      console.error('[SolderingHardware] Error handling Arduino data:', error)
+    }
   }
 
   _startHardwareStatusPolling() {

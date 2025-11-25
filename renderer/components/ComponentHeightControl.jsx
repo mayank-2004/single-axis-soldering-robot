@@ -9,7 +9,8 @@ export default function ComponentHeightControl({
 }) {
   return (
     <section className={styles.heightSection} aria-label="Component clearance input">
-      <label htmlFor="component-height" className={styles.heightLabel}>
+      {/* Input field commented out - value received from Arduino */}
+      {/* <label htmlFor="component-height" className={styles.heightLabel}>
         Max component height from PCB
       </label>
       <div className={styles.heightInputGroup}>
@@ -32,6 +33,20 @@ export default function ComponentHeightControl({
       </div>
       <p className={styles.heightHint}>
         Measure the tallest component on the board and enter its height to ensure safe Z-axis clearance.
+      </p> */}
+      
+      {/* Display only - value received from Arduino */}
+      <div className={styles.heightLabelGroup}>
+        <label className={styles.heightLabel}>
+          Max component height from PCB
+        </label>
+        <div className={styles.heightValueGroup}>
+          <span className={styles.heightValue}>{value ?? '--'}</span>
+          <span className={styles.heightUnit}>mm</span>
+        </div>
+      </div>
+      <p className={styles.heightHint}>
+        Value received from Arduino machine.
       </p>
       {statusMessage ? (
         <p className={styles.heightStatus} role="status">

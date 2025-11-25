@@ -2,8 +2,7 @@ import React from 'react'
 import styles from './LcdDisplay.module.css'
 
 const fallbackReadings = [
-  { label: 'X Axis', value: '120.00 → 132.50', unit: 'mm', icon: '↔' },
-  { label: 'Y Axis', value: '045.30 → 048.10', unit: 'mm', icon: '↕' },
+  // Single-axis machine: X and Y axes removed (PCB moved manually)
   { label: 'Z Axis', value: '003.20 → 000.00', unit: 'mm', icon: '↕' },
   { label: 'Wire Remaining', value: '100', unit: '%', length: '14.3 m', icon: '⚡' },
   { label: 'Flux Remaining', value: '82', unit: '%', icon: '💧' },
@@ -28,6 +27,23 @@ export default function LcdDisplay({
     () => readings.filter(({ label }) => !label?.includes('Axis')),
     [readings]
   )
+
+  // Check if wire remaining is low (<= 10%) - synced with SpoolWireControl
+  const wireRemainingReading = React.useMemo(
+    () => otherReadings.find(({ label }) => label === 'Wire Remaining'),
+    [otherReadings]
+  )
+
+  const wirePercentage = React.useMemo(() => {
+    if (!wireRemainingReading || !wireRemainingReading.value) return null
+    const numeric = typeof wireRemainingReading.value === 'number'
+      ? wireRemainingReading.value
+      : parseFloat(String(wireRemainingReading.value).replace(/[^0-9.]/g, ''))
+    return Number.isFinite(numeric) ? numeric : null
+  }, [wireRemainingReading])
+
+  const isWireLow = wirePercentage !== null && wirePercentage <= 10
+  const isWireEmpty = wirePercentage !== null && wirePercentage <= 0
 
   return (
     <div className={styles.lcdWrapper} role="group" aria-label="Robot calibration display">
@@ -80,18 +96,56 @@ export default function LcdDisplay({
               </div>
             ) : null}
 
-            {otherReadings.map(({ label, value, unit, icon }) => (
-              <div className={styles.lcdRow} key={label}>
-                <span className={styles.lcdLabel}>
-                  {icon ? <span className={styles.lcdIcon}>{icon}</span> : null}
-                  {label}
-                </span>
-                <span className={styles.lcdValue}>
-                  <span>{value}</span>
-                  {unit ? <span className={styles.lcdUnit}>{unit}</span> : null}
-                </span>
+            {otherReadings.map(({ label, value, unit, icon, length }) => {
+              const isWireRemaining = label === 'Wire Remaining'
+              const isEmpty = isWireRemaining && isWireEmpty
+              const isLow = isWireRemaining && isWireLow && !isWireEmpty
+              
+              return (
+                <div
+                  key={label}
+                  className={`${styles.lcdRow} ${isEmpty ? styles.lcdRowEmpty : ''} ${isLow ? styles.lcdRowWarning : ''}`}
+                >
+                  <span className={`${styles.lcdLabel} ${isEmpty ? styles.lcdLabelEmpty : ''} ${isLow ? styles.lcdLabelWarning : ''}`}>
+                    {icon ? <span className={styles.lcdIcon}>{icon}</span> : null}
+                    {label}
+                  </span>
+                  <span className={`${styles.lcdValue} ${isEmpty ? styles.lcdValueEmpty : ''} ${isLow ? styles.lcdValueWarning : ''}`}>
+                    <span>{value}</span>
+                    {unit ? <span className={styles.lcdUnit}>{unit}</span> : null}
+                    {isWireRemaining && length && (
+                      <span className={styles.lcdLength}> ({length})</span>
+                    )}
+                  </span>
+                </div>
+              )
+            })}
+
+            {/* Empty spool alert - highest priority - synced with SpoolWireControl */}
+            {isWireEmpty && wirePercentage !== null && (
+              <div className={styles.lcdAlertEmpty} role="alert">
+                <span className={styles.lcdAlertEmptyIcon}>🔴</span>
+                <div className={styles.lcdAlertEmptyContent}>
+                  <span className={styles.lcdAlertEmptyTitle}>SPOOL EMPTY</span>
+                  <span className={styles.lcdAlertEmptyMessage}>
+                    WIRE COMPLETELY USED - REFILL SPOOL NOW
+                  </span>
+                </div>
               </div>
-            ))}
+            )}
+
+            {/* Low wire remaining alert - show only if not empty - synced with SpoolWireControl */}
+            {!isWireEmpty && isWireLow && wirePercentage !== null && (
+              <div className={styles.lcdAlert} role="alert">
+                <span className={styles.lcdAlertIcon}>⚠️</span>
+                <div className={styles.lcdAlertContent}>
+                  <span className={styles.lcdAlertTitle}>LOW WIRE REMAINING</span>
+                  <span className={styles.lcdAlertMessage}>
+                    {wirePercentage.toFixed(1)}% REMAINING - REPLACE SOON
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

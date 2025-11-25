@@ -57,12 +57,19 @@
 
 .statusIndicator {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  align-items: flex-start;
+  gap: 12px;
   padding: 12px 16px;
   background: rgba(18, 55, 41, 0.4);
   border-radius: 8px;
   border: 1px solid rgba(115, 255, 238, 0.15);
+}
+
+.statusInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
 }
 
 .statusDot {
@@ -239,6 +246,66 @@
   opacity: 0.5;
   cursor: not-allowed;
   transform: none;
+}
+
+.dataStatus {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.dataIndicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #4ade80;
+  letter-spacing: 0.05em;
+}
+
+.dataIndicatorInactive {
+  font-size: 12px;
+  color: #fbbf24;
+  letter-spacing: 0.05em;
+}
+
+.dataDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 6px #4ade80;
+  animation: dataPulse 1s ease-in-out infinite;
+}
+
+@keyframes dataPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.8);
+  }
+}
+
+.dataCount {
+  font-size: 11px;
+  color: rgba(159, 247, 204, 0.6);
+  letter-spacing: 0.05em;
+}
+
+.lastUpdate {
+  font-size: 11px;
+  color: rgba(159, 247, 204, 0.5);
+  letter-spacing: 0.05em;
+  font-family: 'Share Tech Mono', 'VT323', 'Roboto Mono', monospace;
+}
+
+.statusDotReceiving {
+  animation: pulse 1s ease-in-out infinite, dataPulse 1.5s ease-in-out infinite;
+  box-shadow: 0 0 12px #4ade80, 0 0 20px rgba(74, 222, 128, 0.4);
 }
 
 @media (max-width: 480px) {

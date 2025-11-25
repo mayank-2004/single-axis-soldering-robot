@@ -87,7 +87,8 @@ export default function AirBreezeControl({
           )}
         </div>
 
-        <div className={styles.controlRow}>
+        {/* Input fields commented out - values received from Arduino */}
+        {/* <div className={styles.controlRow}>
           <label htmlFor="air-duration" className={styles.controlLabel}>
             Duration
           </label>
@@ -139,6 +140,16 @@ export default function AirBreezeControl({
             />
             <span className={styles.controlUnit}>%</span>
           </div>
+        </div> */}
+        
+        {/* Display only - values received from Arduino */}
+        <div className={styles.controlRow}>
+          <span className={styles.controlLabel}>Duration</span>
+          <span className={styles.controlValue}>{duration ?? '--'} ms</span>
+        </div>
+        <div className={styles.controlRow}>
+          <span className={styles.controlLabel}>Intensity</span>
+          <span className={styles.controlValue}>{intensity ?? '--'} %</span>
         </div>
 
         <div className={styles.controlRow}>

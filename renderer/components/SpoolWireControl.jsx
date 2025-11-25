@@ -37,6 +37,11 @@ export default function SpoolWireControl({
     onSpoolConfigSubmit(config)
   }
 
+  // Check if wire remaining is low (<= 10%)
+  const isWireLow = remainingPercentage !== undefined && remainingPercentage <= 10
+  // Check if wire is completely used (empty spool)
+  const isWireEmpty = remainingPercentage !== undefined && remainingPercentage <= 0
+
   return (
     <article className={styles.controlCard} aria-label="Spool wire control">
       <header className={styles.controlHeader}>
@@ -44,7 +49,8 @@ export default function SpoolWireControl({
         <span className={styles.controlSubtitle}>Track wire weight and remaining wire</span>
       </header>
       <div className={styles.controlBody}>
-        <div className={styles.controlRow}>
+        {/* Input field commented out - value received from Arduino */}
+        {/* <div className={styles.controlRow}>
           <label htmlFor="spool-wire-diameter" className={styles.controlLabel}>
             Wire Diameter
           </label>
@@ -66,6 +72,12 @@ export default function SpoolWireControl({
               Update
             </button>
           </div>
+        </div> */}
+
+        {/* Display only - value received from Arduino */}
+        <div className={styles.controlRow}>
+          <span className={styles.controlLabel}>Wire Diameter</span>
+          <span className={styles.statusValue}>{wireDiameter ?? '--'} mm</span>
         </div>
 
         <div className={styles.divider} />
@@ -74,8 +86,28 @@ export default function SpoolWireControl({
           <div className={styles.statusRow}>
             <span className={styles.statusLabel}>Wire Remaining</span>
             <div className={styles.statusValueGroup}>
-              <span className={styles.statusValue}>{remainingPercentage?.toFixed(1) ?? '--'}%</span>
-              <span className={styles.statusSubValue}>
+              <span
+                className={styles.statusValue}
+                style={
+                  isWireEmpty
+                    ? { color: '#ef4444', fontWeight: 700 }
+                    : isWireLow
+                    ? { color: '#fca5a5', fontWeight: 700 }
+                    : undefined
+                }
+              >
+                {remainingPercentage?.toFixed(1) ?? '--'}%
+              </span>
+              <span
+                className={styles.statusSubValue}
+                style={
+                  isWireEmpty
+                    ? { color: '#ef4444' }
+                    : isWireLow
+                    ? { color: '#f87171' }
+                    : undefined
+                }
+              >
                 {remainingLength !== undefined ? `${(remainingLength / 1000).toFixed(2)} m` : '--'}
               </span>
             </div>
@@ -84,7 +116,19 @@ export default function SpoolWireControl({
           <div className={styles.progressBar}>
             <div
               className={styles.progressFill}
-              style={{ width: `${Math.max(0, Math.min(100, remainingPercentage ?? 0))}%` }}
+              style={{
+                width: `${Math.max(0, Math.min(100, remainingPercentage ?? 0))}%`,
+                background: isWireEmpty
+                  ? 'linear-gradient(90deg, rgba(220, 38, 38, 0.95), rgba(185, 28, 28, 1))'
+                  : isWireLow
+                  ? 'linear-gradient(90deg, rgba(239, 68, 68, 0.9), rgba(220, 38, 38, 0.95))'
+                  : undefined,
+                boxShadow: isWireEmpty
+                  ? '0 0 12px rgba(220, 38, 38, 0.8)'
+                  : isWireLow
+                  ? '0 0 8px rgba(239, 68, 68, 0.6)'
+                  : undefined,
+              }}
             />
           </div>
 
@@ -101,12 +145,39 @@ export default function SpoolWireControl({
 
           <div className={styles.divider} />
 
+
+
+          {isTared && initialWeight > 0 && (
+            <>
+              <div className={styles.statusRow}>
+                <span className={styles.statusLabel}>Initial Wire Weight</span>
+                <span className={styles.statusValue} style={{ color: '#94a3b8' }}>
+                  {initialWeight !== undefined ? `${initialWeight.toFixed(2)}` : '0.00'} g
+                </span>
+              </div>
+              <div className={styles.statusRow}>
+                <span className={styles.statusLabel}>Weight Used</span>
+                <span className={styles.statusValue} style={{ color: '#ef4444' }}>
+                  {netWeight !== undefined && initialWeight !== undefined
+                    ? `${Math.max(0, Math.min(initialWeight, (initialWeight - netWeight).toFixed(2)))}`
+                    : '0.00'} g
+                </span>
+              </div>
+
+            </>
+          )}
+
           <div className={styles.statusRow}>
             <span className={styles.statusLabel}>Wire Weight (Remaining)</span>
             <div className={styles.statusValueGroup}>
               <span className={styles.statusValue}>
                 {netWeight !== undefined ? `${Math.max(0, netWeight).toFixed(2)}` : '--'} g
               </span>
+              {initialWeight > 0 && netWeight !== undefined && (
+                <span className={styles.statusSubValue} style={{ color: '#6b7280', fontSize: '0.9em' }}>
+                  ({((netWeight / initialWeight) * 100).toFixed(1)}% of {initialWeight.toFixed(2)}g)
+                </span>
+              )}
               {isTared ? (
                 <span className={styles.statusSubValue} style={{ color: '#10b981' }}>
                   Tared (zeroed)
@@ -118,25 +189,6 @@ export default function SpoolWireControl({
               )}
             </div>
           </div>
-
-          {isTared && initialWeight > 0 && (
-            <>
-              <div className={styles.statusRow}>
-                <span className={styles.statusLabel}>Weight Used</span>
-                <span className={styles.statusValue} style={{ color: '#ef4444' }}>
-                  {netWeight !== undefined && initialWeight !== undefined
-                    ? `${Math.max(0, (initialWeight - netWeight).toFixed(2))}`
-                    : '0.00'} g
-                </span>
-              </div>
-              <div className={styles.statusRow}>
-                <span className={styles.statusLabel}>Initial Wire Weight</span>
-                <span className={styles.statusValue} style={{ color: '#94a3b8' }}>
-                  {initialWeight !== undefined ? `${initialWeight.toFixed(2)}` : '0.00'} g
-                </span>
-              </div>
-            </>
-          )}
 
           {lastCycleWireLengthUsed !== undefined && lastCycleWireLengthUsed > 0 && (
             <>
@@ -160,6 +212,43 @@ export default function SpoolWireControl({
               <span className={styles.feedingDot} />
               <span>Feeding wire...</span>
             </div>
+          )}
+
+          {/* Empty spool alert - highest priority */}
+          {isWireEmpty && remainingPercentage !== undefined && (
+            <>
+              <div className={styles.divider} />
+              <div className={styles.emptyWireAlert} role="alert">
+                <span className={styles.emptyWireAlertIcon}>🔴</span>
+                <div className={styles.emptyWireAlertContent}>
+                  <span className={styles.emptyWireAlertTitle}>Spool Empty</span>
+                  <span className={styles.emptyWireAlertMessage}>
+                    Wire is completely used. Please refill the spool with new wire.
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Low wire remaining alert - show only if not empty */}
+          {!isWireEmpty && isWireLow && remainingPercentage !== undefined && (
+            <>
+              <div className={styles.divider} />
+              <div className={styles.lowWireAlert} role="alert">
+                <span className={styles.lowWireAlertIcon}>⚠️</span>
+                <div className={styles.lowWireAlertContent}>
+                  <span className={styles.lowWireAlertTitle}>Low Wire Remaining</span>
+                  <span className={styles.lowWireAlertMessage}>
+                    Wire remaining is critically low at {remainingPercentage.toFixed(1)}%. Replace the spool soon.
+                  </span>
+                  {remainingLength !== undefined && (
+                    <span className={styles.lowWireAlertLength}>
+                      Remaining: {(remainingLength / 1000).toFixed(2)} m
+                    </span>
+                  )}
+                </div>
+              </div>
+            </>
           )}
         </div>
 
