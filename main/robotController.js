@@ -148,6 +148,11 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
     sendPositionUpdate(undefined, payload)
   })
 
+  // Listen for actual Arduino JSON data reception (for connection status tracking)
+  registerHardwareListener('arduino:data:received', (payload) => {
+    sendToRenderer('arduino:data:received', { timestamp: payload.timestamp })
+  })
+
   const registerIpcListener = (channel, handler) => {
     ipcMain.on(channel, handler)
     ipcListeners.push([channel, handler])

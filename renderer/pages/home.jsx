@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useCallback, useState } from 'react'
 import Head from 'next/head'
 import LcdDisplay from '../components/LcdDisplay'
 import ComponentHeightControl from '../components/ComponentHeightControl'
@@ -18,8 +18,6 @@ import CameraView from '../components/CameraView'
 import styles from './home.module.css'
 
 const initialCalibration = [
-  { label: 'X Axis', value: '120.00 → 132.50', unit: 'mm', icon: '↔' },
-  { label: 'Y Axis', value: '045.30 → 048.10', unit: 'mm', icon: '↕' },
   { label: 'Z Axis', value: '003.20 → 000.00', unit: 'mm', icon: '↕' },
   { label: 'Wire Remaining', value: '100', unit: '%', length: '14.3 m', icon: '⚡' },
   { label: 'Flux Remaining', value: '82', unit: '%', icon: '💧' },
@@ -66,32 +64,32 @@ const initialAirJetPressureState = {
 }
 
 export default function HomePage() {
-  const [calibration, setCalibration] = React.useState(initialCalibration)
-  const [localTime, setLocalTime] = React.useState('')
-  const [fans, setFans] = React.useState(initialFanState)
-  const [fumeExtractor, setFumeExtractor] = React.useState(initialFumeExtractorState)
-  const [fumeExtractorStatusMessage, setFumeExtractorStatusMessage] = React.useState('')
-  const [fluxMist, setFluxMist] = React.useState(initialFluxMistState)
-  const [fluxMistStatusMessage, setFluxMistStatusMessage] = React.useState('')
-  const [airBreeze, setAirBreeze] = React.useState(initialAirBreezeState)
-  const [airBreezeStatusMessage, setAirBreezeStatusMessage] = React.useState('')
-  const [airJetPressure, setAirJetPressure] = React.useState(initialAirJetPressureState)
-  const [airJetPressureStatusMessage, setAirJetPressureStatusMessage] = React.useState('')
-  const [componentHeight, setComponentHeight] = React.useState('')
-  const [heightStatus, setHeightStatus] = React.useState('')
-  const [tipTarget, setTipTarget] = React.useState('345')
-  const [isHeaterEnabled, setIsHeaterEnabled] = React.useState(false)
-  const [heaterStatus, setHeaterStatus] = React.useState('')
-  const [currentTipTemperature, setCurrentTipTemperature] = React.useState(null)
-  const [wireDiameter, setWireDiameter] = React.useState('')
-  const [wireFeedStatus, setWireFeedStatus] = React.useState('idle')
-  const [wireFeedMessage, setWireFeedMessage] = React.useState('')
-  const [wireBreak, setWireBreak] = React.useState({
+  const [calibration, setCalibration] = useState(initialCalibration)
+  const [localTime, setLocalTime] = useState('')
+  const [fans, setFans] = useState(initialFanState)
+  const [fumeExtractor, setFumeExtractor] = useState(initialFumeExtractorState)
+  const [fumeExtractorStatusMessage, setFumeExtractorStatusMessage] = useState('')
+  const [fluxMist, setFluxMist] = useState(initialFluxMistState)
+  const [fluxMistStatusMessage, setFluxMistStatusMessage] = useState('')
+  const [airBreeze, setAirBreeze] = useState(initialAirBreezeState)
+  const [airBreezeStatusMessage, setAirBreezeStatusMessage] = useState('')
+  const [airJetPressure, setAirJetPressure] = useState(initialAirJetPressureState)
+  const [airJetPressureStatusMessage, setAirJetPressureStatusMessage] = useState('')
+  const [componentHeight, setComponentHeight] = useState('5')
+  const [heightStatus, setHeightStatus] = useState('')
+  const [tipTarget, setTipTarget] = useState('345')
+  const [isHeaterEnabled, setIsHeaterEnabled] = useState(false)
+  const [heaterStatus, setHeaterStatus] = useState('')
+  const [currentTipTemperature, setCurrentTipTemperature] = useState(null)
+  const [wireDiameter, setWireDiameter] = useState('')
+  const [wireFeedStatus, setWireFeedStatus] = useState('idle')
+  const [wireFeedMessage, setWireFeedMessage] = useState('')
+  const [wireBreak, setWireBreak] = useState({
     detected: false,
     timestamp: null,
     message: null,
   })
-  const [spoolState, setSpoolState] = React.useState({
+  const [spoolState, setSpoolState] = useState({
     spoolDiameter: 50.0,
     wireDiameter: 0.5,
     initialWireLength: 10000.0,
@@ -112,7 +110,7 @@ export default function HomePage() {
     isTared: false,
     solderDensity: 8.5,
   })
-  const [spoolStatusMessage, setSpoolStatusMessage] = React.useState('')
+  const [spoolStatusMessage, setSpoolStatusMessage] = useState('')
 
   // Calculate volume per 1mm using cylinder volume formula: V = π × r² × h
   // where r = diameter/2, h = 1mm
@@ -126,7 +124,7 @@ export default function HomePage() {
     const volume = Math.PI * radius * radius * height // volume in mm³
     return volume
   }, [wireDiameter])
-  const [sequenceState, setSequenceState] = React.useState({
+  const [sequenceState, setSequenceState] = useState({
     stage: 'idle',
     lastCompleted: null,
     isActive: false,
@@ -136,15 +134,15 @@ export default function HomePage() {
     progress: 0,
     error: null,
   })
-  const [currentPosition, setCurrentPosition] = React.useState({
+  const [currentPosition, setCurrentPosition] = useState({
     x: 120.0,
     y: 45.3,
     z: 3.2,
     isMoving: false,
   })
-  const [stepSize, setStepSize] = React.useState(1.0)
-  const [padShape, setPadShape] = React.useState('')
-  const [padDimensions, setPadDimensions] = React.useState({
+  const [stepSize, setStepSize] = useState(1.0)
+  const [padShape, setPadShape] = useState('')
+  const [padDimensions, setPadDimensions] = useState({
     side: '',
     length: '',
     width: '',
@@ -152,23 +150,33 @@ export default function HomePage() {
     outerRadius: '',
     innerRadius: '',
   })
-  const [solderHeight, setSolderHeight] = React.useState('')
-  const [padArea, setPadArea] = React.useState(null)
-  const [padVolume, setPadVolume] = React.useState(null)
-  const [wireUsed, setWireUsed] = React.useState(null)
-  const [stepsMoved, setStepsMoved] = React.useState(null)
-  const [isCalculatingMetrics, setIsCalculatingMetrics] = React.useState(false)
+  const [solderHeight, setSolderHeight] = useState('')
+  const [padArea, setPadArea] = useState(null)
+  const [padVolume, setPadVolume] = useState(null)
+  const [wireUsed, setWireUsed] = useState(null)
+  const [stepsMoved, setStepsMoved] = useState(null)
+  const [isCalculatingMetrics, setIsCalculatingMetrics] = useState(false)
+  
+  // Thermal mass compensation state
+  const [padCategory, setPadCategory] = useState(null) // 'small', 'medium', 'large'
+  const [compensatedTemperature, setCompensatedTemperature] = useState(null)
+  const baseTemperature = 345 // Base temperature in °C
 
   // Serial port connection state
-  const [serialPorts, setSerialPorts] = React.useState([])
-  const [isSerialConnected, setIsSerialConnected] = React.useState(false)
-  const [isSerialConnecting, setIsSerialConnecting] = React.useState(false)
-  const [currentSerialPort, setCurrentSerialPort] = React.useState(null)
-  const [serialConnectionError, setSerialConnectionError] = React.useState(null)
+  const [serialPorts, setSerialPorts] = useState([])
+  const [isSerialConnected, setIsSerialConnected] = useState(false)
+  const [isSerialConnecting, setIsSerialConnecting] = useState(false)
+  const [currentSerialPort, setCurrentSerialPort] = useState(null)
+  const [serialConnectionError, setSerialConnectionError] = useState(null)
+
+  // Arduino data reception tracking
+  const [isReceivingArduinoData, setIsReceivingArduinoData] = useState(false)
+  const [lastArduinoDataTime, setLastArduinoDataTime] = useState(null)
+  const [arduinoDataCount, setArduinoDataCount] = useState(0)
 
   // G-CODE COMMAND HISTORY COMMENTED OUT
   // G-code command history
-  // const [gcodeCommands, setGcodeCommands] = React.useState([])
+  // const [gcodeCommands, setGcodeCommands] = useState([])
   const wireStatus = React.useMemo(
     () => calibration.find((entry) => entry.label === 'Wire Remaining'),
     [calibration]
@@ -180,6 +188,17 @@ export default function HomePage() {
   }, [wireStatus])
   const wireLength = wireStatus?.length
   const isWireLow = wirePercentage <= 10
+  const isWireEmpty = wirePercentage <= 0
+  
+  // Get flux remaining from calibration
+  const fluxRemaining = React.useMemo(() => {
+    const fluxEntry = calibration.find((entry) => entry.label === 'Flux Remaining')
+    if (!fluxEntry) return null
+    const numeric = typeof fluxEntry.value === 'number' 
+      ? fluxEntry.value 
+      : parseFloat(String(fluxEntry.value).replace(/[^0-9.]/g, ''))
+    return Number.isFinite(numeric) ? numeric : null
+  }, [calibration])
 
   React.useEffect(() => {
     if (typeof window === 'undefined' || !window.ipc) return undefined
@@ -406,6 +425,8 @@ export default function HomePage() {
         return
       }
 
+      // DON'T track tip status as Arduino data - only track actual arduino:data:received events
+
       if (payload.target !== undefined) {
         setTipTarget(String(payload.target))
       }
@@ -513,11 +534,14 @@ export default function HomePage() {
       if (!payload || typeof payload !== 'object') {
         return
       }
+
+      // DON'T track spool updates as Arduino data - only track actual arduino:data:received events
+
       setSpoolState((current) => ({
         ...current,
         ...payload,
       }))
-      
+
       // Sync wire diameter to WireFeedControl when spool state updates
       if (payload.wireDiameter !== undefined) {
         setWireDiameter(payload.wireDiameter.toString())
@@ -541,6 +565,15 @@ export default function HomePage() {
       }))
     }
 
+    // Listen for ACTUAL Arduino JSON data reception (not simulation/mock data)
+    const handleArduinoDataReceived = (payload) => {
+      if (isSerialConnected && payload?.timestamp) {
+        setIsReceivingArduinoData(true)
+        setLastArduinoDataTime(payload.timestamp)
+        setArduinoDataCount((prev) => prev + 1)
+      }
+    }
+
     window.ipc.on?.('component:height:ack', handleHeightAck)
     window.ipc.on?.('tip:status', handleTipStatus)
     window.ipc.on?.('wire:feed:status', handleWireFeedStatus)
@@ -552,6 +585,9 @@ export default function HomePage() {
     window.ipc.on?.('fluxMist:update', handleFluxMistState)
     window.ipc.on?.('airBreeze:update', handleAirBreezeState)
     window.ipc.on?.('airJetPressure:update', handleAirJetPressureState)
+
+    // Listen for actual Arduino JSON data (only this counts as real Arduino data)
+    window.ipc.on?.('arduino:data:received', handleArduinoDataReceived)
 
     window.ipc.send?.('tip:status:request')
     window.ipc.send?.('wire:feed:status:request')
@@ -565,6 +601,7 @@ export default function HomePage() {
 
     return () => {
       window.ipc.off?.('component:height:ack', handleHeightAck)
+      window.ipc.off?.('component:height:ack', handleHeightAck)
       window.ipc.off?.('tip:status', handleTipStatus)
       window.ipc.off?.('wire:feed:status', handleWireFeedStatus)
       window.ipc.off?.('wire:break', handleWireBreak)
@@ -575,6 +612,7 @@ export default function HomePage() {
       window.ipc.off?.('fluxMist:update', handleFluxMistState)
       window.ipc.off?.('airBreeze:update', handleAirBreezeState)
       window.ipc.off?.('airJetPressure:update', handleAirJetPressureState)
+      window.ipc.off?.('arduino:data:received', handleArduinoDataReceived)
     }
   }, [])
 
@@ -589,15 +627,11 @@ export default function HomePage() {
         return
       }
 
+      // DON'T track position updates as Arduino data - only track actual arduino:data:received events
+      // Position can come from simulation or other sources
+
+      // Single-axis machine: Only Z position is updated (X and Y removed - PCB moved manually)
       setCurrentPosition((current) => ({
-        x:
-          typeof payload.x === 'number' && Number.isFinite(payload.x)
-            ? payload.x
-            : current.x,
-        y:
-          typeof payload.y === 'number' && Number.isFinite(payload.y)
-            ? payload.y
-            : current.y,
         z:
           typeof payload.z === 'number' && Number.isFinite(payload.z)
             ? payload.z
@@ -609,13 +643,42 @@ export default function HomePage() {
       }))
     }
 
+    // Monitor for data timeout (if no data received for 2 seconds, mark as not receiving)
+    const dataTimeoutInterval = setInterval(() => {
+      if (isSerialConnected && lastArduinoDataTime && Date.now() - lastArduinoDataTime > 2000) {
+        setIsReceivingArduinoData(false)
+      }
+    }, 1000)
+
     window.ipc.on?.('position:update', handlePositionUpdate)
     window.ipc.send?.('position:request')
 
     return () => {
       window.ipc.off?.('position:update', handlePositionUpdate)
+      clearInterval(dataTimeoutInterval)
     }
-  }, [])
+  }, [lastArduinoDataTime, isSerialConnected])
+
+  // Listen for actual Arduino data reception separately
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || !window.ipc) {
+      return undefined
+    }
+
+    const handleArduinoDataReceived = (payload) => {
+      if (isSerialConnected && payload?.timestamp) {
+        setIsReceivingArduinoData(true)
+        setLastArduinoDataTime(payload.timestamp)
+        setArduinoDataCount((prev) => prev + 1)
+      }
+    }
+
+    window.ipc.on?.('arduino:data:received', handleArduinoDataReceived)
+
+    return () => {
+      window.ipc.off?.('arduino:data:received', handleArduinoDataReceived)
+    }
+  }, [isSerialConnected])
 
   // Serial port connection handlers
   React.useEffect(() => {
@@ -639,6 +702,10 @@ export default function HomePage() {
         setSerialConnectionError(null)
         setIsSerialConnected(true)
         setCurrentSerialPort(result.path || 'Connected')
+        // Reset data tracking on new connection
+        setIsReceivingArduinoData(false)
+        setArduinoDataCount(0)
+        setLastArduinoDataTime(null)
       }
     }
 
@@ -650,6 +717,10 @@ export default function HomePage() {
         setSerialConnectionError(null)
         setIsSerialConnected(false)
         setCurrentSerialPort(null)
+        // Reset data tracking on disconnect
+        setIsReceivingArduinoData(false)
+        setArduinoDataCount(0)
+        setLastArduinoDataTime(null)
       }
     }
 
@@ -713,7 +784,7 @@ export default function HomePage() {
   //   }
   // }, [])
 
-  const handleRefreshPorts = React.useCallback(() => {
+  const handleRefreshPorts = useCallback(() => {
     if (typeof window === 'undefined' || !window.ipc?.send) {
       return Promise.resolve()
     }
@@ -721,7 +792,7 @@ export default function HomePage() {
     return Promise.resolve()
   }, [])
 
-  const handleSerialConnect = React.useCallback((config) => {
+  const handleSerialConnect = useCallback((config) => {
     if (typeof window === 'undefined' || !window.ipc?.send) {
       return
     }
@@ -730,7 +801,7 @@ export default function HomePage() {
     window.ipc.send('serial:connect', config)
   }, [])
 
-  const handleSerialDisconnect = React.useCallback(() => {
+  const handleSerialDisconnect = useCallback(() => {
     if (typeof window === 'undefined' || !window.ipc?.send) {
       return
     }
@@ -740,7 +811,7 @@ export default function HomePage() {
   }, [])
 
   // Sequence control handlers
-  const handleSequenceStart = React.useCallback((padPositions) => {
+  const handleSequenceStart = useCallback((padPositions) => {
     if (typeof window === 'undefined' || !window.ipc?.send) {
       return
     }
@@ -752,32 +823,32 @@ export default function HomePage() {
     })
   }, [wireUsed])
 
-  const handleSequenceStop = React.useCallback(() => {
+  const handleSequenceStop = useCallback(() => {
     if (typeof window === 'undefined' || !window.ipc?.send) {
       return
     }
     window.ipc.send('sequence:stop')
   }, [])
 
-  const handleSequencePause = React.useCallback(() => {
+  const handleSequencePause = useCallback(() => {
     if (typeof window === 'undefined' || !window.ipc?.send) {
       return
     }
     window.ipc.send('sequence:pause')
   }, [])
 
-  const handleSequenceResume = React.useCallback(() => {
+  const handleSequenceResume = useCallback(() => {
     if (typeof window === 'undefined' || !window.ipc?.send) {
       return
     }
     window.ipc.send('sequence:resume')
   }, [])
 
-  const handleHeightChange = React.useCallback((event) => {
+  const handleHeightChange = useCallback((event) => {
     setComponentHeight(event.target.value)
   }, [])
 
-  const handleHeightSubmit = React.useCallback(() => {
+  const handleHeightSubmit = useCallback(() => {
     const rawValue = componentHeight.trim()
     if (!rawValue) {
       setHeightStatus('Enter a component height first.')
@@ -803,11 +874,11 @@ export default function HomePage() {
     })
   }, [componentHeight])
 
-  const handleTipTargetChange = React.useCallback((event) => {
+  const handleTipTargetChange = useCallback((event) => {
     setTipTarget(event.target.value)
   }, [])
 
-  const handleApplyTipTarget = React.useCallback(() => {
+  const handleApplyTipTarget = useCallback(() => {
     const rawValue = tipTarget.trim()
     if (!rawValue) {
       setHeaterStatus('Enter a target temperature first.')
@@ -833,7 +904,28 @@ export default function HomePage() {
     })
   }, [tipTarget])
 
-  const handleToggleHeater = React.useCallback(() => {
+  // Auto-apply compensated temperature when it's calculated
+  const handleApplyCompensatedTemperature = useCallback(() => {
+    if (compensatedTemperature === null) {
+      setHeaterStatus('No compensated temperature available. Calculate pad metrics first.')
+      return
+    }
+
+    if (typeof window === 'undefined' || !window.ipc?.send) {
+      setHeaterStatus('IPC unavailable; cannot update target.')
+      return
+    }
+
+    setTipTarget(String(compensatedTemperature))
+    setHeaterStatus(`Applying compensated temperature: ${compensatedTemperature}°C...`)
+    window.ipc.send('tip:target:set', {
+      target: compensatedTemperature,
+      unit: '°C',
+      timestamp: Date.now(),
+    })
+  }, [compensatedTemperature])
+
+  const handleToggleHeater = useCallback(() => {
     if (typeof window === 'undefined' || !window.ipc?.send) {
       setHeaterStatus('IPC unavailable; cannot toggle heater.')
       return
@@ -849,11 +941,11 @@ export default function HomePage() {
   }, [isHeaterEnabled])
 
 
-  const handleWireDiameterChange = React.useCallback((event) => {
+  const handleWireDiameterChange = useCallback((event) => {
     setWireDiameter(event.target.value)
   }, [])
 
-  const handleWireFeedStart = React.useCallback(() => {
+  const handleWireFeedStart = useCallback(() => {
     // Use calculated wire length from PadSolderingMetrics
     if (wireUsed === null || wireUsed <= 0) {
       setWireFeedMessage('Please calculate wire length in Pad Soldering Metrics first.')
@@ -889,7 +981,7 @@ export default function HomePage() {
     })
   }, [wireUsed, wireDiameter])
 
-  const toggleFan = React.useCallback((fanKey) => {
+  const toggleFan = useCallback((fanKey) => {
     setFans((current) => {
       const nextState = !current[fanKey]
       const updated = {
@@ -909,7 +1001,7 @@ export default function HomePage() {
     })
   }, [])
 
-  const toggleFumeExtractor = React.useCallback(() => {
+  const toggleFumeExtractor = useCallback(() => {
     const nextState = !fumeExtractor.enabled
 
     if (typeof window !== 'undefined' && window.ipc?.send) {
@@ -925,7 +1017,7 @@ export default function HomePage() {
     }))
   }, [fumeExtractor.enabled])
 
-  const handleFumeExtractorSpeedChange = React.useCallback((speed) => {
+  const handleFumeExtractorSpeedChange = useCallback((speed) => {
     const speedNumeric = Number.parseFloat(speed)
     if (!Number.isFinite(speedNumeric) || speedNumeric < 0 || speedNumeric > 100) {
       setFumeExtractorStatusMessage('Speed must be between 0 and 100')
@@ -946,7 +1038,7 @@ export default function HomePage() {
     setFumeExtractorStatusMessage('')
   }, [])
 
-  const toggleFumeExtractorAutoMode = React.useCallback(() => {
+  const toggleFumeExtractorAutoMode = useCallback(() => {
     const nextState = !fumeExtractor.autoMode
 
     if (typeof window !== 'undefined' && window.ipc?.send) {
@@ -962,7 +1054,7 @@ export default function HomePage() {
     }))
   }, [fumeExtractor.autoMode])
 
-  const handleFluxMistDispense = React.useCallback(() => {
+  const handleFluxMistDispense = useCallback(() => {
     if (fluxMist.isDispensing) {
       return
     }
@@ -977,7 +1069,7 @@ export default function HomePage() {
     }
   }, [fluxMist])
 
-  const handleFluxMistDurationChange = React.useCallback((duration) => {
+  const handleFluxMistDurationChange = useCallback((duration) => {
     const durationNumeric = Number.parseFloat(duration)
     if (!Number.isFinite(durationNumeric) || durationNumeric <= 0) {
       setFluxMistStatusMessage('Duration must be greater than zero')
@@ -998,7 +1090,7 @@ export default function HomePage() {
     setFluxMistStatusMessage('')
   }, [])
 
-  const handleFluxMistFlowRateChange = React.useCallback((flowRate) => {
+  const handleFluxMistFlowRateChange = useCallback((flowRate) => {
     const flowRateNumeric = Number.parseFloat(flowRate)
     if (!Number.isFinite(flowRateNumeric) || flowRateNumeric < 0 || flowRateNumeric > 100) {
       setFluxMistStatusMessage('Flow rate must be between 0 and 100')
@@ -1019,7 +1111,7 @@ export default function HomePage() {
     setFluxMistStatusMessage('')
   }, [])
 
-  const toggleFluxMistAutoMode = React.useCallback(() => {
+  const toggleFluxMistAutoMode = useCallback(() => {
     const nextState = !fluxMist.autoMode
 
     if (typeof window !== 'undefined' && window.ipc?.send) {
@@ -1035,7 +1127,7 @@ export default function HomePage() {
     }))
   }, [fluxMist.autoMode])
 
-  const toggleAirBreeze = React.useCallback(() => {
+  const toggleAirBreeze = useCallback(() => {
     const nextState = !airBreeze.enabled
 
     if (typeof window !== 'undefined' && window.ipc?.send) {
@@ -1051,7 +1143,7 @@ export default function HomePage() {
     }))
   }, [airBreeze.enabled])
 
-  const handleAirBreezeActivate = React.useCallback(() => {
+  const handleAirBreezeActivate = useCallback(() => {
     if (airBreeze.isActive) {
       return
     }
@@ -1066,7 +1158,7 @@ export default function HomePage() {
     }
   }, [airBreeze])
 
-  const handleAirBreezeDurationChange = React.useCallback((duration) => {
+  const handleAirBreezeDurationChange = useCallback((duration) => {
     const durationNumeric = Number.parseFloat(duration)
     if (!Number.isFinite(durationNumeric) || durationNumeric <= 0) {
       setAirBreezeStatusMessage('Duration must be greater than zero')
@@ -1087,7 +1179,7 @@ export default function HomePage() {
     setAirBreezeStatusMessage('')
   }, [])
 
-  const handleAirBreezeIntensityChange = React.useCallback((intensity) => {
+  const handleAirBreezeIntensityChange = useCallback((intensity) => {
     const intensityNumeric = Number.parseFloat(intensity)
     if (!Number.isFinite(intensityNumeric) || intensityNumeric < 0 || intensityNumeric > 100) {
       setAirBreezeStatusMessage('Intensity must be between 0 and 100')
@@ -1108,7 +1200,7 @@ export default function HomePage() {
     setAirBreezeStatusMessage('')
   }, [])
 
-  const toggleAirBreezeAutoMode = React.useCallback(() => {
+  const toggleAirBreezeAutoMode = useCallback(() => {
     const nextState = !airBreeze.autoMode
 
     if (typeof window !== 'undefined' && window.ipc?.send) {
@@ -1124,7 +1216,7 @@ export default function HomePage() {
     }))
   }, [airBreeze.autoMode])
 
-  const toggleAirJetPressure = React.useCallback(() => {
+  const toggleAirJetPressure = useCallback(() => {
     const nextState = !airJetPressure.enabled
 
     if (typeof window !== 'undefined' && window.ipc?.send) {
@@ -1140,7 +1232,7 @@ export default function HomePage() {
     }))
   }, [airJetPressure.enabled])
 
-  const handleAirJetPressureActivate = React.useCallback(() => {
+  const handleAirJetPressureActivate = useCallback(() => {
     if (airJetPressure.isActive) {
       return
     }
@@ -1155,7 +1247,7 @@ export default function HomePage() {
     }
   }, [airJetPressure])
 
-  const handleAirJetPressureDurationChange = React.useCallback((duration) => {
+  const handleAirJetPressureDurationChange = useCallback((duration) => {
     const durationNumeric = Number.parseFloat(duration)
     if (!Number.isFinite(durationNumeric) || durationNumeric <= 0) {
       setAirJetPressureStatusMessage('Duration must be greater than zero')
@@ -1176,7 +1268,7 @@ export default function HomePage() {
     setAirJetPressureStatusMessage('')
   }, [])
 
-  const handleAirJetPressurePressureChange = React.useCallback((pressure) => {
+  const handleAirJetPressurePressureChange = useCallback((pressure) => {
     const pressureNumeric = Number.parseFloat(pressure)
     if (!Number.isFinite(pressureNumeric) || pressureNumeric < 0 || pressureNumeric > 100) {
       setAirJetPressureStatusMessage('Pressure must be between 0 and 100')
@@ -1197,7 +1289,7 @@ export default function HomePage() {
     setAirJetPressureStatusMessage('')
   }, [])
 
-  const toggleAirJetPressureAutoMode = React.useCallback(() => {
+  const toggleAirJetPressureAutoMode = useCallback(() => {
     const nextState = !airJetPressure.autoMode
 
     if (typeof window !== 'undefined' && window.ipc?.send) {
@@ -1213,7 +1305,7 @@ export default function HomePage() {
     }))
   }, [airJetPressure.autoMode])
 
-  const handleSpoolConfigSubmit = React.useCallback((config) => {
+  const handleSpoolConfigSubmit = useCallback((config) => {
     if (typeof window === 'undefined' || !window.ipc?.send) {
       setSpoolStatusMessage('IPC unavailable; cannot update spool config.')
       return
@@ -1226,7 +1318,7 @@ export default function HomePage() {
 
     setSpoolStatusMessage('Updating spool configuration...')
     window.ipc.send('spool:config:set', config)
-    
+
     // Listen for response
     const handleResponse = (event, result) => {
       if (result.error) {
@@ -1239,7 +1331,7 @@ export default function HomePage() {
     window.ipc.on?.('spool:config:response', handleResponse)
   }, [])
 
-  const handleResetSpool = React.useCallback(() => {
+  const handleResetSpool = useCallback(() => {
     if (typeof window === 'undefined' || !window.ipc?.send) {
       setSpoolStatusMessage('IPC unavailable; cannot reset spool.')
       return
@@ -1260,7 +1352,7 @@ export default function HomePage() {
     window.ipc.on?.('spool:reset:response', handleResponse)
   }, [])
 
-  const handleTareSpool = React.useCallback(() => {
+  const handleTareSpool = useCallback(() => {
     if (typeof window === 'undefined' || !window.ipc?.send) {
       setSpoolStatusMessage('IPC unavailable; cannot tare spool.')
       return
@@ -1281,11 +1373,25 @@ export default function HomePage() {
     window.ipc.on?.('spool:tare:response', handleResponse)
   }, [])
 
-  const handleJog = React.useCallback(
+  const handleJog = useCallback(
     (axis, direction, stepSizeValue) => {
       if (typeof window === 'undefined' || !window.ipc?.send) {
+        console.error('[ManualMovement] IPC unavailable; cannot send jog command.')
         return
       }
+
+      console.log('[ManualMovement] Sending jog command:', { axis, direction, stepSize: stepSizeValue })
+      
+      // Listen for acknowledgment
+      const handleAck = (event, result) => {
+        if (result.error) {
+          console.error('[ManualMovement] Jog error:', result.error)
+        } else {
+          console.log('[ManualMovement] Jog completed:', result.status)
+        }
+        window.ipc.off?.('axis:jog:ack', handleAck)
+      }
+      window.ipc.on?.('axis:jog:ack', handleAck)
 
       window.ipc.send('axis:jog', {
         axis,
@@ -1297,17 +1403,31 @@ export default function HomePage() {
     []
   )
 
-  const handleHome = React.useCallback(() => {
+  const handleHome = useCallback(() => {
     if (typeof window === 'undefined' || !window.ipc?.send) {
+      console.error('[ManualMovement] IPC unavailable; cannot send home command.')
       return
     }
+
+    console.log('[ManualMovement] Sending home command')
+    
+    // Listen for acknowledgment
+    const handleAck = (event, result) => {
+      if (result.error) {
+        console.error('[ManualMovement] Home error:', result.error)
+      } else {
+        console.log('[ManualMovement] Home completed:', result.status)
+      }
+      window.ipc.off?.('axis:home:ack', handleAck)
+    }
+    window.ipc.on?.('axis:home:ack', handleAck)
 
     window.ipc.send('axis:home', {
       timestamp: Date.now(),
     })
   }, [])
 
-  const handlePadShapeChange = React.useCallback((shape) => {
+  const handlePadShapeChange = useCallback((shape) => {
     setPadShape(shape)
     // Reset dimensions and metrics when shape changes
     setPadDimensions({
@@ -1322,9 +1442,11 @@ export default function HomePage() {
     setPadVolume(null)
     setWireUsed(null)
     setStepsMoved(null)
+    setPadCategory(null)
+    setCompensatedTemperature(null)
   }, [])
 
-  const handlePadDimensionChange = React.useCallback((dimension, value) => {
+  const handlePadDimensionChange = useCallback((dimension, value) => {
     setPadDimensions((prev) => ({
       ...prev,
       [dimension]: value,
@@ -1334,9 +1456,11 @@ export default function HomePage() {
     setPadVolume(null)
     setWireUsed(null)
     setStepsMoved(null)
+    setPadCategory(null)
+    setCompensatedTemperature(null)
   }, [])
 
-  const handleSolderHeightChange = React.useCallback((value) => {
+  const handleSolderHeightChange = useCallback((value) => {
     setSolderHeight(value)
     // Reset metrics when height changes
     setPadVolume(null)
@@ -1344,7 +1468,44 @@ export default function HomePage() {
     setStepsMoved(null)
   }, [])
 
-  const calculatePadMetrics = React.useCallback(() => {
+  // Thermal mass compensation calculation
+  const calculateThermalMassCompensation = useCallback((padArea) => {
+    if (!padArea || padArea <= 0) {
+      return {
+        category: null,
+        compensatedTemp: null,
+        compensation: 0,
+      }
+    }
+
+    // Pad size categories (based on area in mm²)
+    let category
+    if (padArea < 10) {
+      category = 'small'
+    } else if (padArea < 50) {
+      category = 'medium'
+    } else {
+      category = 'large'
+    }
+
+    // Compensation factor: 2.0°C per √mm² (non-linear scaling)
+    const compensationFactor = 2.0
+    const compensation = Math.sqrt(padArea) * compensationFactor
+
+    // Calculate compensated temperature
+    const compensatedTemp = baseTemperature + compensation
+
+    // Clamp to safe range (280°C - 400°C)
+    const clampedTemp = Math.max(280, Math.min(400, Math.round(compensatedTemp)))
+
+    return {
+      category,
+      compensatedTemp: clampedTemp,
+      compensation: Math.round(compensation * 10) / 10, // Round to 1 decimal
+    }
+  }, [baseTemperature])
+
+  const calculatePadMetrics = useCallback(() => {
     setIsCalculatingMetrics(true)
 
     // Simulate calculation delay
@@ -1424,6 +1585,11 @@ export default function HomePage() {
 
       setPadArea(calculatedArea)
 
+      // Calculate thermal mass compensation
+      const thermalCompensation = calculateThermalMassCompensation(calculatedArea)
+      setPadCategory(thermalCompensation.category)
+      setCompensatedTemperature(thermalCompensation.compensatedTemp)
+
       // Calculate pad volume: Area × Solder Height
       const heightNumeric = Number.parseFloat(solderHeight)
       if (!Number.isFinite(heightNumeric) || heightNumeric <= 0) {
@@ -1454,7 +1620,7 @@ export default function HomePage() {
       setStepsMoved(calculatedSteps)
       setIsCalculatingMetrics(false)
     }, 300)
-  }, [padShape, padDimensions, solderHeight, volumePerMm])
+  }, [padShape, padDimensions, solderHeight, volumePerMm, calculateThermalMassCompensation])
 
   const isMachineFanOn = fans.machine
   const isTipFanOn = fans.tip
@@ -1498,6 +1664,9 @@ export default function HomePage() {
           onConnect={handleSerialConnect}
           onDisconnect={handleSerialDisconnect}
           connectionError={serialConnectionError}
+          isReceivingData={isReceivingArduinoData}
+          lastDataReceived={lastArduinoDataTime}
+          dataCount={arduinoDataCount}
         />
 
         <ComponentHeightControl
@@ -1517,22 +1686,6 @@ export default function HomePage() {
             isMoving={currentPosition.isMoving}
           />
 
-          <PadSolderingMetrics
-            padShape={padShape}
-            padDimensions={padDimensions}
-            solderHeight={solderHeight}
-            padArea={padArea}
-            padVolume={padVolume}
-            wireUsed={wireUsed}
-            stepsMoved={stepsMoved}
-            volumePerMm={volumePerMm}
-            onShapeChange={handlePadShapeChange}
-            onDimensionChange={handlePadDimensionChange}
-            onSolderHeightChange={handleSolderHeightChange}
-            onCalculate={calculatePadMetrics}
-            isCalculating={isCalculatingMetrics}
-          />
-
           <TipHeatingControl
             tipTarget={tipTarget}
             onTipTargetChange={handleTipTargetChange}
@@ -1541,6 +1694,19 @@ export default function HomePage() {
             onToggleHeater={handleToggleHeater}
             heaterStatus={heaterStatus}
             currentTemperature={currentTipTemperature ?? calibration.find((entry) => entry.label === 'Tip Temp')?.value}
+            padCategory={padCategory}
+            compensatedTemperature={compensatedTemperature}
+            baseTemperature={baseTemperature}
+          />
+
+          <WireFeedControl
+            calculatedLength={wireUsed}
+            wireDiameter={wireDiameter}
+            volumePerMm={volumePerMm}
+            status={wireFeedStatus}
+            message={wireFeedMessage}
+            onWireDiameterChange={handleWireDiameterChange}
+            onStart={handleWireFeedStart}
           />
 
           <SpoolWireControl
@@ -1552,14 +1718,24 @@ export default function HomePage() {
             statusMessage={spoolStatusMessage}
           />
 
-          <WireFeedControl
-            calculatedLength={wireUsed}
-            wireDiameter={wireDiameter}
+          <PadSolderingMetrics
+            padShape={padShape}
+            padDimensions={padDimensions}
+            solderHeight={solderHeight}
+            padArea={padArea}
+            padVolume={padVolume}
+            wireUsed={wireUsed}
+            stepsMoved={stepsMoved}
             volumePerMm={volumePerMm}
-            status={wireFeedStatus}
-            message={wireFeedMessage}
-            onWireDiameterChange={handleWireDiameterChange}
-            onStart={handleWireFeedStart}
+            padCategory={padCategory}
+            compensatedTemperature={compensatedTemperature}
+            baseTemperature={baseTemperature}
+            onShapeChange={handlePadShapeChange}
+            onDimensionChange={handlePadDimensionChange}
+            onSolderHeightChange={handleSolderHeightChange}
+            onCalculate={calculatePadMetrics}
+            onApplyCompensatedTemperature={handleApplyCompensatedTemperature}
+            isCalculating={isCalculatingMetrics}
           />
 
           <FumeExtractorControl
@@ -1583,10 +1759,10 @@ export default function HomePage() {
             onAutoModeToggle={toggleFluxMistAutoMode}
             statusMessage={fluxMistStatusMessage}
             lastDispensed={fluxMist.lastDispensed}
+            fluxRemaining={fluxRemaining}
           />
 
           <AirControl
-            // Air Breeze props
             airBreezeEnabled={airBreeze.enabled}
             airBreezeActive={airBreeze.isActive}
             airBreezeDuration={airBreeze.duration}
@@ -1599,7 +1775,6 @@ export default function HomePage() {
             onAirBreezeAutoModeToggle={toggleAirBreezeAutoMode}
             airBreezeLastActivated={airBreeze.lastActivated}
             airBreezeStatusMessage={airBreezeStatusMessage}
-            // Air Jet Pressure props
             airJetEnabled={airJetPressure.enabled}
             airJetActive={airJetPressure.isActive}
             airJetDuration={airJetPressure.duration}
@@ -1622,8 +1797,7 @@ export default function HomePage() {
             onResume={handleSequenceResume}
             padPositions={[
               {
-                x: currentPosition.x,
-                y: currentPosition.y,
+                // Single-axis machine: Only Z-axis (X and Y removed)
                 z: Number.parseFloat(solderHeight || 0),
               }
             ]}
@@ -1631,7 +1805,21 @@ export default function HomePage() {
         </section>
 
 
-        {isWireLow ? (
+        {/* Empty spool alert - highest priority */}
+        {isWireEmpty ? (
+          <div className={styles.wireAlertEmpty} role="alert">
+            <span className={styles.wireAlertEmptyDot} aria-hidden />
+            <div className={styles.wireAlertEmptyContent}>
+              <span className={styles.wireAlertEmptyTitle}>Spool Empty</span>
+              <span className={styles.wireAlertEmptyMessage}>
+                Wire is completely used. Please refill the spool with new wire.
+              </span>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Low wire remaining alert - show only if not empty */}
+        {!isWireEmpty && isWireLow ? (
           <div className={styles.wireAlert} role="alert">
             <span className={styles.wireAlertDot} aria-hidden />
             <span>

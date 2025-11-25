@@ -1,10 +1,10 @@
 import { SerialPort } from 'serialport'
 import { ReadlineParser } from 'serialport'
 import { EventEmitter } from 'events'
+import ArduinoDataHandler from './ArduinoDataHandler.js'
 
 /**
  * SerialPortManager handles all serial port communication with the hardware
- * Supports G-code or custom command protocols
  */
 export default class SerialPortManager extends EventEmitter {
   constructor(options = {}) {
@@ -35,6 +35,11 @@ export default class SerialPortManager extends EventEmitter {
     // Response handlers (for command/response pattern)
     this.pendingCommands = new Map()
     this.commandIdCounter = 0
+
+    // Arduino data handler
+    this.arduinoHandler = new ArduinoDataHandler()
+    this.pollingInterval = null
+    this.pollingIntervalMs = options.pollingInterval || 100 // Poll every 100ms
   }
 
   /**
@@ -152,6 +157,47 @@ export default class SerialPortManager extends EventEmitter {
     } catch (error) {
       console.error('[SerialPortManager] Disconnect error:', error)
       return { error: error.message }
+    }
+  }
+
+  /**
+   * Send a JSON command to Arduino
+   * @param {object} commandObj - Command object to send as JSON (e.g., {command: "move", z: 5})
+   * @param {object} options - Options for command execution
+   * @returns {Promise} Promise that resolves when command is sent
+   */
+  async sendJsonCommand(commandObj, options = {}) {
+    const {
+      waitForResponse = false,
+      timeout = this.commandTimeout,
+      priority = false,
+    } = options
+
+    if (!this.isConnected || !this.port || !this.port.isOpen) {
+      return Promise.reject(new Error('Serial port not connected'))
+    }
+
+    try {
+      const jsonCommand = JSON.stringify(commandObj)
+      console.log('[SerialPortManager] Sending JSON command to Arduino:', jsonCommand)
+
+      return new Promise((resolve, reject) => {
+        this.port.write(`${jsonCommand}\n`, (error) => {
+          if (error) {
+            console.error('[SerialPortManager] Error sending JSON command:', error)
+            reject(error)
+          } else {
+            this.emit('command:sent', {
+              command: jsonCommand,
+              timestamp: Date.now(),
+            })
+            resolve({ status: 'sent', command: jsonCommand })
+          }
+        })
+      })
+    } catch (error) {
+      console.error('[SerialPortManager] Error serializing JSON command:', error)
+      return Promise.reject(error)
     }
   }
 
@@ -350,6 +396,33 @@ export default class SerialPortManager extends EventEmitter {
       }
     }
 
+    // Try to parse as Arduino JSON data first (most common format)
+    try {
+      const trimmedLine = line.trim()
+      // Only try to parse if it looks like JSON and has minimum length (filter out noise)
+      if (trimmedLine.startsWith('{') && trimmedLine.endsWith('}') && trimmedLine.length > 10) {
+        // Looks like JSON - try Arduino data handler
+        const arduinoData = this.arduinoHandler.parseArduinoData(trimmedLine)
+        if (arduinoData && Object.keys(arduinoData).length > 0) {
+          // Only emit if we got valid parsed data (not just noise)
+          // Emit Arduino data event with parsed updates
+          this.emit('arduino:data', arduinoData)
+          
+          // Also emit individual updates for compatibility
+          if (arduinoData.position) {
+            this.emit('position', arduinoData.position)
+          }
+          if (arduinoData.temperature) {
+            this.emit('temperature', arduinoData.temperature)
+          }
+          // Don't return - continue to check other formats if needed
+        }
+      }
+    } catch (e) {
+      // Not JSON or parsing failed, continue to other formats
+      // Silently ignore parsing errors (might be noise from Bluetooth)
+    }
+
     // Handle Marlin responses
     if (line.trim() === 'ok' || line.startsWith('ok')) {
       // Marlin "ok" response (standard acknowledgment)
@@ -535,16 +608,9 @@ export default class SerialPortManager extends EventEmitter {
       // Wait a bit for hardware to be ready
       await new Promise((resolve) => setTimeout(resolve, 500))
 
-      // Marlin: Get firmware info to verify connection
-      await this.sendCommand('M115', { waitForResponse: true })
-      
-      // Marlin: Set to absolute positioning
-      await this.sendCommand('G90', { waitForResponse: false })
-      
-      // Marlin: Set to millimeters
-      await this.sendCommand('G21', { waitForResponse: false })
-
-      console.log('[SerialPortManager] Initialization complete (Marlin)')
+      // Arduino sends data automatically, no initialization commands needed
+      // The app will receive JSON data from Arduino continuously
+      console.log('[SerialPortManager] Initialization complete - waiting for Arduino JSON data')
     } catch (error) {
       console.warn('[SerialPortManager] Initialization warning:', error.message)
     }

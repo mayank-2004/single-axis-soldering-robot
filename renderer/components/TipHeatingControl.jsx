@@ -9,6 +9,9 @@ export default function TipHeatingControl({
   onToggleHeater,
   heaterStatus,
   currentTemperature,
+  padCategory,
+  compensatedTemperature,
+  baseTemperature,
 }) {
   return (
     <article className={styles.controlCard} aria-label="Tip heating control">
@@ -17,7 +20,8 @@ export default function TipHeatingControl({
         <span className={styles.controlSubtitle}>Manage target temperature and heater state</span>
       </header>
       <div className={styles.controlBody}>
-        <div className={styles.controlRow}>
+        {/* Input fields commented out - values received from Arduino */}
+        {/* <div className={styles.controlRow}>
           <label htmlFor="tip-target" className={styles.controlLabel}>
             Target temperature
           </label>
@@ -38,6 +42,12 @@ export default function TipHeatingControl({
               Set Target
             </button>
           </div>
+        </div> */}
+        
+        {/* Display only - value received from Arduino */}
+        <div className={styles.controlRow}>
+          <span className={styles.controlLabel}>Target temperature</span>
+          <span className={styles.controlValue}>{tipTarget ?? '--'} °C</span>
         </div>
         <div className={styles.controlRow}>
           <span className={styles.controlLabel}>Heater</span>
@@ -56,6 +66,28 @@ export default function TipHeatingControl({
           <span className={styles.controlLabel}>Current temperature</span>
           <span className={styles.controlValue}>{currentTemperature ?? '--'}</span>
         </div>
+
+        {/* Thermal Mass Compensation Suggestion */}
+        {padCategory && compensatedTemperature !== null && (
+          <div className={styles.thermalSuggestion}>
+            <div className={styles.thermalSuggestionHeader}>
+              <span className={styles.thermalSuggestionLabel}>Suggested Temperature</span>
+              <span className={`${styles.padCategoryBadge} ${styles[`padCategory${padCategory.charAt(0).toUpperCase() + padCategory.slice(1)}`]}`}>
+                {padCategory.toUpperCase()} Pad
+              </span>
+            </div>
+            <div className={styles.thermalSuggestionDetails}>
+              <div className={styles.thermalSuggestionRow}>
+                <span className={styles.thermalSuggestionText}>Base:</span>
+                <span className={styles.thermalSuggestionValue}>{baseTemperature}°C</span>
+              </div>
+              <div className={styles.thermalSuggestionRow}>
+                <span className={styles.thermalSuggestionText}>Recommended:</span>
+                <span className={styles.thermalSuggestionValueHighlight}>{compensatedTemperature}°C</span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       {heaterStatus ? <p className={styles.controlStatus}>{heaterStatus}</p> : null}
     </article>

@@ -10,6 +10,9 @@ export default function SerialPortConnection({
   onConnect,
   onDisconnect,
   connectionError = null,
+  isReceivingData = false,
+  lastDataReceived = null,
+  dataCount = 0,
 }) {
   const [selectedPort, setSelectedPort] = React.useState('')
   const [baudRate, setBaudRate] = React.useState('115200')
@@ -73,16 +76,44 @@ export default function SerialPortConnection({
             className={[
               styles.statusDot,
               isConnected ? styles.statusDotConnected : styles.statusDotDisconnected,
+              isConnected && isReceivingData ? styles.statusDotReceiving : '',
             ].join(' ')}
             aria-hidden
           />
-          <span className={styles.statusText}>
-            {isConnecting
-              ? 'Connecting...'
-              : isConnected
-                ? `Connected to ${currentPort || 'hardware'}`
-                : 'Disconnected'}
-          </span>
+          <div className={styles.statusInfo}>
+            <span className={styles.statusText}>
+              {isConnecting
+                ? 'Connecting...'
+                : isConnected
+                  ? `Connected to ${currentPort || 'Arduino Mega 2560'}`
+                  : 'Disconnected'}
+            </span>
+            {isConnected && (
+              <div className={styles.dataStatus}>
+                {isReceivingData ? (
+                  <>
+                    <span className={styles.dataIndicator}>
+                      <span className={styles.dataDot} /> Receiving data from Arduino
+                    </span>
+                    {dataCount > 0 && (
+                      <span className={styles.dataCount}>
+                        {dataCount.toLocaleString()} updates received
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <span className={styles.dataIndicatorInactive}>
+                    ⚠ Waiting for Arduino data...
+                  </span>
+                )}
+                {lastDataReceived && (
+                  <span className={styles.lastUpdate}>
+                    Last update: {new Date(lastDataReceived).toLocaleTimeString()}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className={styles.portSelection}>

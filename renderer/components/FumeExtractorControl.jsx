@@ -50,7 +50,8 @@ export default function FumeExtractorControl({
           </button>
         </div>
 
-        <div className={styles.controlRow}>
+        {/* Input field commented out - value received from Arduino */}
+        {/* <div className={styles.controlRow}>
           <label htmlFor="fume-speed" className={styles.controlLabel}>
             Speed
           </label>
@@ -80,6 +81,12 @@ export default function FumeExtractorControl({
             />
             <span className={styles.controlUnit}>%</span>
           </div>
+        </div> */}
+        
+        {/* Display only - value received from Arduino */}
+        <div className={styles.controlRow}>
+          <span className={styles.controlLabel}>Speed</span>
+          <span className={styles.controlValue}>{speed ?? '--'} %</span>
         </div>
 
         <div className={styles.controlRow}>

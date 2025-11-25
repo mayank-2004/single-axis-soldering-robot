@@ -12,6 +12,7 @@ export default function FluxMistControl({
   onAutoModeToggle,
   statusMessage,
   lastDispensed,
+  fluxRemaining,
 }) {
   const handleDurationInputChange = React.useCallback((e) => {
     const value = e.target.value
@@ -64,7 +65,8 @@ export default function FluxMistControl({
         <span className={styles.controlSubtitle}>Control flux mist dispensing</span>
       </header>
       <div className={styles.controlBody}>
-        <div className={styles.controlRow}>
+        {/* Input fields commented out - values received from Arduino */}
+        {/* <div className={styles.controlRow}>
           <label htmlFor="flux-duration" className={styles.controlLabel}>
             Duration
           </label>
@@ -116,6 +118,25 @@ export default function FluxMistControl({
             />
             <span className={styles.controlUnit}>%</span>
           </div>
+        </div> */}
+        
+        {/* Display only - values received from Arduino */}
+        <div className={styles.controlRow}>
+          <span className={styles.controlLabel}>Duration</span>
+          <span className={styles.controlValue}>{duration ?? '--'} ms</span>
+        </div>
+        <div className={styles.controlRow}>
+          <span className={styles.controlLabel}>Flow Rate</span>
+          <span className={styles.controlValue}>{flowRate ?? '--'} %</span>
+        </div>
+
+        <div className={styles.controlRow}>
+          <span className={styles.controlLabel}>Flux Remaining</span>
+          <span className={styles.controlValue}>
+            {fluxRemaining !== null && fluxRemaining !== undefined 
+              ? `${fluxRemaining.toFixed(0)}` 
+              : '--'} %
+          </span>
         </div>
 
         <div className={styles.controlRow}>
