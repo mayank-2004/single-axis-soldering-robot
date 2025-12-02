@@ -729,6 +729,24 @@ export default class SolderingHardware extends EventEmitter {
     }
   }
 
+  async saveMovementSequence() {
+    if (this.mode === 'hardware' && this.serialManager) {
+      try {
+        // Send JSON command to Arduino: {"command":"save"}
+        await this._sendArduinoJsonCommand({
+          command: 'save'
+        })
+        
+        return { status: 'Movement sequence saved from home position to current position' }
+      } catch (error) {
+        return { error: error.message }
+      }
+    } else {
+      // Simulation mode
+      return { status: 'Movement sequence saved (simulation mode)' }
+    }
+  }
+
   setFanState(fan, enabled) {
     if (fan !== 'machine' && fan !== 'tip') {
       return {
@@ -795,11 +813,6 @@ export default class SolderingHardware extends EventEmitter {
     return { status: this.getFumeExtractorState() }
   }
 
-  /**
-   * Dispense flux mist
-   * @param {number} duration - Duration in milliseconds (optional, uses default if not provided)
-   * @param {number} flowRate - Flow rate 0-100% (optional, uses default if not provided)
-   */
   async dispenseFluxMist(duration = null, flowRate = null) {
     // Check if flux is available
     if (this.state.flux.percentage <= 0 || this.state.flux.remainingMl <= 0) {
@@ -917,11 +930,6 @@ export default class SolderingHardware extends EventEmitter {
     return { status: this.getFluxMistState() }
   }
 
-  /**
-   * Activate air breeze for cooling
-   * @param {number} duration - Duration in milliseconds (optional, uses default if not provided)
-   * @param {number} intensity - Intensity 0-100% (optional, uses default if not provided)
-   */
   async activateAirBreeze(duration = null, intensity = null) {
     // Use provided values or defaults
     const breezeDuration = duration !== null ? duration : this.state.airBreeze.duration
@@ -1059,9 +1067,6 @@ export default class SolderingHardware extends EventEmitter {
     return { status: this.getAirBreezeState() }
   }
 
-  /**
-   * Get air jet pressure state
-   */
   getAirJetPressureState() {
     return {
       enabled: this.state.airJetPressure.enabled,
@@ -1073,11 +1078,6 @@ export default class SolderingHardware extends EventEmitter {
     }
   }
 
-  /**
-   * Activate air jet pressure for tip cleaning
-   * @param {number} duration - Duration in milliseconds (optional, uses default if not provided)
-   * @param {number} pressure - Pressure 0-100% (optional, uses default if not provided)
-   */
   async activateAirJetPressure(duration = null, pressure = null) {
     // Use provided values or defaults
     const jetDuration = duration !== null ? duration : this.state.airJetPressure.duration
@@ -1469,10 +1469,6 @@ export default class SolderingHardware extends EventEmitter {
     spool.lastUpdated = Date.now()
   }
 
-  /**
-   * Update wire remaining after complete PCB cycle
-   * @param {number} totalWireLengthUsed - Total wire length used in mm for complete cycle
-   */
   _updateSpoolAfterCompleteCycle(totalWireLengthUsed) {
     const { spool } = this.state
     
@@ -1510,10 +1506,6 @@ export default class SolderingHardware extends EventEmitter {
     this.emit('spool', this.getSpoolState())
   }
 
-  /**
-   * Update wire remaining display in calibration (LCD)
-   * Uses same calculation and formatting as getSpoolState() for consistency
-   */
   _updateWireRemainingDisplay() {
     const { spool } = this.state
     // Use exact same calculation as getSpoolState() for consistency
@@ -1532,11 +1524,6 @@ export default class SolderingHardware extends EventEmitter {
     console.log('[wire:alert]', payload)
   }
 
-  /**
-   * Start sequence execution
-   * @param {Array} padPositions - Array of {x, y, z} positions for each pad
-   * @param {Object} options - Configuration options (wireLength, etc.)
-   */
   async startSequence(padPositions = [], options = {}) {
     if (this.state.sequence.isActive) {
       return { error: 'Sequence is already running' }
@@ -1572,9 +1559,6 @@ export default class SolderingHardware extends EventEmitter {
     return { status: 'Sequence started', totalPads: pads.length }
   }
 
-  /**
-   * Stop sequence execution
-   */
   stopSequence() {
     if (!this.state.sequence.isActive) {
       return { status: 'Sequence is not running' }
@@ -1589,9 +1573,6 @@ export default class SolderingHardware extends EventEmitter {
     return { status: 'Sequence stopped' }
   }
 
-  /**
-   * Pause sequence execution
-   */
   pauseSequence() {
     if (!this.state.sequence.isActive) {
       return { status: 'Sequence is not running' }
@@ -1607,9 +1588,6 @@ export default class SolderingHardware extends EventEmitter {
     return { status: 'Sequence paused' }
   }
 
-  /**
-   * Resume sequence execution
-   */
   resumeSequence() {
     if (!this.state.sequence.isActive) {
       return { error: 'Sequence is not running' }
@@ -1628,9 +1606,6 @@ export default class SolderingHardware extends EventEmitter {
     return { status: 'Sequence resumed' }
   }
 
-  /**
-   * Execute sequence steps
-   */
   async _executeSequence() {
     const sequence = this.state.sequence
 
@@ -1704,9 +1679,6 @@ export default class SolderingHardware extends EventEmitter {
     }
   }
 
-  /**
-   * Execute a specific stage action
-   */
   async _executeStageAction(action, padPosition, stageIndex) {
     const { x, y, z } = padPosition
     const safeZ = this.state.componentHeightMm ? this.state.componentHeightMm + 2 : 5 // Safe height above component
@@ -1782,14 +1754,11 @@ export default class SolderingHardware extends EventEmitter {
     }
   }
 
-  /**
-   * Send JSON command to Arduino via serial port
-   * @param {object} commandObj - Command object to send as JSON
-   */
   async _sendArduinoJsonCommand(commandObj) {
     if (this.mode === 'hardware' && this.serialManager && this.serialManager.isConnected) {
       try {
         await this.serialManager.sendJsonCommand(commandObj)
+        console.log('[SolderingHardware] JSON command sent to Arduino:', JSON.stringify(commandObj));
       } catch (error) {
         console.error('[SolderingHardware] Error sending JSON command to Arduino:', error)
         throw error
@@ -1800,9 +1769,6 @@ export default class SolderingHardware extends EventEmitter {
     }
   }
 
-  /**
-   * Move to absolute position
-   */
   async _moveToPosition(x, y, z) {
     // Single-axis machine: only Z-axis movement is supported
     // X and Y positions are ignored (PCB is moved manually)
@@ -1840,10 +1806,6 @@ export default class SolderingHardware extends EventEmitter {
       this.emit('position:update', this.getPosition())
     }
   }
-
-  // -----------------------------------------------------------------------
-  // Internal helpers
-  // -----------------------------------------------------------------------
 
   _createFluxPayload() {
     return {
@@ -2003,10 +1965,6 @@ export default class SolderingHardware extends EventEmitter {
     }, 12000)
   }
 
-  // -----------------------------------------------------------------------
-  // Hardware mode helpers
-  // -----------------------------------------------------------------------
-
   _setupSerialEventHandlers() {
     if (!this.serialManager) return
 
@@ -2115,9 +2073,6 @@ export default class SolderingHardware extends EventEmitter {
     // })
   }
 
-  /**
-   * Handle Arduino data updates
-   */
   _handleArduinoData(updates) {
     try {
       // Update position (Z-axis only - single-axis machine)
@@ -2304,16 +2259,10 @@ export default class SolderingHardware extends EventEmitter {
     }, 1000) // Poll every second
   }
 
-  /**
-   * Get available serial ports
-   */
   static async listSerialPorts() {
     return SerialPortManager.listPorts()
   }
 
-  /**
-   * Get serial connection status
-   */
   getSerialStatus() {
     if (this.mode === 'hardware' && this.serialManager) {
       return this.serialManager.getStatus()

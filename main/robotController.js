@@ -429,6 +429,11 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
     sendPositionUpdate(event.sender)
   })
 
+  registerIpcListener('axis:save', async (event) => {
+    const result = await hardware.saveMovementSequence()
+    event.sender.send('axis:save:ack', result)
+  })
+
   // Serial port management IPC handlers
   registerIpcListener('serial:list-ports', async (event) => {
     try {

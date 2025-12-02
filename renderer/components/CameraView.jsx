@@ -10,7 +10,45 @@ export default function CameraView({ isActive = true }) {
   const [selectedDeviceId, setSelectedDeviceId] = React.useState(null)
   const [facingMode, setFacingMode] = React.useState('environment') // 'user' or 'environment'
 
-  // Get available video devices
+  // Request camera permission first, then enumerate devices
+  const requestPermissionAndEnumerate = React.useCallback(async () => {
+    try {
+      // First, request permission by trying to get user media with minimal constraints
+      // This will trigger the permission prompt if needed
+      try {
+        const tempStream = await navigator.mediaDevices.getUserMedia({ 
+          video: true,
+          audio: false 
+        })
+        // Stop the temporary stream immediately - we just needed it for permission
+        tempStream.getTracks().forEach(track => track.stop())
+        console.log('[CameraView] Camera permission granted')
+      } catch (permErr) {
+        console.error('[CameraView] Permission error:', permErr)
+        if (permErr.name === 'NotAllowedError') {
+          setError('Camera access denied. Please allow camera access in your system settings.')
+          return
+        }
+        throw permErr
+      }
+
+      // Now enumerate devices (should work after permission is granted)
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      const videoDevices = devices.filter(device => device.kind === 'videoinput')
+      console.log('[CameraView] Found video devices:', videoDevices.length)
+      setAvailableDevices(videoDevices)
+      
+      // Auto-select first device if none selected
+      if (!selectedDeviceId && videoDevices.length > 0) {
+        setSelectedDeviceId(videoDevices[0].deviceId)
+      }
+    } catch (err) {
+      console.error('[CameraView] Error enumerating devices:', err)
+      setError('Failed to enumerate camera devices: ' + err.message)
+    }
+  }, [selectedDeviceId])
+
+  // Get available video devices (legacy method - kept for fallback)
   const enumerateDevices = React.useCallback(async () => {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices()
@@ -60,14 +98,23 @@ export default function CameraView({ isActive = true }) {
       let errorMessage = 'Failed to start camera'
       
       if (err.name === 'NotAllowedError') {
-        errorMessage = 'Camera access denied. Please allow camera access.'
+        errorMessage = 'Camera access denied. Please allow camera access in Windows Settings → Privacy → Camera, then restart the app.'
       } else if (err.name === 'NotFoundError') {
-        errorMessage = 'No camera found. Please connect a camera.'
+        errorMessage = 'No camera found. Please connect a camera and refresh.'
       } else if (err.name === 'NotReadableError') {
-        errorMessage = 'Camera is being used by another application.'
+        errorMessage = 'Camera is being used by another application. Please close other apps using the camera.'
+      } else if (err.name === 'OverconstrainedError') {
+        errorMessage = 'Camera does not support requested settings. Try selecting a different camera.'
       } else if (err.message) {
         errorMessage = err.message
       }
+      
+      console.error('[CameraView] Full error details:', {
+        name: err.name,
+        message: err.message,
+        constraint: err.constraint,
+        stack: err.stack
+      })
       
       setError(errorMessage)
       setIsStreaming(false)
@@ -86,10 +133,11 @@ export default function CameraView({ isActive = true }) {
     setIsStreaming(false)
   }, [])
 
-  // Initialize on mount
+  // Initialize on mount - request permission first
   React.useEffect(() => {
     if (isActive) {
-      enumerateDevices()
+      // Use the new method that requests permission first
+      requestPermissionAndEnumerate()
     }
 
     return () => {

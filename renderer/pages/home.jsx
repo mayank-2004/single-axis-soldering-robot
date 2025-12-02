@@ -111,6 +111,7 @@ export default function HomePage() {
     solderDensity: 8.5,
   })
   const [spoolStatusMessage, setSpoolStatusMessage] = useState('')
+  const [manualMovementStatus, setManualMovementStatus] = useState('')
 
   // Calculate volume per 1mm using cylinder volume formula: V = π × r² × h
   // where r = diameter/2, h = 1mm
@@ -1427,6 +1428,34 @@ export default function HomePage() {
     })
   }, [])
 
+  const handleSave = useCallback(() => {
+    if (typeof window === 'undefined' || !window.ipc?.send) {
+      console.error('[ManualMovement] IPC unavailable; cannot send save command.')
+      return
+    }
+
+    console.log('[ManualMovement] Sending save command')
+    
+    // Listen for acknowledgment
+    const handleAck = (event, result) => {
+      if (result.error) {
+        console.error('[ManualMovement] Save error:', result.error)
+        setManualMovementStatus('Error saving movement: ' + result.error)
+      } else {
+        console.log('[ManualMovement] Save completed:', result.status)
+        setManualMovementStatus('Movement saved successfully!')
+        // Clear status message after 3 seconds
+        setTimeout(() => setManualMovementStatus(''), 3000)
+      }
+      window.ipc.off?.('axis:save:ack', handleAck)
+    }
+    window.ipc.on?.('axis:save:ack', handleAck)
+
+    window.ipc.send('axis:save', {
+      timestamp: Date.now(),
+    })
+  }, [])
+
   const handlePadShapeChange = useCallback((shape) => {
     setPadShape(shape)
     // Reset dimensions and metrics when shape changes
@@ -1683,7 +1712,9 @@ export default function HomePage() {
             onStepSizeChange={setStepSize}
             onJog={handleJog}
             onHome={handleHome}
+            onSave={handleSave}
             isMoving={currentPosition.isMoving}
+            statusMessage={manualMovementStatus}
           />
 
           <TipHeatingControl

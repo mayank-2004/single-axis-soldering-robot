@@ -3,9 +3,6 @@ import { ReadlineParser } from 'serialport'
 import { EventEmitter } from 'events'
 import ArduinoDataHandler from './ArduinoDataHandler.js'
 
-/**
- * SerialPortManager handles all serial port communication with the hardware
- */
 export default class SerialPortManager extends EventEmitter {
   constructor(options = {}) {
     super()
@@ -160,12 +157,6 @@ export default class SerialPortManager extends EventEmitter {
     }
   }
 
-  /**
-   * Send a JSON command to Arduino
-   * @param {object} commandObj - Command object to send as JSON (e.g., {command: "move", z: 5})
-   * @param {object} options - Options for command execution
-   * @returns {Promise} Promise that resolves when command is sent
-   */
   async sendJsonCommand(commandObj, options = {}) {
     const {
       waitForResponse = false,

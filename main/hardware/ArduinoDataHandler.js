@@ -62,7 +62,6 @@ export default class ArduinoDataHandler extends EventEmitter {
           // Position data (single-axis: only Z-axis)
           if (data.pos) {
             updates.position = {
-              // Single-axis machine: Only Z position (X and Y removed - PCB moved manually)
               z: parseFloat(data.pos.z) || 0,
               isMoving: Boolean(data.pos.moving),
             }

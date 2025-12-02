@@ -11,6 +11,7 @@
  */
 
 #include <ArduinoJson.h>
+#include <math.h>
 
 // Serial communication settings
 const unsigned long BAUD_RATE = 115200;
@@ -63,7 +64,70 @@ int totalPads = 0;
 float sequenceProgress = 0.0;
 String sequenceError = "";  // Empty string means no error (will send null in JSON)
 
-float componentHeight = 4.75;
+float componentHeight = 5;
+
+// -------------------------------
+// Z-Axis stepper configuration
+// -------------------------------
+const int STEPPER_Z_STEP_PIN = 48;
+const int STEPPER_Z_DIR_PIN = 46;
+// Enable pin is not used in this configuration
+
+const int LIMIT_SWITCH_Z_MIN_PIN = 2;
+const int LIMIT_SWITCH_Z_MAX_PIN = 3;
+
+const float Z_MIN_POSITION = 0.0f;   // mm
+const float Z_MAX_POSITION = 20.0f;  // mm
+const int Z_STEPS_PER_MM = 200;      // Adjust to your mechanics (lead screw pitch / micro-stepping)
+const unsigned int Z_STEP_DELAY_US = 600; // Pulse width for stepper (microseconds)
+
+// -------------------------------
+// Wire Feed stepper configuration
+// -------------------------------
+const int WIRE_FEED_STEP_PIN = 9;
+const int WIRE_FEED_DIR_PIN = 8;
+// Enable pin is not used in this configuration
+
+const int WIRE_FEED_STEPS_PER_MM = 200;      // Adjust to your wire feed mechanics
+const unsigned int WIRE_FEED_STEP_DELAY_US = 500; // Pulse width for wire feed stepper (microseconds)
+
+// -------------------------------
+// Button and Paddle configuration
+// -------------------------------
+const int BUTTON_UP_PIN = 39;
+const int BUTTON_DOWN_PIN = 37;
+const int BUTTON_SAVE_PIN = 35;
+const int PADDLE_PIN = 34;
+
+// Button debouncing and continuous movement
+const unsigned long BUTTON_DEBOUNCE_MS = 50;
+const unsigned long BUTTON_REPEAT_DELAY_MS = 100; // Delay between movements when button held
+unsigned long lastButtonUpPress = 0;
+unsigned long lastButtonDownPress = 0;
+unsigned long lastButtonSavePress = 0;
+unsigned long lastPaddlePress = 0;
+unsigned long lastButtonUpRepeat = 0;
+unsigned long lastButtonDownRepeat = 0;
+bool lastButtonUpState = HIGH;
+bool lastButtonDownState = HIGH;
+bool lastButtonSaveState = HIGH;
+bool lastPaddleState = HIGH;
+
+// Movement recording and playback
+float savedMovementDistance = 0.0f;  // Saved movement distance from home position
+bool hasSavedMovement = false;
+float homePosition = 20.0f;  // Position when save was pressed (should be homing position - Z_MAX)
+bool isExecutingSavedMovement = false;
+
+// Forward declarations for motion helpers
+void moveZAxisByDistance(float distanceMm);
+void moveZAxisTo(float targetMm);
+void homeZAxis();
+void feedWireByLength(float lengthMm);
+void handleButtonControls();
+void saveMovementSequence();
+void executeSavedMovement();
+
 
 void setup() {
   Serial.begin(BAUD_RATE);
@@ -72,13 +136,36 @@ void setup() {
   // It will work even if no USB connection is present
   // Only use this wait if you need USB connection for debugging
   
-  // Initialize your sensors, motors, actuators here
-  // Example:
-  // pinMode(STEPPER_Z_STEP, OUTPUT);  // Only Z-axis stepper
-  // pinMode(STEPPER_Z_DIR, OUTPUT);
+  // Initialize sensors, motors, actuators here
+  // Z-axis stepper motor pins
+  pinMode(STEPPER_Z_STEP_PIN, OUTPUT);
+  pinMode(STEPPER_Z_DIR_PIN, OUTPUT);
+  pinMode(LIMIT_SWITCH_Z_MIN_PIN, INPUT_PULLUP);
+  pinMode(LIMIT_SWITCH_Z_MAX_PIN, INPUT_PULLUP);
+
+  digitalWrite(STEPPER_Z_STEP_PIN, LOW);
+  digitalWrite(STEPPER_Z_DIR_PIN, LOW);
+
+  // Wire feed stepper motor pins
+  pinMode(WIRE_FEED_STEP_PIN, OUTPUT);
+  pinMode(WIRE_FEED_DIR_PIN, OUTPUT);
+
+  digitalWrite(WIRE_FEED_STEP_PIN, LOW);
+  digitalWrite(WIRE_FEED_DIR_PIN, LOW);
+
+  // Button and paddle pins (INPUT_PULLUP - buttons connect to ground when pressed)
+  pinMode(BUTTON_UP_PIN, INPUT_PULLUP);
+  pinMode(BUTTON_DOWN_PIN, INPUT_PULLUP);
+  pinMode(BUTTON_SAVE_PIN, INPUT_PULLUP);
+  pinMode(PADDLE_PIN, INPUT_PULLUP);
+
+  // Initialize button states
+  lastButtonUpState = digitalRead(BUTTON_UP_PIN);
+  lastButtonDownState = digitalRead(BUTTON_DOWN_PIN);
+  lastButtonSaveState = digitalRead(BUTTON_SAVE_PIN);
+  lastPaddleState = digitalRead(PADDLE_PIN);
+
   // pinMode(HEATER_PIN, OUTPUT);
-  // pinMode(WIRE_FEED_STEPPER_STEP, OUTPUT);
-  // pinMode(WIRE_FEED_STEPPER_DIR, OUTPUT);
   // attachInterrupt(digitalPinToInterrupt(WIRE_BREAK_SENSOR), handleWireBreak, CHANGE);
   
   delay(1000); // Give time for serial connection to stabilize
@@ -92,6 +179,9 @@ void setup() {
 }
 
 void loop() {
+  // Handle button controls (up, down, save, paddle)
+  handleButtonControls();
+  
   // Read sensors and update values
   readSensors();
   
@@ -276,32 +366,46 @@ void processCommands() {
       StaticJsonDocument<512> cmdDoc;
       DeserializationError error = deserializeJson(cmdDoc, command);
       
-      if (!error) {
-        String cmd = cmdDoc["command"] | "";
+      if (error) {
+        Serial.print("[CMD] JSON Parse Error: ");
+        Serial.println(error.c_str());
+        return;
+      }
+      
+      // JSON parsed successfully
+      String cmd = cmdDoc["command"] | "";
+      Serial.print("[CMD] Parsed command: ");
+      Serial.println(cmd);
         
         if (cmd == "move") {
-          // Move to position (single-axis: only Z movement)
+          // Move to absolute position (single-axis: only Z movement)
           float z = cmdDoc["z"] | zPosition;
-          
-          // Only update Z position (X and Y are ignored - PCB moved manually)
-          zPosition = z;
-          isMoving = true;
-          
-          // TODO: Send Z-axis move command to stepper motor
+          Serial.print("[CMD] Executing move command: z=");
+          Serial.println(z);
+          moveZAxisTo(z);
         }
         else if (cmd == "temp" || cmd == "temperature") {
           targetTemperature = cmdDoc["target"] | targetTemperature;
+          Serial.print("[CMD] Set target temperature: ");
+          Serial.println(targetTemperature);
           // TODO: Update heater target temperature
         }
         else if (cmd == "heater") {
           heaterEnabled = cmdDoc["enable"] | heaterEnabled;
+          Serial.print("[CMD] Heater ");
+          Serial.println(heaterEnabled ? "ENABLED" : "DISABLED");
           // TODO: Enable/disable heater
         }
         else if (cmd == "feed" || cmd == "wirefeed") {
           float length = cmdDoc["length"] | 0;
-          wireFeedStatus = "feeding";
-          isWireFeeding = true;
-          // TODO: Start wire feed for specified length
+          if (length > 0) {
+            wireFeedStatus = "feeding";
+            isWireFeeding = true;
+            feedWireByLength(length);
+            // After feeding, update status
+            wireFeedStatus = "idle";
+            isWireFeeding = false;
+          }
         }
         else if (cmd == "fan") {
           fanMachine = cmdDoc["machine"] | fanMachine;
@@ -342,27 +446,41 @@ void processCommands() {
           String axis = cmdDoc["axis"] | "";
           float distance = cmdDoc["distance"] | 0;
           
+          Serial.print("[CMD] Jog command: axis=");
+          Serial.print(axis);
+          Serial.print(", distance=");
+          Serial.println(distance);
+          
           // Single-axis machine: only Z-axis movement is supported
           if (axis == "z" || axis == "Z") {
-            zPosition += distance;
-            // Clamp Z position to reasonable range (0-20mm)
-            zPosition = constrain(zPosition, 0.0, 20.0);
-            isMoving = true;
-            // TODO: Send Z-axis jog command to stepper motor
+            moveZAxisByDistance(distance);
           } else {
             // X and Y axes are not supported (PCB moved manually)
+            Serial.println("[CMD] WARNING: X/Y axis not supported (single-axis machine)");
             // Ignore the command
           }
         }
-      }
+        else if (cmd == "home") {
+          Serial.println("[CMD] Executing home command");
+          homeZAxis();
+        }
+        else if (cmd == "save") {
+          // Save movement sequence from home position to current position
+          Serial.println("[CMD] Executing save command");
+          saveMovementSequence();
+        }
+        else {
+          Serial.print("[CMD] WARNING: Unknown command: ");
+          Serial.println(cmd);
+        }
     }
     // For simple text commands (future implementation)
     // else if (command.startsWith("MOVE")) { ... }
     // else if (command.startsWith("TEMP:")) { ... }
     
-    // Debug: echo received command (comment out in production)
-    // Serial.print("Received: ");
-    // Serial.println(command);
+    // Debug: echo received command (ENABLED FOR TESTING)
+    Serial.print("[CMD] Received: ");
+    Serial.println(command);
   }
 }
 
@@ -390,4 +508,260 @@ void handleWireBreak() {
 }
 */
 
+// ----------------------------------
+// Z-axis motion helper functions
+// ----------------------------------
 
+bool isLimitSwitchTriggered(int pin) {
+  // Limit switches use INPUT_PULLUP, so LOW = triggered
+  return digitalRead(pin) == LOW;
+}
+
+void pulseZStep() {
+  digitalWrite(STEPPER_Z_STEP_PIN, HIGH);
+  delayMicroseconds(Z_STEP_DELAY_US);
+  digitalWrite(STEPPER_Z_STEP_PIN, LOW);
+  delayMicroseconds(Z_STEP_DELAY_US);
+}
+
+void applyZMovement(long steps, bool moveUp) {
+  if (steps <= 0) {
+    return;
+  }
+
+  digitalWrite(STEPPER_Z_DIR_PIN, moveUp ? HIGH : LOW);
+
+  long stepsCompleted = 0;
+  while (stepsCompleted < steps) {
+    // Safety: stop if limit switch is hit mid-travel
+    if (!moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MIN_PIN)) {
+      zPosition = Z_MIN_POSITION;
+      break;
+    }
+    if (moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN)) {
+      zPosition = Z_MAX_POSITION;
+      break;
+    }
+
+    pulseZStep();
+    stepsCompleted++;
+  }
+
+  float deltaMm = (stepsCompleted / static_cast<float>(Z_STEPS_PER_MM)) * (moveUp ? 1.0f : -1.0f);
+  zPosition = constrain(zPosition + deltaMm, Z_MIN_POSITION, Z_MAX_POSITION);
+}
+
+void moveZAxisByDistance(float distanceMm) {
+  if (fabsf(distanceMm) < 0.001f) {
+    return;
+  }
+
+  bool moveUp = distanceMm > 0;
+
+  // Do not move further if limit switch is currently triggered
+  if (!moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MIN_PIN)) {
+    zPosition = Z_MIN_POSITION;
+    return;
+  }
+  if (moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN)) {
+    zPosition = Z_MAX_POSITION;
+    return;
+  }
+
+  float target = constrain(zPosition + distanceMm, Z_MIN_POSITION, Z_MAX_POSITION);
+  float actualDistance = target - zPosition;
+  long stepsToMove = labs(static_cast<long>(actualDistance * Z_STEPS_PER_MM));
+
+  if (stepsToMove == 0) {
+    zPosition = target;
+    return;
+  }
+
+  isMoving = true;
+  applyZMovement(stepsToMove, actualDistance > 0);
+  isMoving = false;
+}
+
+void moveZAxisTo(float targetMm) {
+  float clampedTarget = constrain(targetMm, Z_MIN_POSITION, Z_MAX_POSITION);
+  float distance = clampedTarget - zPosition;
+  moveZAxisByDistance(distance);
+}
+
+void homeZAxis() {
+  const long maxSteps = static_cast<long>((Z_MAX_POSITION - Z_MIN_POSITION) * Z_STEPS_PER_MM) + 200;
+
+  isMoving = true;
+  digitalWrite(STEPPER_Z_DIR_PIN, HIGH); // Move towards Z-max (upward)
+
+  long stepsTaken = 0;
+  while (!isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN) && stepsTaken < maxSteps) {
+    pulseZStep();
+    stepsTaken++;
+  }
+
+  zPosition = Z_MAX_POSITION;
+  isMoving = false;
+}
+
+// ----------------------------------
+// Wire feed helper functions
+// ----------------------------------
+
+void pulseWireFeedStep() {
+  digitalWrite(WIRE_FEED_STEP_PIN, HIGH);
+  delayMicroseconds(WIRE_FEED_STEP_DELAY_US);
+  digitalWrite(WIRE_FEED_STEP_PIN, LOW);
+  delayMicroseconds(WIRE_FEED_STEP_DELAY_US);
+}
+
+void feedWireByLength(float lengthMm) {
+  if (lengthMm <= 0) {
+    return;
+  }
+
+  // Set direction: HIGH = feed wire out, LOW = retract (if needed)
+  // Assuming HIGH = feed out (forward direction)
+  digitalWrite(WIRE_FEED_DIR_PIN, HIGH);
+
+  // Calculate number of steps needed
+  long stepsToMove = static_cast<long>(lengthMm * WIRE_FEED_STEPS_PER_MM);
+
+  if (stepsToMove <= 0) {
+    return;
+  }
+
+  // Feed wire by pulsing the stepper motor
+  for (long i = 0; i < stepsToMove; i++) {
+    pulseWireFeedStep();
+    
+    // Optional: Add small delay between steps for smoother operation
+    // This can be adjusted based on your feed rate requirements
+    // delayMicroseconds(100); // Uncomment if needed
+  }
+}
+
+// ----------------------------------
+// Button control functions
+// ----------------------------------
+
+void handleButtonControls() {
+  // Read current button states (LOW = pressed, HIGH = not pressed with INPUT_PULLUP)
+  bool currentButtonUp = digitalRead(BUTTON_UP_PIN);
+  bool currentButtonDown = digitalRead(BUTTON_DOWN_PIN);
+  bool currentButtonSave = digitalRead(BUTTON_SAVE_PIN);
+  bool currentPaddle = digitalRead(PADDLE_PIN);
+  
+  unsigned long currentTime = millis();
+  
+  // Handle UP button (moves head upward continuously while pressed)
+  if (currentButtonUp == LOW) {
+    // Button is pressed
+    if (currentTime - lastButtonUpPress > BUTTON_DEBOUNCE_MS) {
+      // First press or repeat - check if enough time has passed
+      if (lastButtonUpRepeat == 0 || (currentTime - lastButtonUpRepeat > BUTTON_REPEAT_DELAY_MS)) {
+        if (!isExecutingSavedMovement) {
+          // Move head up by a small increment (e.g., 0.1mm)
+          // You can adjust this value based on your needs
+          moveZAxisByDistance(0.1f);
+          lastButtonUpRepeat = currentTime;
+        }
+      }
+    }
+  } else {
+    // Button released - reset repeat timer
+    if (lastButtonUpState == LOW) {
+      lastButtonUpRepeat = 0;
+      lastButtonUpPress = 0; // Reset debounce timer
+    }
+  }
+  lastButtonUpState = currentButtonUp;
+  
+  // Handle DOWN button (moves head downward continuously while pressed)
+  if (currentButtonDown == LOW) {
+    // Button is pressed
+    if (currentTime - lastButtonDownPress > BUTTON_DEBOUNCE_MS) {
+      // First press or repeat - check if enough time has passed
+      if (lastButtonDownRepeat == 0 || (currentTime - lastButtonDownRepeat > BUTTON_REPEAT_DELAY_MS)) {
+        if (!isExecutingSavedMovement) {
+          // Move head down by a small increment (e.g., 0.1mm)
+          moveZAxisByDistance(-0.1f);
+          lastButtonDownRepeat = currentTime;
+        }
+      }
+    }
+  } else {
+    // Button released - reset repeat timer
+    if (lastButtonDownState == LOW) {
+      lastButtonDownRepeat = 0;
+      lastButtonDownPress = 0; // Reset debounce timer
+    }
+  }
+  lastButtonDownState = currentButtonDown;
+  
+  // Handle SAVE button (saves movement sequence from home position)
+  if (currentButtonSave == LOW && lastButtonSaveState == HIGH) {
+    // Button just pressed (falling edge)
+    if (currentTime - lastButtonSavePress > BUTTON_DEBOUNCE_MS) {
+      saveMovementSequence();
+      lastButtonSavePress = currentTime;
+    }
+  }
+  lastButtonSaveState = currentButtonSave;
+  
+  // Handle PADDLE (executes saved movement sequence)
+  if (currentPaddle == LOW && lastPaddleState == HIGH) {
+    // Paddle just pressed (falling edge)
+    if (currentTime - lastPaddlePress > BUTTON_DEBOUNCE_MS) {
+      if (hasSavedMovement && !isMoving && !isExecutingSavedMovement) {
+        executeSavedMovement();
+      }
+      lastPaddlePress = currentTime;
+    }
+  }
+  lastPaddleState = currentPaddle;
+}
+
+void saveMovementSequence() {
+  // Save the movement from home position to current position
+  // The home position should be set when the machine is homed (Z_MAX_POSITION)
+  homePosition = Z_MAX_POSITION;  // Home is at Z_MAX
+  savedMovementDistance = zPosition - homePosition;
+  hasSavedMovement = true;
+  
+  // Send confirmation via Serial
+  Serial.print("Movement saved: ");
+  Serial.print(savedMovementDistance);
+  Serial.print(" mm from home position (current Z: ");
+  Serial.print(zPosition);
+  Serial.println(" mm)");
+}
+
+void executeSavedMovement() {
+  if (!hasSavedMovement) {
+    Serial.println("No saved movement to execute");
+    return;
+  }
+  
+  isExecutingSavedMovement = true;
+  isMoving = true;
+  
+  Serial.print("Executing saved movement: ");
+  Serial.print(savedMovementDistance);
+  Serial.println(" mm from home");
+  
+  // First, return to home position
+  moveZAxisTo(homePosition);
+  
+  // Small delay to ensure we're at home
+  delay(100);
+  
+  // Then, execute the saved movement from home
+  if (savedMovementDistance != 0.0f) {
+    moveZAxisByDistance(savedMovementDistance);
+  }
+  
+  Serial.println("Saved movement execution complete");
+  isExecutingSavedMovement = false;
+  isMoving = false;
+}

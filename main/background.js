@@ -22,28 +22,37 @@ let robotController
     height: 700,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
+      // Enable media access for camera
+      enableBlinkFeatures: 'MediaDevices',
     },
   })
 
-  // Handle camera permission requests
+  // Handle camera permission requests - MUST be set before window loads
   mainWindow.webContents.session.setPermissionRequestHandler(
-    (webContents, permission, callback) => {
-      // Allow camera and microphone permissions
-      if (permission === 'camera' || permission === 'microphone') {
+    (webContents, permission, callback, details) => {
+      console.log('[Camera] Permission requested:', permission, details)
+      // Allow camera, microphone, and media permissions
+      // Note: Electron uses 'media' permission for getUserMedia API
+      if (permission === 'camera' || permission === 'microphone' || permission === 'media') {
+        console.log('[Camera] Granting permission:', permission)
         callback(true) // Grant permission
       } else {
+        console.log('[Camera] Denying permission:', permission)
         callback(false) // Deny other permissions
       }
     }
   )
 
-  // Handle permission check results
+  // Handle permission check results - MUST be set before window loads
   mainWindow.webContents.session.setPermissionCheckHandler(
     (webContents, permission, requestingOrigin, details) => {
-      // Allow camera and microphone permissions
-      if (permission === 'camera' || permission === 'microphone') {
+      // Allow camera, microphone, and media permissions
+      // Note: Electron uses 'media' permission for getUserMedia API
+      if (permission === 'camera' || permission === 'microphone' || permission === 'media') {
+        console.log('[Camera] Permission check passed:', permission)
         return true
       }
+      console.log('[Camera] Permission check denied:', permission)
       return false
     }
   )

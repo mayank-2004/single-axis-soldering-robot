@@ -15,7 +15,9 @@ export default function ManualMovementControl({
   onStepSizeChange,
   onJog,
   onHome,
+  onSave,
   isMoving,
+  statusMessage,
 }) {
   const [customStepSize, setCustomStepSize] = React.useState(stepSize?.toString() || '1.0')
   const [useCustomStepSize, setUseCustomStepSize] = React.useState(false)
@@ -81,6 +83,15 @@ export default function ManualMovementControl({
     console.log('[ManualMovementControl] Home button clicked')
     onHome()
   }, [onHome, isMoving])
+
+  const handleSave = React.useCallback(() => {
+    if (isMoving) {
+      console.warn('[ManualMovementControl] Cannot save - machine is already moving')
+      return
+    }
+    console.log('[ManualMovementControl] Save button clicked')
+    onSave?.()
+  }, [onSave, isMoving])
 
   return (
     <article className={styles.controlCard} aria-label="Manual movement controls">
@@ -184,20 +195,32 @@ export default function ManualMovementControl({
           </p>
         </div>
 
-        {/* Home Button */}
-        <div className={styles.controlRow}>
+        {/* Home and Save Buttons */}
+        <div className={styles.controlRow} style={{ display: 'flex', gap: '10px' }}>
           <button
             type="button"
             className={styles.homeButton}
             onClick={handleHome}
             disabled={isMoving}
+            title="Home to maximum height (Z_MAX position)"
           >
-            Home / Zero Position
+            Home
+          </button>
+          <button
+            type="button"
+            className={styles.saveButton || styles.homeButton}
+            onClick={handleSave}
+            disabled={isMoving}
+            title="Save movement sequence from home position to current position"
+          >
+            Save
           </button>
         </div>
 
         {isMoving ? (
           <p className={styles.statusMessage}>Moving...</p>
+        ) : statusMessage ? (
+          <p className={styles.statusMessage}>{statusMessage}</p>
         ) : null}
       </div>
     </article>
