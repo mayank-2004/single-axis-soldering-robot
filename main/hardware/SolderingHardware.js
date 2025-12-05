@@ -10,7 +10,7 @@ const sequenceStages = [
 ]
 
 const initialCalibration = [
-  { label: 'Z Axis', value: '003.20 → 000.00', unit: 'mm' },
+  { label: 'Z Axis', value: '000.00 → 000.00', unit: 'mm' },
   { label: 'Wire Remaining', value: 100, unit: '%', length: '14.3 m' },
   { label: 'Flux Remaining', value: 82, unit: '%' },
   { label: 'Tip Temp', value: 345, unit: '°C' },
@@ -44,6 +44,7 @@ export default class SolderingHardware extends EventEmitter {
 
     // Setup serial communication if in hardware mode
     if (this.mode === 'hardware') {
+      console.log("entering hardware mode");
       this.serialManager = new SerialPortManager(this.serialConfig)
       this.commandProtocol = new CommandProtocol(this.serialManager, {
         protocol: this.serialConfig.protocol || 'gcode',
@@ -147,7 +148,7 @@ export default class SolderingHardware extends EventEmitter {
         wireLengthPerPad: [], // Array to track wire length used per pad
       },
       position: {
-        z: 3.2,  // Single-axis machine: only Z-axis position
+        z: 0.0,  // Single-axis machine: only Z-axis position - starts at home (0.00mm)
         isMoving: false,
       },
     }
@@ -158,35 +159,87 @@ export default class SolderingHardware extends EventEmitter {
     })
   }
 
-  async connect(portPath = null) {
-    if (this.connected) {
+  async connect(portPath = null, config = {}) {
+    console.log('[SolderingHardware] connect() called:', { portPath, config, mode: this.mode, hasSerialManager: !!this.serialManager })
+    
+    // Check if actually connected (not just this.connected flag)
+    const isActuallyConnected = this.mode === 'hardware' && 
+                                this.serialManager && 
+                                this.serialManager.isConnected &&
+                                this.serialManager.port &&
+                                this.serialManager.port.isOpen
+    
+    if (this.connected && isActuallyConnected) {
+      console.log('[SolderingHardware] Already connected, returning early')
       return { status: 'Already connected' }
+    }
+    
+    // If this.connected is true but serial is not actually connected, reset and reconnect
+    if (this.connected && !isActuallyConnected) {
+      console.log('[SolderingHardware] Connection state mismatch detected - resetting connection state')
+      this.connected = false
+      if (this.serialManager && this.serialManager.isConnected) {
+        try {
+          await this.serialManager.disconnect()
+        } catch (error) {
+          console.error('[SolderingHardware] Error disconnecting stale connection:', error)
+        }
+      }
     }
 
     if (this.mode === 'hardware') {
       if (!portPath) {
         // No port provided - run in simulation mode as fallback
+        console.log('[SolderingHardware] No portPath provided, running in simulation mode')
         this.connected = true
         this._startSimulationLoops()
         return { status: 'Connected (simulation mode - no hardware connected)' }
       }
 
+      if (!this.serialManager) {
+        console.error('[SolderingHardware] ERROR: serialManager is null! Cannot connect.')
+        return { error: 'Serial manager not initialized' }
+      }
+
       try {
-        const result = await this.serialManager.connect(portPath, this.serialConfig)
+        // Merge passed config with default serialConfig
+        const mergedConfig = {
+          ...this.serialConfig,
+          ...config,
+        }
+        console.log('[SolderingHardware] Attempting to connect serial port:', { portPath, mergedConfig })
+        const result = await this.serialManager.connect(portPath, mergedConfig)
+        
+        console.log('[SolderingHardware] Serial connection result:', result)
+        
         if (result.error) {
+          console.error('[SolderingHardware] Serial connection failed:', result.error)
           return result
+        }
+
+        // Verify connection actually succeeded
+        if (!this.serialManager.isConnected || !this.serialManager.port || !this.serialManager.port.isOpen) {
+          console.error('[SolderingHardware] Connection reported success but port is not actually open!', {
+            isConnected: this.serialManager.isConnected,
+            hasPort: !!this.serialManager.port,
+            portIsOpen: this.serialManager.port?.isOpen
+          })
+          return { error: 'Connection failed: port not open after connection attempt' }
         }
 
         this.connected = true
         // Stop simulation loops and start hardware status polling
         this._stopSimulationLoops()
         this._startHardwareStatusPolling()
+        console.log('[SolderingHardware] Successfully connected to hardware')
         return result
       } catch (error) {
+        console.error('[SolderingHardware] Exception during connection:', error)
         return { error: error.message }
       }
     } else {
       // Simulation mode
+      console.log('[SolderingHardware] Running in simulation mode')
       this.connected = true
       this._startSimulationLoops()
       return { status: 'Connected (simulation mode)' }
@@ -623,7 +676,20 @@ export default class SolderingHardware extends EventEmitter {
     }
 
     const axisKey = 'z'
+    // direction > 0 means upward (positive), direction < 0 means downward (negative)
+    // Upward movement increases Z (towards 0), downward movement decreases Z (negative values)
     const step = direction > 0 ? stepSize : -stepSize
+    
+    // Calculate new position
+    let newPosition = this.state.position[axisKey] + step
+    
+    // Check if trying to go above limit
+    const limitReached = newPosition > 0 && direction > 0
+    
+    // Clamp to maximum of 0.00mm (home position)
+    if (newPosition > 0) {
+      newPosition = 0.0
+    }
     
     this.state.position.isMoving = true
     this.emit('position:update', this.getPosition())
@@ -638,7 +704,7 @@ export default class SolderingHardware extends EventEmitter {
         })
         
         // Update position (will be confirmed by Arduino JSON response)
-        this.state.position[axisKey] += step
+        this.state.position[axisKey] = newPosition
         this.state.position.isMoving = true
 
         this._updateCalibrationEntry(
@@ -655,7 +721,11 @@ export default class SolderingHardware extends EventEmitter {
         }, 500)
 
         this.emit('position:update', this.getPosition())
-        return { status: 'Movement completed', position: this.getPosition() }
+        return { 
+          status: limitReached ? 'Upper limit switch reached' : 'Movement completed', 
+          position: this.getPosition(),
+          limitReached: limitReached
+        }
       } catch (error) {
         this.state.position.isMoving = false
         return { error: error.message }
@@ -664,7 +734,7 @@ export default class SolderingHardware extends EventEmitter {
       // Simulation mode
       return new Promise((resolve) => {
         setTimeout(() => {
-          this.state.position[axisKey] += step
+          this.state.position[axisKey] = newPosition
           this.state.position.isMoving = false
 
           this._updateCalibrationEntry(
@@ -675,7 +745,11 @@ export default class SolderingHardware extends EventEmitter {
           )
 
           this.emit('position:update', this.getPosition())
-          resolve({ status: 'Movement completed', position: this.getPosition() })
+          resolve({ 
+            status: limitReached ? 'Upper limit switch reached' : 'Movement completed', 
+            position: this.getPosition(),
+            limitReached: limitReached
+          })
         }, 300)
       })
     }
@@ -689,6 +763,9 @@ export default class SolderingHardware extends EventEmitter {
     this.state.position.isMoving = true
     this.emit('position:update', this.getPosition())
 
+    // Home position is at 0.00mm (top limit switch)
+    const HOME_POSITION = 0.0
+
     if (this.mode === 'hardware' && this.serialManager) {
       try {
         // Send JSON command to Arduino: {"command":"home"}
@@ -697,8 +774,9 @@ export default class SolderingHardware extends EventEmitter {
         })
         
         // Update position (Z-axis only) - Arduino will confirm via JSON response
-        this.state.position.z = 0
-        this._updateCalibrationEntry('Z Axis', { value: '0.00' })
+        // Home is at 0.00mm (top limit switch)
+        this.state.position.z = HOME_POSITION
+        this._updateCalibrationEntry('Z Axis', { value: HOME_POSITION.toFixed(2) })
 
         // Set isMoving to false after a delay (Arduino will update this via JSON response)
         setTimeout(() => {
@@ -707,7 +785,7 @@ export default class SolderingHardware extends EventEmitter {
         }, 1000)
 
         this.emit('position:update', this.getPosition())
-        return { status: 'Homed to zero position', position: this.getPosition() }
+        return { status: 'Homed to 0.00mm (top limit switch)', position: this.getPosition() }
       } catch (error) {
         this.state.position.isMoving = false
         return { error: error.message }
@@ -717,13 +795,14 @@ export default class SolderingHardware extends EventEmitter {
       return new Promise((resolve) => {
         setTimeout(() => {
           // Single-axis machine: only Z-axis is homed
-          this.state.position.z = 0
+          // Home is at 0.00mm (top limit switch)
+          this.state.position.z = HOME_POSITION
           this.state.position.isMoving = false
 
-          this._updateCalibrationEntry('Z Axis', { value: '0.00' })
+          this._updateCalibrationEntry('Z Axis', { value: HOME_POSITION.toFixed(2) })
 
           this.emit('position:update', this.getPosition())
-          resolve({ status: 'Homed to zero position', position: this.getPosition() })
+          resolve({ status: 'Homed to 0.00mm (top limit switch)', position: this.getPosition() })
         }, 500)
       })
     }
@@ -1755,7 +1834,14 @@ export default class SolderingHardware extends EventEmitter {
   }
 
   async _sendArduinoJsonCommand(commandObj) {
-    if (this.mode === 'hardware' && this.serialManager && this.serialManager.isConnected) {
+    // Check if we're in hardware mode and serial is actually connected
+    const isSerialReady = this.mode === 'hardware' && 
+                         this.serialManager && 
+                         this.serialManager.isConnected &&
+                         this.serialManager.port &&
+                         this.serialManager.port.isOpen
+    
+    if (isSerialReady) {
       try {
         await this.serialManager.sendJsonCommand(commandObj)
         console.log('[SolderingHardware] JSON command sent to Arduino:', JSON.stringify(commandObj));
@@ -1764,8 +1850,32 @@ export default class SolderingHardware extends EventEmitter {
         throw error
       }
     } else {
-      // Simulation mode
-      console.log('[SolderingHardware] JSON command (simulation):', JSON.stringify(commandObj))
+      // Simulation mode - log why we're in simulation with detailed state
+      const reasons = []
+      const state = {
+        mode: this.mode,
+        hasSerialManager: !!this.serialManager,
+        connected: this.connected,
+      }
+      
+      if (this.mode !== 'hardware') reasons.push(`mode=${this.mode}`)
+      if (!this.serialManager) {
+        reasons.push('no serialManager')
+      } else {
+        state.serialManagerIsConnected = this.serialManager.isConnected
+        state.hasPort = !!this.serialManager.port
+        if (!this.serialManager.isConnected) reasons.push('serialManager.isConnected=false')
+        if (!this.serialManager.port) {
+          reasons.push('no port')
+        } else {
+          state.portIsOpen = this.serialManager.port.isOpen
+          if (!this.serialManager.port.isOpen) reasons.push('port.isOpen=false')
+        }
+      }
+      
+      console.log(`[SolderingHardware] JSON command (simulation) - reasons: ${reasons.join(', ')}`)
+      console.log('[SolderingHardware] Connection state:', state)
+      console.log('[SolderingHardware] Command:', JSON.stringify(commandObj))
     }
   }
 

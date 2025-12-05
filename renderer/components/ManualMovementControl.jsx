@@ -18,6 +18,9 @@ export default function ManualMovementControl({
   onSave,
   isMoving,
   statusMessage,
+  limitSwitchAlert = false,
+  isSerialConnected = false,
+  isReceivingArduinoData = false,
 }) {
   const [customStepSize, setCustomStepSize] = React.useState(stepSize?.toString() || '1.0')
   const [useCustomStepSize, setUseCustomStepSize] = React.useState(false)
@@ -101,14 +104,57 @@ export default function ManualMovementControl({
       </header>
 
       <div className={styles.controlBody}>
+        {/* Connection Status Indicator */}
+        <div className={styles.connectionStatus}>
+          <div className={styles.connectionStatusRow}>
+            <span className={styles.connectionStatusLabel}>Mode:</span>
+            <div className={styles.connectionStatusBadge}>
+              {isSerialConnected ? (
+                <>
+                  <span className={`${styles.statusDot} ${styles.statusDotConnected}`} />
+                  <span className={styles.statusText}>
+                    {isReceivingArduinoData ? 'Hardware (Active)' : 'Hardware (Connected)'}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className={`${styles.statusDot} ${styles.statusDotSimulation}`} />
+                  <span className={styles.statusText}>Simulation</span>
+                </>
+              )}
+            </div>
+          </div>
+          {isSerialConnected && (
+            <div className={styles.connectionInfo}>
+              <span className={styles.connectionInfoText}>
+                Commands are being sent to Arduino
+              </span>
+            </div>
+          )}
+          {!isSerialConnected && (
+            <div className={styles.connectionInfo}>
+              <span className={styles.connectionInfoText}>
+                Commands are simulated (not sent to hardware)
+              </span>
+            </div>
+          )}
+        </div>
+
         {/* Current Position Display (Z-axis only - single-axis machine) */}
         <div className={styles.positionDisplay}>
           <div className={styles.positionRow}>
             <span className={styles.positionLabel}>Z:</span>
             <span className={styles.positionValue}>
-              {currentPosition.z !== null && currentPosition.z !== undefined
-                ? currentPosition.z.toFixed(2)
-                : '--'}
+              {currentPosition.z !== null && currentPosition.z !== undefined ? (() => {
+                // Format to match LcdDisplay: handle negatives and pad with zeros
+                const isNegative = currentPosition.z < 0
+                const absPos = Math.abs(currentPosition.z)
+                const parts = absPos.toFixed(2).split('.')
+                const integer = parts[0].padStart(3, '0')
+                const decimal = parts[1] || '00'
+                const sign = isNegative ? '-' : ''
+                return `${sign}${integer}.${decimal}`
+              })() : '000.00'}
             </span>
             <span className={styles.positionUnit}>mm</span>
           </div>
@@ -202,7 +248,7 @@ export default function ManualMovementControl({
             className={styles.homeButton}
             onClick={handleHome}
             disabled={isMoving}
-            title="Home to maximum height (Z_MAX position)"
+            title="Home to 0.00mm (top limit switch position)"
           >
             Home
           </button>
@@ -217,9 +263,17 @@ export default function ManualMovementControl({
           </button>
         </div>
 
+        {/* Limit Switch Alert */}
+        {limitSwitchAlert && (
+          <div className={styles.limitAlert} role="alert">
+            <span className={styles.limitAlertIcon}>⚠️</span>
+            <span className={styles.limitAlertMessage}>Upper limit switch reached - can't go upward</span>
+          </div>
+        )}
+
         {isMoving ? (
           <p className={styles.statusMessage}>Moving...</p>
-        ) : statusMessage ? (
+        ) : statusMessage && !limitSwitchAlert ? (
           <p className={styles.statusMessage}>{statusMessage}</p>
         ) : null}
       </div>

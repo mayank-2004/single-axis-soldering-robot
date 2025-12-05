@@ -62,56 +62,154 @@ export default class SerialPortManager extends EventEmitter {
    * Connect to a serial port
    */
   async connect(portPath, options = {}) {
-    if (this.isConnecting || this.isConnected) {
-      return { error: 'Already connected or connecting' }
+    console.log('[SerialPortManager] connect() called:', { portPath, options, isConnecting: this.isConnecting, isConnected: this.isConnected, hasPort: !!this.port, portIsOpen: this.port?.isOpen })
+    
+    // Check if actually connected (port exists and is open)
+    const isActuallyConnected = this.isConnected && this.port && this.port.isOpen
+    
+    if (this.isConnecting) {
+      console.log('[SerialPortManager] Already connecting, returning early')
+      return { error: 'Already connecting' }
+    }
+    
+    if (isActuallyConnected) {
+      console.log('[SerialPortManager] Already connected, returning early')
+      return { status: 'Already connected', path: portPath }
+    }
+    
+    // If isConnected is true but port is not actually open, reset state
+    if (this.isConnected && !isActuallyConnected) {
+      console.log('[SerialPortManager] Connection state mismatch - port not actually open, resetting state')
+      this.isConnected = false
+      if (this.port) {
+        try {
+          if (this.port.isOpen) {
+            await new Promise((resolve) => {
+              this.port.close((error) => {
+                if (error) console.error('[SerialPortManager] Error closing stale port:', error)
+                resolve()
+              })
+            })
+          }
+        } catch (error) {
+          console.error('[SerialPortManager] Error resetting port:', error)
+        }
+        this.port = null
+        this.parser = null
+      }
     }
 
     this.isConnecting = true
 
     try {
+      // Check if port exists in available ports
+      try {
+        const availablePorts = await SerialPortManager.listPorts()
+        const portExists = availablePorts.some(port => port.path === portPath)
+        if (!portExists) {
+          throw new Error(`Port ${portPath} not found in available ports. Please refresh the port list.`)
+        }
+      } catch (listError) {
+        console.warn('[SerialPortManager] Could not verify port availability:', listError.message)
+        // Continue anyway - port might have been connected after listing
+      }
+
       // Merge custom options with default config
       const config = {
         ...this.config,
         path: portPath,
         ...options,
       }
+      console.log('[SerialPortManager] Creating SerialPort with config:', config)
 
       this.port = new SerialPort(config)
 
       // Setup parser (readline parser for line-based protocols like G-code)
       this.parser = this.port.pipe(new ReadlineParser({ delimiter: '\n' }))
+      console.log('[SerialPortManager] Parser created')
 
       // Setup event handlers
       this._setupEventHandlers()
+      console.log('[SerialPortManager] Event handlers setup complete')
 
       // Open the port
+      console.log('[SerialPortManager] Opening port...')
       await new Promise((resolve, reject) => {
         this.port.open((error) => {
           if (error) {
+            console.error('[SerialPortManager] Port open error:', error)
             reject(error)
           } else {
+            console.log('[SerialPortManager] Port opened successfully')
             resolve()
           }
         })
       })
 
+      // Verify port is actually open
+      if (!this.port.isOpen) {
+        throw new Error('Port reported open but isOpen is false')
+      }
+
       this.isConnected = true
       this.isConnecting = false
       this.reconnectAttempts = 0
+      console.log('[SerialPortManager] Port connection state set:', { isConnected: this.isConnected, portIsOpen: this.port.isOpen })
 
       // Send initialization commands (e.g., reset, get status)
+      console.log('[SerialPortManager] Initializing connection...')
       await this._initializeConnection()
+      console.log('[SerialPortManager] Connection initialized')
 
       this.emit('connected', { path: portPath })
-      console.log(`[SerialPortManager] Connected to ${portPath}`)
+      console.log(`[SerialPortManager] Successfully connected to ${portPath}`)
 
       return { status: 'Connected', path: portPath }
     } catch (error) {
       this.isConnecting = false
       this.isConnected = false
+      
+      // Clean up port object on error
+      if (this.port) {
+        console.log('[SerialPortManager] Port state after error:', { isOpen: this.port.isOpen })
+        try {
+          // Try to close if open
+          if (this.port.isOpen) {
+            this.port.close((closeError) => {
+              if (closeError) {
+                console.error('[SerialPortManager] Error closing port after connection failure:', closeError)
+              }
+            })
+          }
+        } catch (cleanupError) {
+          console.error('[SerialPortManager] Error during port cleanup:', cleanupError)
+        }
+        this.port = null
+        this.parser = null
+      }
+      
+      // Provide user-friendly error messages
+      let errorMessage = error.message
+      if (errorMessage.includes('Access denied') || errorMessage.includes('access denied')) {
+        errorMessage = `Cannot access ${portPath}. The port may be:\n` +
+          `• Already open in another application (Arduino IDE, Serial Monitor, etc.)\n` +
+          `• Locked by a previous connection\n` +
+          `• Not available or incorrect port\n\n` +
+          `Please:\n` +
+          `1. Close Arduino IDE Serial Monitor if open\n` +
+          `2. Disconnect and reconnect the USB cable\n` +
+          `3. Try selecting a different port\n` +
+          `4. Restart the application if the problem persists`
+      } else if (errorMessage.includes('cannot find') || errorMessage.includes('not found')) {
+        errorMessage = `Port ${portPath} not found. Please:\n` +
+          `• Check if the Arduino is connected\n` +
+          `• Refresh the port list\n` +
+          `• Verify the correct COM port in Device Manager`
+      }
+      
       console.error('[SerialPortManager] Connection error:', error)
-      this.emit('error', { type: 'connection', error: error.message })
-      return { error: error.message }
+      this.emit('error', { type: 'connection', error: errorMessage })
+      return { error: errorMessage }
     }
   }
 
@@ -119,7 +217,11 @@ export default class SerialPortManager extends EventEmitter {
    * Disconnect from serial port
    */
   async disconnect() {
-    if (!this.port || !this.isConnected) {
+    // Always clear state, even if port doesn't exist
+    const hadPort = !!this.port
+    const wasConnected = this.isConnected
+
+    if (!hadPort && !wasConnected) {
       return { status: 'Already disconnected' }
     }
 
@@ -128,30 +230,48 @@ export default class SerialPortManager extends EventEmitter {
       this.commandQueue = []
       this.pendingCommands.clear()
 
-      // Close port
-      await new Promise((resolve, reject) => {
-        if (this.port.isOpen) {
-          this.port.close((error) => {
-            if (error) {
-              reject(error)
+      // Close port if it exists
+      if (this.port) {
+        await new Promise((resolve) => {
+          try {
+            if (this.port.isOpen) {
+              this.port.close((error) => {
+                if (error) {
+                  console.error('[SerialPortManager] Error closing port during disconnect:', error)
+                } else {
+                  console.log('[SerialPortManager] Port closed successfully')
+                }
+                resolve()
+              })
             } else {
               resolve()
             }
-          })
-        } else {
-          resolve()
-        }
-      })
+          } catch (error) {
+            console.error('[SerialPortManager] Exception during port close:', error)
+            resolve() // Continue cleanup even if close fails
+          }
+        })
+      }
 
+      // Always reset state
       this.isConnected = false
+      this.isConnecting = false
       this.port = null
       this.parser = null
 
-      this.emit('disconnected')
-      console.log('[SerialPortManager] Disconnected')
+      if (wasConnected) {
+        this.emit('disconnected')
+        console.log('[SerialPortManager] Disconnected')
+      }
 
       return { status: 'Disconnected' }
     } catch (error) {
+      // Even on error, reset state
+      this.isConnected = false
+      this.isConnecting = false
+      this.port = null
+      this.parser = null
+      
       console.error('[SerialPortManager] Disconnect error:', error)
       return { error: error.message }
     }

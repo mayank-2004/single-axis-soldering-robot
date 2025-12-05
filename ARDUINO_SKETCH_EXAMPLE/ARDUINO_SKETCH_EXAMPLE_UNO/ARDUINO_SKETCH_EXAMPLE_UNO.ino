@@ -1,3 +1,21 @@
+/*
+ * Arduino UNO Sketch for Single Axis Soldering Machine
+ * MODIFIED VERSION for Arduino Uno compatibility
+ * 
+ * IMPORTANT: This version uses different pin numbers than Mega 2560 version
+ * 
+ * Pin Changes:
+ * - STEPPER_Z_STEP_PIN: 48 → 4
+ * - STEPPER_Z_DIR_PIN: 46 → 5
+ * - BUTTON_UP_PIN: 39 → 10
+ * - BUTTON_DOWN_PIN: 37 → 11
+ * - BUTTON_SAVE_PIN: 35 → 12
+ * - PADDLE_PIN: 34 → 13
+ * 
+ * WARNING: Arduino Uno has only 2KB RAM - memory usage is tight!
+ * Consider using Arduino Mega 2560 for better performance.
+ */
+
 #include <ArduinoJson.h>
 #include <math.h>
 
@@ -7,7 +25,7 @@ const unsigned long UPDATE_INTERVAL = 100; // Send data every 100ms
 
 // Mock sensor values (replace with actual sensor readings)
 // Single-axis machine: Only Z-axis position is tracked
-float zPosition = 0.0;  // Z-axis position in mm - starts at home (0.00mm at top limit switch)
+float zPosition = 0.0;  // Z-axis position in mm (up/down) - starts at home (0.00mm)
 bool isMoving = false;
 
 float targetTemperature = 345.0;
@@ -56,39 +74,39 @@ float componentHeight = 5;
 
 // -------------------------------
 // Z-Axis stepper configuration
+// ARDUINO UNO PIN MAPPING
 // -------------------------------
-const int STEPPER_Z_STEP_PIN = 48;
-const int STEPPER_Z_DIR_PIN = 46;
+const int STEPPER_Z_STEP_PIN = 4;   // Changed from 48 (Mega) to 4 (Uno)
+const int STEPPER_Z_DIR_PIN = 5;    // Changed from 46 (Mega) to 5 (Uno)
 // Enable pin is not used in this configuration
 
-const int LIMIT_SWITCH_Z_MIN_PIN = 2;
-const int LIMIT_SWITCH_Z_MAX_PIN = 3;
+const int LIMIT_SWITCH_Z_MIN_PIN = 2;  // Same as Mega - interrupt capable
+const int LIMIT_SWITCH_Z_MAX_PIN = 3;  // Same as Mega - interrupt capable
 
-// Position system: Home is at 0.00mm (Z_MAX limit switch at top)
-// Moving down = negative values (e.g., -3.20mm)
-// Moving up = increases towards 0 (cannot exceed 0.00mm)
-const float Z_MAX_POSITION = 40.0f;  // mm - Maximum travel distance from home (downward)
-const float Z_HOME_POSITION = 0.0f;  // mm - Home position (at Z_MAX limit switch)
-const int Z_STEPS_PER_MM = 200;      // Adjust to your mechanics (lead screw pitch / micro-stepping)
+const float Z_MIN_POSITION = -40.0f;   // mm - allows negative travel (downward from home)
+const float Z_MAX_POSITION = 0.0f;     // mm - home position (top limit switch)
+const float Z_HOME_POSITION = 0.0f;    // mm - home position (at Z_MAX limit switch)
+const int Z_STEPS_PER_MM = 200;       // Adjust to your mechanics (lead screw pitch / micro-stepping)
 const unsigned int Z_STEP_DELAY_US = 600; // Pulse width for stepper (microseconds)
 
 // -------------------------------
 // Wire Feed stepper configuration
+// Same pins as Mega - compatible with Uno
 // -------------------------------
-const int WIRE_FEED_STEP_PIN = 9;
-const int WIRE_FEED_DIR_PIN = 8;
-// Enable pin is not used in this configuration
+const int WIRE_FEED_STEP_PIN = 9;   // Same as Mega - PWM capable
+const int WIRE_FEED_DIR_PIN = 8;    // Same as Mega
 
 const int WIRE_FEED_STEPS_PER_MM = 200;      // Adjust to your wire feed mechanics
 const unsigned int WIRE_FEED_STEP_DELAY_US = 500; // Pulse width for wire feed stepper (microseconds)
 
 // -------------------------------
 // Button and Paddle configuration
+// ARDUINO UNO PIN MAPPING
 // -------------------------------
-const int BUTTON_UP_PIN = 39;
-const int BUTTON_DOWN_PIN = 37;
-const int BUTTON_SAVE_PIN = 35;
-const int PADDLE_PIN = 34;
+const int BUTTON_UP_PIN = 10;      // Changed from 39 (Mega) to 10 (Uno)
+const int BUTTON_DOWN_PIN = 11;    // Changed from 37 (Mega) to 11 (Uno)
+const int BUTTON_SAVE_PIN = 12;    // Changed from 35 (Mega) to 12 (Uno)
+const int PADDLE_PIN = 13;        // Changed from 34 (Mega) to 13 (Uno) - has built-in LED
 
 // Button debouncing and continuous movement
 const unsigned long BUTTON_DEBOUNCE_MS = 50;
@@ -107,7 +125,7 @@ bool lastPaddleState = HIGH;
 // Movement recording and playback
 float savedMovementDistance = 0.0f;  // Saved movement distance from home position
 bool hasSavedMovement = false;
-float homePosition = 0.0f;  // Home position is 0.00mm (at Z_MAX limit switch)
+float homePosition = 0.0f;  // Position when save was pressed (should be homing position - Z_MAX = 0.00mm)
 bool isExecutingSavedMovement = false;
 
 // Forward declarations for motion helpers
@@ -122,6 +140,14 @@ void executeSavedMovement();
 
 void setup() {
   Serial.begin(BAUD_RATE);
+  
+  // Arduino Uno needs Serial wait for USB connection
+  // Wait for serial port to connect (useful for debugging)
+  #ifdef ARDUINO_AVR_UNO
+    while (!Serial) {
+      ; // Wait for serial port to connect (only needed for USB)
+    }
+  #endif
   
   // Initialize sensors, motors, actuators here
   // Z-axis stepper motor pins
@@ -157,13 +183,13 @@ void setup() {
   
   delay(1000); // Give time for serial connection to stabilize
   
-  Serial.println("Arduino Mega 2560 - Single Axis Soldering Machine Ready");
+  Serial.println("Arduino UNO - Single Axis Soldering Machine Ready");
   Serial.println("Machine Type: Single-Axis (Z-axis only)");
   Serial.println("PCB is moved manually by operator");
-  Serial.println("Home position: 0.00mm (at Z_MAX limit switch - top)");
   Serial.print("Starting Z Position: ");
   Serial.print(zPosition);
-  Serial.println("mm");
+  Serial.println("mm (home position at 0.00mm)");
+  Serial.println("WARNING: Uno has limited RAM (2KB) - monitor memory usage!");
 }
 
 void loop() {
@@ -194,12 +220,13 @@ void readSensors() {
   // Simulate sensor reading (remove in production)
   static unsigned long lastSensorUpdate = 0;
   if (millis() - lastSensorUpdate > 1000) {
-    // Simulate small Z-axis changes for testing (disabled - use actual position from movement)
-    // zPosition += random(-5, 5) / 100.0;
-    // Clamp Z position: cannot go above 0.00mm (home), can go negative (downward)
-    if (zPosition > 0.0) {
-      zPosition = 0.0;  // Clamp to home position
+    // Z position is now controlled by actual movement functions
+    // No random simulation - position comes from actual stepper movements
+    // Clamp Z position to valid range (cannot exceed home at 0.00mm)
+    if (zPosition > Z_MAX_POSITION) {
+      zPosition = Z_MAX_POSITION; // Clamp to home position (0.00mm)
     }
+    zPosition = constrain(zPosition, Z_MIN_POSITION, Z_MAX_POSITION);
     
     // Simulate temperature rising/cooling
     if (heaterEnabled && currentTemperature < targetTemperature) {
@@ -246,11 +273,13 @@ void readSensors() {
 }
 
 void sendMachineState() {
-  // Create JSON document (adjust size based on your data)
-  StaticJsonDocument<1024> doc;
+  // Create JSON document (reduced size for Uno - 512 bytes instead of 1024)
+  StaticJsonDocument<512> doc;
   
   // Position data (single-axis machine: only Z-axis)
   JsonObject pos = doc.createNestedObject("pos");
+  // Single-axis machine: only Z position is sent
+  // X and Y are not controlled (PCB moved manually)
   pos["z"] = zPosition;
   pos["moving"] = isMoving;
   
@@ -340,13 +369,9 @@ void processCommands() {
       return;
     }
     
-    // Expected command formats:
-    // 1. JSON format: {"command":"move","x":120,"y":45,"z":5}
-    // 2. Temperature: "TEMP:345" or {"command":"temp","target":345}
-    
     // Parse JSON commands
     if (command.startsWith("{")) {
-      StaticJsonDocument<512> cmdDoc;
+      StaticJsonDocument<256> cmdDoc;  // Reduced size for Uno (256 instead of 512)
       DeserializationError error = deserializeJson(cmdDoc, command);
       
       if (error) {
@@ -456,40 +481,16 @@ void processCommands() {
           Serial.print("[CMD] WARNING: Unknown command: ");
           Serial.println(cmd);
         }
+    } else {
+      // Not JSON format
+      Serial.print("[CMD] Received non-JSON command: ");
+      Serial.println(command);
     }
-    // For simple text commands (future implementation)
-    // else if (command.startsWith("MOVE")) { ... }
-    // else if (command.startsWith("TEMP:")) { ... }
-    
     // Debug: echo received command (ENABLED FOR TESTING)
     Serial.print("[CMD] Received: ");
     Serial.println(command);
   }
 }
-
-// Helper functions for sensor reading (implement based on your hardware)
-/*
-float readEncoderPosition(int encoderPin) {
-  // Read encoder position
-  return 0.0;
-}
-
-float readThermocouple(int pin) {
-  // Read thermocouple temperature
-  // Example with MAX6675 or similar
-  return 25.0;
-}
-
-float readLoadCell(int pin) {
-  // Read load cell weight (HX711 or similar)
-  return 0.0;
-}
-
-void handleWireBreak() {
-  // Interrupt handler for wire break detection
-  wireBreakDetected = true;
-}
-*/
 
 // ----------------------------------
 // Z-axis motion helper functions
@@ -512,21 +513,19 @@ void applyZMovement(long steps, bool moveUp) {
     return;
   }
 
-  // moveUp = true means moving towards home (0.00mm) - direction HIGH
-  // moveUp = false means moving away from home (downward, negative) - direction LOW
+  // moveUp = true means moving towards Z_MAX (0.00mm - home position)
+  // moveUp = false means moving towards Z_MIN (negative values - downward)
   digitalWrite(STEPPER_Z_DIR_PIN, moveUp ? HIGH : LOW);
 
   long stepsCompleted = 0;
   while (stepsCompleted < steps) {
     // Safety: stop if limit switch is hit mid-travel
-    // Z_MIN limit switch is at bottom (not used in current system, but keep for safety)
     if (!moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MIN_PIN)) {
-      // Hit bottom limit - stop movement
+      zPosition = Z_MIN_POSITION; // Bottom limit reached
       break;
     }
-    // Z_MAX limit switch is at top (home position)
     if (moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN)) {
-      zPosition = Z_HOME_POSITION;  // 0.00mm - reached home
+      zPosition = Z_MAX_POSITION; // Home position reached (0.00mm)
       break;
     }
 
@@ -535,14 +534,16 @@ void applyZMovement(long steps, bool moveUp) {
   }
 
   // Calculate position change
-  // moveUp = true: increases Z (towards 0), moveUp = false: decreases Z (negative)
+  // moveUp = true: positive delta (increasing Z towards 0)
+  // moveUp = false: negative delta (decreasing Z into negative)
   float deltaMm = (stepsCompleted / static_cast<float>(Z_STEPS_PER_MM)) * (moveUp ? 1.0f : -1.0f);
-  zPosition = zPosition + deltaMm;
+  float newPosition = zPosition + deltaMm;
   
-  // Clamp: cannot go above home (0.00mm), can go negative (downward)
-  if (zPosition > Z_HOME_POSITION) {
-    zPosition = Z_HOME_POSITION;
+  // Clamp position: cannot exceed home (0.00mm), can go negative
+  if (newPosition > Z_MAX_POSITION) {
+    newPosition = Z_MAX_POSITION; // Clamp to home position
   }
+  zPosition = constrain(newPosition, Z_MIN_POSITION, Z_MAX_POSITION);
 }
 
 void moveZAxisByDistance(float distanceMm) {
@@ -550,23 +551,31 @@ void moveZAxisByDistance(float distanceMm) {
     return;
   }
 
-  // distanceMm > 0 means move up (towards home/0.00mm)
-  // distanceMm < 0 means move down (away from home, negative values)
+  // distanceMm > 0 means moving up (increasing Z towards 0.00mm - home)
+  // distanceMm < 0 means moving down (decreasing Z into negative)
   bool moveUp = distanceMm > 0;
 
-  // Check limit switches before moving
-  // Cannot move down if at bottom limit (safety check)
-  if (!moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MIN_PIN)) {
-    return;  // Already at bottom, cannot move further down
-  }
-  // Cannot move up if already at home (0.00mm)
-  if (moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN)) {
-    zPosition = Z_HOME_POSITION;  // Ensure at home
+  // Check if already at limits
+  if (moveUp && zPosition >= Z_MAX_POSITION) {
+    // Already at home position (0.00mm) - cannot move up further
+    zPosition = Z_MAX_POSITION;
+    Serial.println("[Z-AXIS] Already at home position (0.00mm) - cannot move up");
     return;
   }
-  // Also check if already at home and trying to move up
-  if (moveUp && zPosition >= Z_HOME_POSITION) {
-    zPosition = Z_HOME_POSITION;  // Clamp to home
+  if (!moveUp && zPosition <= Z_MIN_POSITION) {
+    // Already at bottom limit
+    zPosition = Z_MIN_POSITION;
+    Serial.println("[Z-AXIS] Bottom limit reached - cannot move down further");
+    return;
+  }
+
+  // Do not move further if limit switch is currently triggered
+  if (!moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MIN_PIN)) {
+    zPosition = Z_MIN_POSITION;
+    return;
+  }
+  if (moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN)) {
+    zPosition = Z_MAX_POSITION;
     return;
   }
 
@@ -574,9 +583,11 @@ void moveZAxisByDistance(float distanceMm) {
   float target = zPosition + distanceMm;
   
   // Clamp target: cannot exceed home (0.00mm), can go negative
-  if (target > Z_HOME_POSITION) {
-    target = Z_HOME_POSITION;
+  if (target > Z_MAX_POSITION) {
+    target = Z_MAX_POSITION; // Clamp to home position
+    Serial.println("[Z-AXIS] Target clamped to home position (0.00mm)");
   }
+  target = constrain(target, Z_MIN_POSITION, Z_MAX_POSITION);
   
   float actualDistance = target - zPosition;
   long stepsToMove = labs(static_cast<long>(actualDistance * Z_STEPS_PER_MM));
@@ -592,21 +603,22 @@ void moveZAxisByDistance(float distanceMm) {
 }
 
 void moveZAxisTo(float targetMm) {
-  // Clamp target: cannot exceed home (0.00mm), can be negative
+  // Clamp target: cannot exceed home (0.00mm), can go negative
   float clampedTarget = targetMm;
-  if (clampedTarget > Z_HOME_POSITION) {
-    clampedTarget = Z_HOME_POSITION;
+  if (clampedTarget > Z_MAX_POSITION) {
+    clampedTarget = Z_MAX_POSITION; // Clamp to home position
   }
+  clampedTarget = constrain(clampedTarget, Z_MIN_POSITION, Z_MAX_POSITION);
   float distance = clampedTarget - zPosition;
   moveZAxisByDistance(distance);
 }
 
 void homeZAxis() {
-  // Calculate maximum steps needed (from maximum downward position to home)
-  const long maxSteps = static_cast<long>(Z_MAX_POSITION * Z_STEPS_PER_MM) + 200;
+  // Home to Z_MAX limit switch (top limit switch - home position at 0.00mm)
+  const long maxSteps = static_cast<long>((Z_MAX_POSITION - Z_MIN_POSITION) * Z_STEPS_PER_MM) + 200;
 
   isMoving = true;
-  digitalWrite(STEPPER_Z_DIR_PIN, HIGH); // Move towards home (upward, towards Z_MAX limit switch)
+  digitalWrite(STEPPER_Z_DIR_PIN, HIGH); // Move towards Z-max (upward to home)
 
   long stepsTaken = 0;
   while (!isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN) && stepsTaken < maxSteps) {
@@ -614,9 +626,13 @@ void homeZAxis() {
     stepsTaken++;
   }
 
-  // Home position is 0.00mm (at Z_MAX limit switch)
-  zPosition = Z_HOME_POSITION;  // 0.00mm
+  // Set position to home (0.00mm) after reaching limit switch
+  zPosition = Z_HOME_POSITION; // 0.00mm
   isMoving = false;
+  
+  Serial.print("[HOME] Z-axis homed to ");
+  Serial.print(zPosition);
+  Serial.println("mm (top limit switch)");
 }
 
 // ----------------------------------
@@ -669,19 +685,20 @@ void handleButtonControls() {
   
   unsigned long currentTime = millis();
   
-  // Handle UP button (moves head upward towards home/0.00mm)
+  // Handle UP button (moves head upward continuously while pressed)
   if (currentButtonUp == LOW) {
     // Button is pressed
     if (currentTime - lastButtonUpPress > BUTTON_DEBOUNCE_MS) {
       // First press or repeat - check if enough time has passed
       if (lastButtonUpRepeat == 0 || (currentTime - lastButtonUpRepeat > BUTTON_REPEAT_DELAY_MS)) {
         if (!isExecutingSavedMovement) {
-          // Check if already at home (cannot move above 0.00mm)
-          if (zPosition >= Z_HOME_POSITION || isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN)) {
-            zPosition = Z_HOME_POSITION;  // Ensure at home
-            // Don't move if already at home
+          // Check if already at home position (0.00mm) - cannot move up further
+          if (zPosition >= Z_MAX_POSITION) {
+            // Already at home - do not move
+            Serial.println("[BUTTON] Already at home position (0.00mm) - cannot move up");
           } else {
-            // Move head up by a small increment (positive distance = move up)
+            // Move head up by a small increment (e.g., 0.1mm towards home)
+            // You can adjust this value based on your needs
             moveZAxisByDistance(0.1f);
           }
           lastButtonUpRepeat = currentTime;
@@ -697,14 +714,14 @@ void handleButtonControls() {
   }
   lastButtonUpState = currentButtonUp;
   
-  // Handle DOWN button (moves head downward, negative values)
+  // Handle DOWN button (moves head downward continuously while pressed)
   if (currentButtonDown == LOW) {
     // Button is pressed
     if (currentTime - lastButtonDownPress > BUTTON_DEBOUNCE_MS) {
       // First press or repeat - check if enough time has passed
       if (lastButtonDownRepeat == 0 || (currentTime - lastButtonDownRepeat > BUTTON_REPEAT_DELAY_MS)) {
         if (!isExecutingSavedMovement) {
-          // Move head down by a small increment (negative distance = move down)
+          // Move head down by a small increment (e.g., 0.1mm)
           moveZAxisByDistance(-0.1f);
           lastButtonDownRepeat = currentTime;
         }
@@ -750,7 +767,7 @@ void saveMovementSequence() {
   hasSavedMovement = true;
   
   // Send confirmation via Serial
-  Serial.print("Movement saved: ");
+  Serial.print("[SAVE] Movement saved: ");
   Serial.print(savedMovementDistance);
   Serial.print(" mm from home position (current Z: ");
   Serial.print(zPosition);
@@ -759,18 +776,18 @@ void saveMovementSequence() {
 
 void executeSavedMovement() {
   if (!hasSavedMovement) {
-    Serial.println("No saved movement to execute");
+    Serial.println("[EXECUTE] No saved movement to execute");
     return;
   }
   
   isExecutingSavedMovement = true;
   isMoving = true;
   
-  Serial.print("Executing saved movement: ");
+  Serial.print("[EXECUTE] Executing saved movement: ");
   Serial.print(savedMovementDistance);
   Serial.println(" mm from home");
   
-  // First, return to home position
+  // First, return to home position (0.00mm)
   moveZAxisTo(homePosition);
   
   // Small delay to ensure we're at home
@@ -781,7 +798,8 @@ void executeSavedMovement() {
     moveZAxisByDistance(savedMovementDistance);
   }
   
-  Serial.println("Saved movement execution complete");
+  Serial.println("[EXECUTE] Saved movement execution complete");
   isExecutingSavedMovement = false;
   isMoving = false;
 }
+

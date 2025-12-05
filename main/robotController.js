@@ -1,8 +1,6 @@
 import SolderingHardware from './hardware/SolderingHardware'
 
 export function setupRobotController({ ipcMain, getWebContents, options = {} }) {
-  // Initialize hardware - use hardware mode so serial manager exists,
-  // but will run in simulation until a serial connection is established
   const serialConfig = options.serialConfig || {
     baudRate: 115200,
     protocol: 'gcode',

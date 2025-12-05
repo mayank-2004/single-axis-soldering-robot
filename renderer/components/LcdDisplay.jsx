@@ -3,7 +3,7 @@ import styles from './LcdDisplay.module.css'
 
 const fallbackReadings = [
   // Single-axis machine: X and Y axes removed (PCB moved manually)
-  { label: 'Z Axis', value: '003.20 → 000.00', unit: 'mm', icon: '↕' },
+  { label: 'Z Axis', value: '000.00 → 000.00', unit: 'mm', icon: '↕' },
   { label: 'Wire Remaining', value: '100', unit: '%', length: '14.3 m', icon: '⚡' },
   { label: 'Flux Remaining', value: '82', unit: '%', icon: '💧' },
   { label: 'Tip Temp', value: '345', unit: '°C', icon: '🌡️' },

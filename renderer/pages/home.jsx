@@ -1,7 +1,8 @@
 import React, { useCallback, useState } from 'react'
 import Head from 'next/head'
 import LcdDisplay from '../components/LcdDisplay'
-import ComponentHeightControl from '../components/ComponentHeightControl'
+// COMPONENT HEIGHT CONTROL COMPONENT IMPORT COMMENTED OUT
+// import ComponentHeightControl from '../components/ComponentHeightControl'
 import TipHeatingControl from '../components/TipHeatingControl'
 import WireFeedControl from '../components/WireFeedControl'
 import SpoolWireControl from '../components/SpoolWireControl'
@@ -18,7 +19,7 @@ import CameraView from '../components/CameraView'
 import styles from './home.module.css'
 
 const initialCalibration = [
-  { label: 'Z Axis', value: '003.20 → 000.00', unit: 'mm', icon: '↕' },
+  { label: 'Z Axis', value: '000.00 → 000.00', unit: 'mm', icon: '↕' },
   { label: 'Wire Remaining', value: '100', unit: '%', length: '14.3 m', icon: '⚡' },
   { label: 'Flux Remaining', value: '82', unit: '%', icon: '💧' },
   { label: 'Tip Temp', value: '345', unit: '°C', icon: '🌡️' },
@@ -138,9 +139,10 @@ export default function HomePage() {
   const [currentPosition, setCurrentPosition] = useState({
     x: 120.0,
     y: 45.3,
-    z: 3.2,
+    z: 0.0, // Start at home position (0.00mm) - FIXED
     isMoving: false,
   })
+  const [limitSwitchAlert, setLimitSwitchAlert] = useState(false)
   const [stepSize, setStepSize] = useState(1.0)
   const [padShape, setPadShape] = useState('')
   const [padDimensions, setPadDimensions] = useState({
@@ -174,6 +176,9 @@ export default function HomePage() {
   const [isReceivingArduinoData, setIsReceivingArduinoData] = useState(false)
   const [lastArduinoDataTime, setLastArduinoDataTime] = useState(null)
   const [arduinoDataCount, setArduinoDataCount] = useState(0)
+
+  // Navigation state - track which component is currently active
+  const [activeComponent, setActiveComponent] = useState('serial-port')
 
   // G-CODE COMMAND HISTORY COMMENTED OUT
   // G-code command history
@@ -213,6 +218,11 @@ export default function HomePage() {
       if (payload && typeof payload === 'object') {
         setCalibration((current) =>
           current.map((entry) => {
+            // Don't update Z Axis from calibration:update - it's controlled by currentPosition.z
+            if (entry.label === 'Z Axis') {
+              return entry
+            }
+            
             const update = payload[entry.label]
             if (update === undefined || update === null) {
               return entry
@@ -632,16 +642,25 @@ export default function HomePage() {
       // Position can come from simulation or other sources
 
       // Single-axis machine: Only Z position is updated (X and Y removed - PCB moved manually)
-      setCurrentPosition((current) => ({
-        z:
-          typeof payload.z === 'number' && Number.isFinite(payload.z)
-            ? payload.z
-            : current.z,
-        isMoving:
-          typeof payload.isMoving === 'boolean'
-            ? payload.isMoving
-            : current.isMoving,
-      }))
+      // Ensure Z position doesn't exceed 0.00mm (home position)
+      setCurrentPosition((current) => {
+        let newZ = typeof payload.z === 'number' && Number.isFinite(payload.z)
+          ? payload.z
+          : current.z
+        
+        // Clamp Z to maximum of 0.00mm (home position)
+        if (newZ > 0) {
+          newZ = 0.0
+        }
+        
+        return {
+          z: newZ,
+          isMoving:
+            typeof payload.isMoving === 'boolean'
+              ? payload.isMoving
+              : current.isMoving,
+        }
+      })
     }
 
     // Monitor for data timeout (if no data received for 2 seconds, mark as not receiving)
@@ -659,6 +678,40 @@ export default function HomePage() {
       clearInterval(dataTimeoutInterval)
     }
   }, [lastArduinoDataTime, isSerialConnected])
+
+  // Sync Z-axis position from currentPosition to calibration readings (for LcdDisplay)
+  React.useEffect(() => {
+    if (currentPosition.z !== null && currentPosition.z !== undefined) {
+      setCalibration((current) =>
+        current.map((entry) => {
+          if (entry.label !== 'Z Axis') {
+            return entry
+          }
+
+          const formatPosition = (pos) => {
+            // Handle negative numbers (for positions below home)
+            const isNegative = pos < 0
+            const absPos = Math.abs(pos)
+            const parts = absPos.toFixed(2).split('.')
+            const integer = parts[0].padStart(3, '0')
+            const decimal = parts[1] || '00'
+            const sign = isNegative ? '-' : ''
+            return `${sign}${integer}.${decimal}`
+          }
+          
+          const HOME_POSITION = 0.0 // Home is at 0.00mm (top limit switch) - FIXED VALUE
+          const homeFormatted = formatPosition(HOME_POSITION) // Home is always 0.00mm - never changes
+          const currentFormatted = formatPosition(currentPosition.z) // Current position - updates dynamically (can be negative)
+          const formattedValue = `${homeFormatted} → ${currentFormatted}`
+          
+          return {
+            ...entry,
+            value: formattedValue,
+          }
+        })
+      )
+    }
+  }, [currentPosition.z])
 
   // Listen for actual Arduino data reception separately
   React.useEffect(() => {
@@ -1381,14 +1434,44 @@ export default function HomePage() {
         return
       }
 
+      // Prevent sending command if trying to go above home position (0.00mm)
+      // direction > 0 means upward movement
+      if (axis.toLowerCase() === 'z' && direction > 0 && currentPosition.z >= 0) {
+        // Already at or above home position, show alert and don't send command
+        setLimitSwitchAlert(true)
+        setManualMovementStatus('Upper limit switch reached - can\'t go upward')
+        // Auto-hide alert after 3 seconds
+        setTimeout(() => {
+          setLimitSwitchAlert(false)
+          setManualMovementStatus('')
+        }, 3000)
+        console.warn('[ManualMovement] Cannot move above home position (0.00mm)')
+        return
+      }
+
       console.log('[ManualMovement] Sending jog command:', { axis, direction, stepSize: stepSizeValue })
       
       // Listen for acknowledgment
       const handleAck = (event, result) => {
         if (result.error) {
           console.error('[ManualMovement] Jog error:', result.error)
+          setManualMovementStatus('')
+          setLimitSwitchAlert(false)
         } else {
           console.log('[ManualMovement] Jog completed:', result.status)
+          // Check if limit switch was reached (backup check from backend)
+          if (result.limitReached) {
+            setLimitSwitchAlert(true)
+            setManualMovementStatus('Upper limit switch reached - can\'t go upward')
+            // Auto-hide alert after 3 seconds
+            setTimeout(() => {
+              setLimitSwitchAlert(false)
+              setManualMovementStatus('')
+            }, 3000)
+          } else {
+            setLimitSwitchAlert(false)
+            setManualMovementStatus('')
+          }
         }
         window.ipc.off?.('axis:jog:ack', handleAck)
       }
@@ -1401,7 +1484,7 @@ export default function HomePage() {
         timestamp: Date.now(),
       })
     },
-    []
+    [currentPosition.z]
   )
 
   const handleHome = useCallback(() => {
@@ -1670,6 +1753,22 @@ export default function HomePage() {
     ],
     [isMachineFanOn, isTipFanOn, toggleFan]
   )
+  // Component navigation items
+  const componentNavItems = [
+    { id: 'serial-port', label: 'Serial Port' },
+    // COMPONENT HEIGHT CONTROL COMMENTED OUT
+    // { id: 'component-height', label: 'Component Height' },
+    { id: 'manual-movement', label: 'Manual Movement' },
+    { id: 'tip-heating', label: 'Tip Heating' },
+    { id: 'wire-feed', label: 'Wire Feed' },
+    { id: 'spool-wire', label: 'Spool Wire' },
+    { id: 'pad-metrics', label: 'Pad Metrics' },
+    { id: 'fume-extractor', label: 'Fume Extractor' },
+    { id: 'flux-mist', label: 'Flux Mist' },
+    { id: 'air-control', label: 'Air Control' },
+    { id: 'sequence-monitor', label: 'Sequence Monitor' },
+  ]
+
   return (
     <React.Fragment>
       <Head>
@@ -1684,7 +1783,26 @@ export default function HomePage() {
           </p>
         </header>
 
-        <SerialPortConnection
+        {/* Navigation Bar */}
+        <nav className={styles.navbar} role="navigation" aria-label="Component navigation">
+          <div className={styles.navbarContainer}>
+            {componentNavItems.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`${styles.navItem} ${activeComponent === item.id ? styles.navItemActive : ''}`}
+                onClick={() => setActiveComponent(item.id)}
+                aria-pressed={activeComponent === item.id}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </nav>
+
+        {/* Conditionally render components based on activeComponent */}
+        {activeComponent === 'serial-port' && (
+          <SerialPortConnection
           isConnected={isSerialConnected}
           isConnecting={isSerialConnecting}
           currentPort={currentSerialPort}
@@ -1696,17 +1814,22 @@ export default function HomePage() {
           isReceivingData={isReceivingArduinoData}
           lastDataReceived={lastArduinoDataTime}
           dataCount={arduinoDataCount}
-        />
+          />
+        )}
 
-        <ComponentHeightControl
+        {/* COMPONENT HEIGHT CONTROL COMMENTED OUT */}
+        {/* {activeComponent === 'component-height' && (
+          <ComponentHeightControl
           value={componentHeight}
           onChange={handleHeightChange}
           onSubmit={handleHeightSubmit}
           statusMessage={heightStatus}
-        />
+          />
+        )} */}
 
-        <section className={styles.solderingControls} aria-label="Soldering iron controls">
-          <ManualMovementControl
+        {activeComponent === 'manual-movement' && (
+          <section className={styles.solderingControls} aria-label="Soldering iron controls">
+            <ManualMovementControl
             currentPosition={currentPosition}
             stepSize={stepSize}
             onStepSizeChange={setStepSize}
@@ -1715,9 +1838,16 @@ export default function HomePage() {
             onSave={handleSave}
             isMoving={currentPosition.isMoving}
             statusMessage={manualMovementStatus}
-          />
+            limitSwitchAlert={limitSwitchAlert}
+            isSerialConnected={isSerialConnected}
+            isReceivingArduinoData={isReceivingArduinoData}
+            />
+          </section>
+        )}
 
-          <TipHeatingControl
+        {activeComponent === 'tip-heating' && (
+          <section className={styles.solderingControls} aria-label="Soldering iron controls">
+            <TipHeatingControl
             tipTarget={tipTarget}
             onTipTargetChange={handleTipTargetChange}
             onApplyTipTarget={handleApplyTipTarget}
@@ -1728,9 +1858,13 @@ export default function HomePage() {
             padCategory={padCategory}
             compensatedTemperature={compensatedTemperature}
             baseTemperature={baseTemperature}
-          />
+            />
+          </section>
+        )}
 
-          <WireFeedControl
+        {activeComponent === 'wire-feed' && (
+          <section className={styles.solderingControls} aria-label="Soldering iron controls">
+            <WireFeedControl
             calculatedLength={wireUsed}
             wireDiameter={wireDiameter}
             volumePerMm={volumePerMm}
@@ -1738,18 +1872,26 @@ export default function HomePage() {
             message={wireFeedMessage}
             onWireDiameterChange={handleWireDiameterChange}
             onStart={handleWireFeedStart}
-          />
+            />
+          </section>
+        )}
 
-          <SpoolWireControl
+        {activeComponent === 'spool-wire' && (
+          <section className={styles.solderingControls} aria-label="Soldering iron controls">
+            <SpoolWireControl
             spoolState={spoolState}
             onSpoolConfigChange={() => { }}
             onSpoolConfigSubmit={handleSpoolConfigSubmit}
             onResetSpool={handleResetSpool}
             onTareSpool={handleTareSpool}
             statusMessage={spoolStatusMessage}
-          />
+            />
+          </section>
+        )}
 
-          <PadSolderingMetrics
+        {activeComponent === 'pad-metrics' && (
+          <section className={styles.solderingControls} aria-label="Soldering iron controls">
+            <PadSolderingMetrics
             padShape={padShape}
             padDimensions={padDimensions}
             solderHeight={solderHeight}
@@ -1767,9 +1909,13 @@ export default function HomePage() {
             onCalculate={calculatePadMetrics}
             onApplyCompensatedTemperature={handleApplyCompensatedTemperature}
             isCalculating={isCalculatingMetrics}
-          />
+            />
+          </section>
+        )}
 
-          <FumeExtractorControl
+        {activeComponent === 'fume-extractor' && (
+          <section className={styles.solderingControls} aria-label="Soldering iron controls">
+            <FumeExtractorControl
             enabled={fumeExtractor.enabled}
             speed={fumeExtractor.speed}
             autoMode={fumeExtractor.autoMode}
@@ -1777,9 +1923,13 @@ export default function HomePage() {
             onSpeedChange={handleFumeExtractorSpeedChange}
             onAutoModeToggle={toggleFumeExtractorAutoMode}
             statusMessage={fumeExtractorStatusMessage}
-          />
+            />
+          </section>
+        )}
 
-          <FluxMistControl
+        {activeComponent === 'flux-mist' && (
+          <section className={styles.solderingControls} aria-label="Soldering iron controls">
+            <FluxMistControl
             isDispensing={fluxMist.isDispensing}
             duration={fluxMist.duration}
             flowRate={fluxMist.flowRate}
@@ -1791,9 +1941,13 @@ export default function HomePage() {
             statusMessage={fluxMistStatusMessage}
             lastDispensed={fluxMist.lastDispensed}
             fluxRemaining={fluxRemaining}
-          />
+            />
+          </section>
+        )}
 
-          <AirControl
+        {activeComponent === 'air-control' && (
+          <section className={styles.solderingControls} aria-label="Soldering iron controls">
+            <AirControl
             airBreezeEnabled={airBreeze.enabled}
             airBreezeActive={airBreeze.isActive}
             airBreezeDuration={airBreeze.duration}
@@ -1818,9 +1972,13 @@ export default function HomePage() {
             onAirJetAutoModeToggle={toggleAirJetPressureAutoMode}
             airJetLastActivated={airJetPressure.lastActivated}
             airJetStatusMessage={airJetPressureStatusMessage}
-          />
+            />
+          </section>
+        )}
 
-          <SequenceMonitor
+        {activeComponent === 'sequence-monitor' && (
+          <section className={styles.solderingControls} aria-label="Soldering iron controls">
+            <SequenceMonitor
             sequenceState={sequenceState}
             onStart={handleSequenceStart}
             onStop={handleSequenceStop}
@@ -1832,8 +1990,9 @@ export default function HomePage() {
                 z: Number.parseFloat(solderHeight || 0),
               }
             ]}
-          />
-        </section>
+            />
+          </section>
+        )}
 
 
         {/* Empty spool alert - highest priority */}
@@ -1905,6 +2064,10 @@ export default function HomePage() {
           />
         </section>
 
+        <section className={styles.cameraSection} aria-label="Camera view">
+          <CameraView isActive={true} />
+        </section>
+
         {/* G-CODE MONITOR SECTION COMMENTED OUT */}
         {/* <section className={styles.gcodeSection} aria-label="G-code command monitor">
           <GCodeMonitor
@@ -1912,10 +2075,6 @@ export default function HomePage() {
             isConnected={isSerialConnected}
           />
         </section> */}
-
-        <section className={styles.cameraSection} aria-label="Camera view">
-          <CameraView isActive={true} />
-        </section>
       </main>
     </React.Fragment>
   )
