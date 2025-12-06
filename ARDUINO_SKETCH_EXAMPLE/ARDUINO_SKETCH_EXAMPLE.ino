@@ -90,6 +90,22 @@ const int BUTTON_DOWN_PIN = 37;
 const int BUTTON_SAVE_PIN = 35;
 const int PADDLE_PIN = 34;
 
+// -------------------------------
+// Sensor pin configuration
+// -------------------------------
+// TODO: Update these pin numbers to match your actual hardware wiring
+const int Z_ENCODER_PIN = A0;           // Z-axis encoder/position sensor (analog or digital)
+const int THERMOCOUPLE_CS_PIN = 10;     // MAX6675 thermocouple CS pin (or similar)
+const int THERMOCOUPLE_SCK_PIN = 13;    // MAX6675 thermocouple SCK pin
+const int THERMOCOUPLE_SO_PIN = 12;     // MAX6675 thermocouple SO pin
+const int LOAD_CELL_DT_PIN = A1;        // HX711 load cell DT pin (or similar)
+const int LOAD_CELL_SCK_PIN = A2;       // HX711 load cell SCK pin
+const int WIRE_BREAK_SENSOR_PIN = 4;    // Wire break detection sensor (digital)
+const int HEATER_PIN = 5;               // Heater control pin (PWM)
+
+// Sensor reading flags
+bool useRealSensors = true;  // Set to false to use simulation mode
+
 // Button debouncing and continuous movement
 const unsigned long BUTTON_DEBOUNCE_MS = 50;
 const unsigned long BUTTON_REPEAT_DELAY_MS = 100; // Delay between movements when button held
@@ -118,6 +134,12 @@ void feedWireByLength(float lengthMm);
 void handleButtonControls();
 void saveMovementSequence();
 void executeSavedMovement();
+
+// Forward declarations for sensor reading
+float readEncoderPosition(int encoderPin);
+float readThermocouple(int csPin, int sckPin, int soPin);
+float readLoadCell(int dtPin, int sckPin);
+void handleWireBreak();
 
 
 void setup() {
@@ -152,8 +174,29 @@ void setup() {
   lastButtonSaveState = digitalRead(BUTTON_SAVE_PIN);
   lastPaddleState = digitalRead(PADDLE_PIN);
 
-  // pinMode(HEATER_PIN, OUTPUT);
-  // attachInterrupt(digitalPinToInterrupt(WIRE_BREAK_SENSOR), handleWireBreak, CHANGE);
+  // Sensor pins initialization
+  if (useRealSensors) {
+    // Z-axis encoder (if using analog encoder)
+    pinMode(Z_ENCODER_PIN, INPUT);
+    
+    // Thermocouple pins (MAX6675)
+    pinMode(THERMOCOUPLE_CS_PIN, OUTPUT);
+    pinMode(THERMOCOUPLE_SCK_PIN, OUTPUT);
+    pinMode(THERMOCOUPLE_SO_PIN, INPUT);
+    digitalWrite(THERMOCOUPLE_CS_PIN, HIGH);
+    
+    // Load cell pins (HX711)
+    pinMode(LOAD_CELL_DT_PIN, INPUT);
+    pinMode(LOAD_CELL_SCK_PIN, OUTPUT);
+    
+    // Wire break sensor
+    pinMode(WIRE_BREAK_SENSOR_PIN, INPUT_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(WIRE_BREAK_SENSOR_PIN), handleWireBreak, CHANGE);
+    
+    // Heater control
+    pinMode(HEATER_PIN, OUTPUT);
+    digitalWrite(HEATER_PIN, LOW);
+  }
   
   delay(1000); // Give time for serial connection to stabilize
   
@@ -182,24 +225,63 @@ void loop() {
   delay(UPDATE_INTERVAL);
 }
 
-void readSensors() {
-  // TODO: Replace with actual sensor readings
-  
-  // Example sensor reading functions:
-  // zPosition = readEncoderPosition(Z_ENCODER);  // Only Z-axis (single-axis machine)
-  // currentTemperature = readThermocouple(THERMOCOUPLE_PIN);
-  // spoolWeight = readLoadCell(LOAD_CELL_PIN);
-  // wireBreakDetected = digitalRead(WIRE_BREAK_SENSOR) == LOW;
-  
-  // Simulate sensor reading (remove in production)
-  static unsigned long lastSensorUpdate = 0;
-  if (millis() - lastSensorUpdate > 1000) {
-    // Simulate small Z-axis changes for testing (disabled - use actual position from movement)
-    // zPosition += random(-5, 5) / 100.0;
-    // Clamp Z position: cannot go above 0.00mm (home), can go negative (downward)
+void readSensors() {  
+  if (useRealSensors) {
+    // Read actual sensor values from hardware
+    
+    // Z-axis position: Already updated by movement functions (moveZAxisByDistance, homeZAxis)
+    // If you have an encoder, uncomment the line below and comment out position tracking in movement functions
+    // zPosition = readEncoderPosition(Z_ENCODER_PIN);
+    
+    // Ensure Z position doesn't exceed home (0.00mm)
     if (zPosition > 0.0) {
       zPosition = 0.0;  // Clamp to home position
     }
+    
+    // Read temperature from thermocouple
+    currentTemperature = readThermocouple(THERMOCOUPLE_CS_PIN, THERMOCOUPLE_SCK_PIN, THERMOCOUPLE_SO_PIN);
+    
+    // Read spool weight from load cell
+    spoolWeight = readLoadCell(LOAD_CELL_DT_PIN, LOAD_CELL_SCK_PIN);
+    
+    // Read wire break sensor (interrupt-driven, but also check here as backup)
+    wireBreakDetected = digitalRead(WIRE_BREAK_SENSOR_PIN) == LOW;
+    
+    // Control heater based on target temperature
+    if (heaterEnabled && currentTemperature < targetTemperature) {
+      // Heat up - use PWM to control heating rate
+      analogWrite(HEATER_PIN, 255);  // Full power (adjust as needed)
+    } else if (!heaterEnabled || currentTemperature >= targetTemperature) {
+      // Turn off heater
+      analogWrite(HEATER_PIN, 0);
+    }
+    
+    // Update wire length and remaining percentage based on spool weight
+    // Assuming wire density and spool empty weight (adjust these values)
+    const float WIRE_DENSITY_G_PER_MM = 0.001;  // grams per mm (adjust based on wire type)
+    const float EMPTY_SPOOL_WEIGHT = 100.0;  // grams (adjust based on your spool)
+    float wireWeight = spoolWeight - EMPTY_SPOOL_WEIGHT;
+    if (wireWeight > 0) {
+      wireLength = wireWeight / WIRE_DENSITY_G_PER_MM;
+      remainingPercentage = (wireLength / 10000.0) * 100.0;  // Assuming 10000mm is full spool
+      if (remainingPercentage > 100.0) remainingPercentage = 100.0;
+      if (remainingPercentage < 0.0) remainingPercentage = 0.0;
+    } else {
+      wireLength = 0.0;
+      remainingPercentage = 0.0;
+    }
+    
+    // Movement status is managed by movement functions (isMoving flag)
+    // Wire feeding status is managed by feedWireByLength function
+    
+  } else {
+    // Simulation mode (fallback if sensors are not connected)
+  static unsigned long lastSensorUpdate = 0;
+  if (millis() - lastSensorUpdate > 1000) {
+      // Clamp Z position: cannot go above 0.00mm (home), can go negative (downward)
+      if (zPosition > 0.0) {
+        zPosition = 0.0;  // Clamp to home position
+      }
     
     // Simulate temperature rising/cooling
     if (heaterEnabled && currentTemperature < targetTemperature) {
@@ -242,6 +324,7 @@ void readSensors() {
     }
     
     lastSensorUpdate = millis();
+    }
   }
 }
 
@@ -467,29 +550,153 @@ void processCommands() {
   }
 }
 
-// Helper functions for sensor reading (implement based on your hardware)
-/*
+// ----------------------------------
+// Sensor reading helper functions
+// ----------------------------------
+
+/**
+ * Read Z-axis encoder position
+ * Adjust this function based on your encoder type (incremental, absolute, analog, etc.)
+ */
 float readEncoderPosition(int encoderPin) {
-  // Read encoder position
-  return 0.0;
+  // Example for analog encoder (potentiometer or analog encoder)
+  // Returns position in mm
+  int rawValue = analogRead(encoderPin);
+  
+  // Convert analog reading (0-1023) to position in mm
+  // Adjust these values based on your encoder's range and mechanics
+  const float ENCODER_MIN_RAW = 0.0;
+  const float ENCODER_MAX_RAW = 1023.0;
+  const float ENCODER_MIN_POSITION = -40.0;  // mm (maximum downward travel)
+  const float ENCODER_MAX_POSITION = 0.0;    // mm (home position)
+  
+  // Linear interpolation
+  float normalized = (rawValue - ENCODER_MIN_RAW) / (ENCODER_MAX_RAW - ENCODER_MIN_RAW);
+  float position = ENCODER_MIN_POSITION + normalized * (ENCODER_MAX_POSITION - ENCODER_MIN_POSITION);
+  
+  // Clamp to valid range
+  if (position > ENCODER_MAX_POSITION) position = ENCODER_MAX_POSITION;
+  if (position < ENCODER_MIN_POSITION) position = ENCODER_MIN_POSITION;
+  
+  return position;
+  
+  // Alternative: For digital/incremental encoder, use interrupt-based counting
+  // static volatile long encoderCount = 0;
+  // Return encoderCount / (float)Z_STEPS_PER_MM;
 }
 
-float readThermocouple(int pin) {
-  // Read thermocouple temperature
-  // Example with MAX6675 or similar
-  return 25.0;
+/**
+ * Read temperature from MAX6675 thermocouple amplifier
+ * Returns temperature in Celsius
+ */
+float readThermocouple(int csPin, int sckPin, int soPin) {
+  // MAX6675 communication protocol
+  uint16_t value = 0;
+  
+  // Pull CS low to start communication
+  digitalWrite(csPin, LOW);
+  delayMicroseconds(10);
+  
+  // Read 16 bits from MAX6675
+  for (int i = 15; i >= 0; i--) {
+    digitalWrite(sckPin, LOW);
+    delayMicroseconds(1);
+    if (digitalRead(soPin)) {
+      value |= (1 << i);
+    }
+    digitalWrite(sckPin, HIGH);
+    delayMicroseconds(1);
+  }
+  
+  // Pull CS high to end communication
+  digitalWrite(csPin, HIGH);
+  
+  // Check for thermocouple connection error (bit D2)
+  if (value & 0x04) {
+    // Thermocouple disconnected or error
+    return -1.0;  // Error value
+  }
+  
+  // Extract temperature (bits D14-D3)
+  value = value >> 3;
+  float temperature = value * 0.25;  // MAX6675 resolution is 0.25°C
+  
+  return temperature;
 }
 
-float readLoadCell(int pin) {
-  // Read load cell weight (HX711 or similar)
-  return 0.0;
+/**
+ * Read weight from HX711 load cell amplifier
+ * Returns weight in grams
+ * Note: This is a simplified implementation. For production, use a proper HX711 library
+ */
+float readLoadCell(int dtPin, int sckPin) {
+  // HX711 communication protocol
+  // Wait for data ready (DT goes LOW when data is ready)
+  unsigned long timeout = millis() + 100;
+  while (digitalRead(dtPin) == HIGH) {
+    if (millis() > timeout) {
+      return 0.0;  // Timeout - sensor not responding
+    }
+  }
+  
+  // Read 24-bit value from HX711
+  long value = 0;
+  for (int i = 0; i < 24; i++) {
+    digitalWrite(sckPin, HIGH);
+    delayMicroseconds(1);
+    value = value << 1;
+    if (digitalRead(dtPin)) {
+      value++;
+    }
+    digitalWrite(sckPin, LOW);
+    delayMicroseconds(1);
+  }
+  
+  // Set gain for next reading (channel A, gain 128)
+  digitalWrite(sckPin, HIGH);
+  delayMicroseconds(1);
+  digitalWrite(sckPin, LOW);
+  delayMicroseconds(1);
+  
+  // Convert to signed value (24-bit two's complement)
+  if (value & 0x800000) {
+    value |= 0xFF000000;  // Sign extend
+  }
+  
+  // Calibrate: Adjust these values based on your load cell calibration
+  // offset = tare weight reading
+  // scale = known weight / (reading - offset)
+  const long OFFSET = 0;  // Tare offset (adjust after calibration)
+  const float SCALE = 1.0;  // Scale factor (adjust after calibration with known weight)
+  
+  float weight = (value - OFFSET) / SCALE;
+  
+  // Ensure non-negative weight
+  if (weight < 0) weight = 0;
+  
+  return weight;
+  
+  // Note: For production, implement proper calibration routine
+  // and use a dedicated HX711 library for better accuracy
 }
 
+/**
+ * Interrupt handler for wire break detection
+ * Called when wire break sensor state changes
+ */
 void handleWireBreak() {
-  // Interrupt handler for wire break detection
+  // Check sensor state
+  if (digitalRead(WIRE_BREAK_SENSOR_PIN) == LOW) {
   wireBreakDetected = true;
+    // Optional: Stop wire feeding immediately
+    if (isWireFeeding) {
+      isWireFeeding = false;
+      wireFeedStatus = "error";
 }
-*/
+  } else {
+    wireBreakDetected = false;
+  }
+}
 
 // ----------------------------------
 // Z-axis motion helper functions
@@ -682,7 +889,7 @@ void handleButtonControls() {
             // Don't move if already at home
           } else {
             // Move head up by a small increment (positive distance = move up)
-            moveZAxisByDistance(0.1f);
+          moveZAxisByDistance(0.1f);
           }
           lastButtonUpRepeat = currentTime;
         }

@@ -33,7 +33,7 @@ export default class CommandProtocol {
     const gcode = `${moveCmd} ${commands.join(' ')} ${feedrateCmd}`.trim()
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand(gcode, { waitForResponse: true })
-    console.log('[CommandProtocol] G-code (commented out):', gcode)
+    // console.log('[CommandProtocol] G-code (commented out):', gcode)
     return Promise.resolve({ status: 'simulated', command: gcode })
   }
 
@@ -50,7 +50,7 @@ export default class CommandProtocol {
     // Set relative positioning
     // G-CODE COMMAND COMMENTED OUT
     // await this.serial.sendCommand('G91', { waitForResponse: false })
-    console.log('[CommandProtocol] G-code (commented out): G91')
+    // console.log('[CommandProtocol] G-code (commented out): G91')
     
     // Perform relative move
     const moveCmd = feedrate ? 'G1' : 'G0'
@@ -58,12 +58,12 @@ export default class CommandProtocol {
     const gcode = `${moveCmd} ${axisLetter}${distance.toFixed(3)} ${feedrateCmd}`.trim()
     // G-CODE COMMAND COMMENTED OUT
     // await this.serial.sendCommand(gcode, { waitForResponse: true })
-    console.log('[CommandProtocol] G-code (commented out):', gcode)
+    // console.log('[CommandProtocol] G-code (commented out):', gcode)
     
     // Reset to absolute positioning
     // G-CODE COMMAND COMMENTED OUT
     // await this.serial.sendCommand('G90', { waitForResponse: false })
-    console.log('[CommandProtocol] G-code (commented out): G90')
+    // console.log('[CommandProtocol] G-code (commented out): G90')
     return { status: 'moved', axis, distance }
   }
 
@@ -74,7 +74,7 @@ export default class CommandProtocol {
     // Marlin: G28 homes all axes, G28 X Y Z homes specific axes
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand('G28', { waitForResponse: true })
-    console.log('[CommandProtocol] G-code (commented out): G28')
+    // console.log('[CommandProtocol] G-code (commented out): G28')
     return Promise.resolve({ status: 'simulated', command: 'G28' })
   }
 
@@ -91,7 +91,7 @@ export default class CommandProtocol {
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand(`G28 ${axisLetter}`, { waitForResponse: true })
     const gcode = `G28 ${axisLetter}`
-    console.log('[CommandProtocol] G-code (commented out):', gcode)
+    // console.log('[CommandProtocol] G-code (commented out):', gcode)
     return Promise.resolve({ status: 'simulated', command: gcode })
   }
 
@@ -104,7 +104,7 @@ export default class CommandProtocol {
     // Response format: "X:120.00 Y:45.30 Z:3.20 E:0.00"
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand('M114', { waitForResponse: true })
-    console.log('[CommandProtocol] G-code (commented out): M114')
+    // console.log('[CommandProtocol] G-code (commented out): M114')
     return Promise.resolve({ status: 'simulated', command: 'M114' })
   }
 
@@ -116,7 +116,7 @@ export default class CommandProtocol {
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand(`G1 F${feedrate}`, { waitForResponse: false })
     const gcode = `G1 F${feedrate}`
-    console.log('[CommandProtocol] G-code (commented out):', gcode)
+    // console.log('[CommandProtocol] G-code (commented out):', gcode)
     return Promise.resolve({ status: 'simulated', command: gcode })
   }
 
@@ -130,7 +130,7 @@ export default class CommandProtocol {
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand(`M104 S${targetTemp}`, { waitForResponse: true })
     const gcode = `M104 S${targetTemp}`
-    console.log('[CommandProtocol] G-code (commented out):', gcode)
+    // console.log('[CommandProtocol] G-code (commented out):', gcode)
     return Promise.resolve({ status: 'simulated', command: gcode })
   }
 
@@ -143,7 +143,7 @@ export default class CommandProtocol {
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand(`M109 S${targetTemp}`, { waitForResponse: true })
     const gcode = `M109 S${targetTemp}`
-    console.log('[CommandProtocol] G-code (commented out):', gcode)
+    // console.log('[CommandProtocol] G-code (commented out):', gcode)
     return Promise.resolve({ status: 'simulated', command: gcode })
   }
 
@@ -155,7 +155,7 @@ export default class CommandProtocol {
     // Marlin: M105 returns current temperature readings
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand('M105', { waitForResponse: true })
-    console.log('[CommandProtocol] G-code (commented out): M105')
+    // console.log('[CommandProtocol] G-code (commented out): M105')
     return Promise.resolve({ status: 'simulated', command: 'M105' })
   }
 
@@ -171,7 +171,7 @@ export default class CommandProtocol {
       // Marlin: M104 S0 disables the heater
       // G-CODE COMMAND COMMENTED OUT
       // return this.serial.sendCommand('M104 S0', { waitForResponse: false })
-      console.log('[CommandProtocol] G-code (commented out): M104 S0')
+      // console.log('[CommandProtocol] G-code (commented out): M104 S0')
       return Promise.resolve({ status: 'simulated', command: 'M104 S0' })
     }
   }
@@ -185,7 +185,7 @@ export default class CommandProtocol {
     const command = `M700 L${length.toFixed(2)} R${rate.toFixed(1)}`
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand(command, { waitForResponse: true })
-    console.log('[CommandProtocol] G-code (commented out):', command)
+    // console.log('[CommandProtocol] G-code (commented out):', command)
     return Promise.resolve({ status: 'simulated', command })
   }
 
@@ -201,7 +201,7 @@ export default class CommandProtocol {
     const command = `M701 S${Math.round(steps)} R${rate.toFixed(1)}`
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand(command, { waitForResponse: true })
-    console.log('[CommandProtocol] Spool rotation (commented out):', command)
+    // console.log('[CommandProtocol] Spool rotation (commented out):', command)
     return Promise.resolve({ status: 'simulated', command })
   }
 
@@ -216,7 +216,7 @@ export default class CommandProtocol {
     const gcode = `M106 P${fanNumber} S${speedValue}`
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand(gcode, { waitForResponse: false })
-    console.log('[CommandProtocol] G-code (commented out):', gcode)
+    // console.log('[CommandProtocol] G-code (commented out):', gcode)
     return Promise.resolve({ status: 'simulated', command: gcode })
   }
 
@@ -226,7 +226,7 @@ export default class CommandProtocol {
   async turnOffFans() {
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand('M107', { waitForResponse: false })
-    console.log('[CommandProtocol] G-code (commented out): M107')
+    // console.log('[CommandProtocol] G-code (commented out): M107')
     return Promise.resolve({ status: 'simulated', command: 'M107' })
   }
 
@@ -244,7 +244,7 @@ export default class CommandProtocol {
     const gcode = `M106 P${fanPort} S${speedValue}`
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand(gcode, { waitForResponse: false })
-    console.log('[CommandProtocol] G-code (commented out):', gcode)
+    // console.log('[CommandProtocol] G-code (commented out):', gcode)
     return Promise.resolve({ status: 'simulated', command: gcode })
   }
 
@@ -257,7 +257,7 @@ export default class CommandProtocol {
     const gcode = `M107 P${fanPort}`
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand(gcode, { waitForResponse: false })
-    console.log('[CommandProtocol] G-code (commented out):', gcode)
+    // console.log('[CommandProtocol] G-code (commented out):', gcode)
     return Promise.resolve({ status: 'simulated', command: gcode })
   }
 
@@ -275,7 +275,7 @@ export default class CommandProtocol {
     const gcode = `M702 D${durationMs} F${flowRateValue}`
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand(gcode, { waitForResponse: true })
-    console.log('[CommandProtocol] G-code (commented out):', gcode)
+    // console.log('[CommandProtocol] G-code (commented out):', gcode)
     return Promise.resolve({ status: 'simulated', command: gcode })
   }
 
@@ -302,7 +302,7 @@ export default class CommandProtocol {
     
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand(gcode, { waitForResponse: false })
-    console.log('[CommandProtocol] G-code (commented out):', gcode)
+    // console.log('[CommandProtocol] G-code (commented out):', gcode)
     return Promise.resolve({ status: 'simulated', command: gcode })
   }
 
@@ -319,7 +319,7 @@ export default class CommandProtocol {
     
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand(gcode, { waitForResponse: false })
-    console.log('[CommandProtocol] G-code (commented out):', gcode)
+    // console.log('[CommandProtocol] G-code (commented out):', gcode)
     return Promise.resolve({ status: 'simulated', command: gcode })
   }
 
@@ -343,7 +343,7 @@ export default class CommandProtocol {
     
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand(gcode, { waitForResponse: false })
-    console.log('[CommandProtocol] G-code (commented out):', gcode)
+    // console.log('[CommandProtocol] G-code (commented out):', gcode)
     return Promise.resolve({ status: 'simulated', command: gcode })
   }
 
@@ -358,7 +358,7 @@ export default class CommandProtocol {
     
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand(gcode, { waitForResponse: false })
-    console.log('[CommandProtocol] G-code (commented out):', gcode)
+    // console.log('[CommandProtocol] G-code (commented out):', gcode)
     return Promise.resolve({ status: 'simulated', command: gcode })
   }
 
@@ -369,7 +369,7 @@ export default class CommandProtocol {
   async emergencyStop() {
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand('M112', { waitForResponse: false, priority: true })
-    console.log('[CommandProtocol] G-code (commented out): M112 (Emergency Stop)')
+    // console.log('[CommandProtocol] G-code (commented out): M112 (Emergency Stop)')
     return Promise.resolve({ status: 'simulated', command: 'M112' })
   }
 
@@ -382,7 +382,7 @@ export default class CommandProtocol {
     // Marlin: M999 resets after emergency stop
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand('M999', { waitForResponse: true })
-    console.log('[CommandProtocol] G-code (commented out): M999')
+    // console.log('[CommandProtocol] G-code (commented out): M999')
     return Promise.resolve({ status: 'simulated', command: 'M999' })
   }
 
@@ -394,7 +394,7 @@ export default class CommandProtocol {
     // Marlin: M115 returns firmware info
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand('M115', { waitForResponse: true })
-    console.log('[CommandProtocol] G-code (commented out): M115')
+    // console.log('[CommandProtocol] G-code (commented out): M115')
     return Promise.resolve({ status: 'simulated', command: 'M115' })
   }
 
@@ -407,7 +407,7 @@ export default class CommandProtocol {
     // Use M114 for position, M105 for temperature
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand('M114', { waitForResponse: true })
-    console.log('[CommandProtocol] G-code (commented out): M114')
+    // console.log('[CommandProtocol] G-code (commented out): M114')
     return Promise.resolve({ status: 'simulated', command: 'M114' })
   }
 
@@ -418,12 +418,12 @@ export default class CommandProtocol {
     if (units === 'mm') {
       // G-CODE COMMAND COMMENTED OUT
       // return this.serial.sendCommand('G21', { waitForResponse: false })
-      console.log('[CommandProtocol] G-code (commented out): G21')
+      // console.log('[CommandProtocol] G-code (commented out): G21')
       return Promise.resolve({ status: 'simulated', command: 'G21' })
     } else if (units === 'inches') {
       // G-CODE COMMAND COMMENTED OUT
       // return this.serial.sendCommand('G20', { waitForResponse: false })
-      console.log('[CommandProtocol] G-code (commented out): G20')
+      // console.log('[CommandProtocol] G-code (commented out): G20')
       return Promise.resolve({ status: 'simulated', command: 'G20' })
     }
   }
@@ -435,12 +435,12 @@ export default class CommandProtocol {
     if (absolute) {
       // G-CODE COMMAND COMMENTED OUT
       // return this.serial.sendCommand('G90', { waitForResponse: false })
-      console.log('[CommandProtocol] G-code (commented out): G90')
+      // console.log('[CommandProtocol] G-code (commented out): G90')
       return Promise.resolve({ status: 'simulated', command: 'G90' })
     } else {
       // G-CODE COMMAND COMMENTED OUT
       // return this.serial.sendCommand('G91', { waitForResponse: false })
-      console.log('[CommandProtocol] G-code (commented out): G91')
+      // console.log('[CommandProtocol] G-code (commented out): G91')
       return Promise.resolve({ status: 'simulated', command: 'G91' })
     }
   }
@@ -459,14 +459,14 @@ export default class CommandProtocol {
       // G92 with no parameters sets all to zero
       // G-CODE COMMAND COMMENTED OUT
       // return this.serial.sendCommand('G92 X0 Y0 Z0', { waitForResponse: false })
-      console.log('[CommandProtocol] G-code (commented out): G92 X0 Y0 Z0')
+      // console.log('[CommandProtocol] G-code (commented out): G92 X0 Y0 Z0')
       return Promise.resolve({ status: 'simulated', command: 'G92 X0 Y0 Z0' })
     }
     
     const gcode = `G92 ${commands.join(' ')}`
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand(gcode, { waitForResponse: false })
-    console.log('[CommandProtocol] G-code (commented out):', gcode)
+    // console.log('[CommandProtocol] G-code (commented out):', gcode)
     return Promise.resolve({ status: 'simulated', command: gcode })
   }
 
@@ -477,12 +477,12 @@ export default class CommandProtocol {
     if (enabled) {
       // G-CODE COMMAND COMMENTED OUT
       // return this.serial.sendCommand('M17', { waitForResponse: false }) // Enable all steppers
-      console.log('[CommandProtocol] G-code (commented out): M17')
+      // console.log('[CommandProtocol] G-code (commented out): M17')
       return Promise.resolve({ status: 'simulated', command: 'M17' })
     } else {
       // G-CODE COMMAND COMMENTED OUT
       // return this.serial.sendCommand('M18', { waitForResponse: false }) // Disable all steppers
-      console.log('[CommandProtocol] G-code (commented out): M18')
+      // console.log('[CommandProtocol] G-code (commented out): M18')
       return Promise.resolve({ status: 'simulated', command: 'M18' })
     }
   }
@@ -499,8 +499,7 @@ export default class CommandProtocol {
     // G-CODE COMMAND COMMENTED OUT
     // return this.serial.sendCommand(`M18 ${axisLetter}`, { waitForResponse: false })
     const gcode = `M18 ${axisLetter}`
-    console.log('[CommandProtocol] G-code (commented out):', gcode)
+    // console.log('[CommandProtocol] G-code (commented out):', gcode)
     return Promise.resolve({ status: 'simulated', command: gcode })
   }
 }
-
