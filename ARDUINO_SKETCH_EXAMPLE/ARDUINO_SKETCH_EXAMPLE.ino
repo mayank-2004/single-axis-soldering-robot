@@ -681,7 +681,7 @@ float readEncoderPosition(int encoderPin) {
   // Adjust these values based on your encoder's range and mechanics
   const float ENCODER_MIN_RAW = 0.0;
   const float ENCODER_MAX_RAW = 1023.0;
-  const float ENCODER_MIN_POSITION = -40.0;  // mm (maximum downward travel)
+  const float ENCODER_MIN_POSITION = -70.0;  // mm (maximum downward travel)
   const float ENCODER_MAX_POSITION = 0.0;    // mm (home position)
   
   // Linear interpolation

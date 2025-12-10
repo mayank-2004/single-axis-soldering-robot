@@ -36,9 +36,9 @@ export default class ArduinoDataHandler extends EventEmitter {
     if (!data || typeof data !== 'object') {
       return null
     }
-    
+
     // Check if this looks like actual Arduino data (has at least one recognized field)
-    const hasValidData = 
+    const hasValidData =
       (data.pos && typeof data.pos === 'object') ||
       (data.temp && typeof data.temp === 'object') ||
       (data.wire && typeof data.wire === 'object') ||
@@ -51,21 +51,21 @@ export default class ArduinoDataHandler extends EventEmitter {
       (data.airJet && typeof data.airJet === 'object') ||
       (data.seq && typeof data.seq === 'object') ||
       (typeof data.height === 'number')
-    
+
     // If no valid Arduino fields found, this is probably noise/invalid data
     if (!hasValidData) {
       return null
     }
-    
+
     const updates = {}
 
-          // Position data (single-axis: only Z-axis)
-          if (data.pos) {
-            updates.position = {
-              z: parseFloat(data.pos.z) || 0,
-              isMoving: Boolean(data.pos.moving),
-            }
-          }
+    // Position data (single-axis: only Z-axis)
+    if (data.pos) {
+      updates.position = {
+        z: parseFloat(data.pos.z) || 0,
+        isMoving: Boolean(data.pos.moving),
+      }
+    }
 
     // Temperature data
     if (data.temp) {
@@ -177,24 +177,24 @@ export default class ArduinoDataHandler extends EventEmitter {
    */
   parseCustomFormat(dataLine) {
     const updates = {}
-    
+
     try {
       // Handle comma-separated key:value pairs
       const pairs = dataLine.split(',')
-      
+
       for (const pair of pairs) {
         const [key, value] = pair.split(':').map(s => s.trim())
-        
-               switch (key.toUpperCase()) {
-                 // Single-axis machine: Only Z position (X and Y ignored)
-                 case 'Z':
-                   if (!updates.position) updates.position = {}
-                   updates.position.z = parseFloat(value) || 0
-                   break
-                 case 'X':
-                 case 'Y':
-                   // X and Y positions ignored (PCB moved manually)
-                   break
+
+        switch (key.toUpperCase()) {
+          // Single-axis machine: Only Z position (X and Y ignored)
+          case 'Z':
+            if (!updates.position) updates.position = {}
+            updates.position.z = parseFloat(value) || 0
+            break
+          case 'X':
+          case 'Y':
+            // X and Y positions ignored (PCB moved manually)
+            break
           case 'MOVING':
             if (!updates.position) updates.position = {}
             updates.position.isMoving = Boolean(parseInt(value, 10))
@@ -215,7 +215,7 @@ export default class ArduinoDataHandler extends EventEmitter {
           // Add more custom format parsers as needed
         }
       }
-      
+
       if (Object.keys(updates).length > 0) {
         updates.timestamp = Date.now()
         return updates
@@ -223,7 +223,7 @@ export default class ArduinoDataHandler extends EventEmitter {
     } catch (error) {
       console.error('[ArduinoDataHandler] Error parsing custom format:', error)
     }
-    
+
     return null
   }
 
