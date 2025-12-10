@@ -56,6 +56,9 @@ export default class SolderingHardware extends EventEmitter {
     this.state = {
       componentHeightMm: null,
       calibration: initialCalibration.map((entry) => ({ ...entry })),
+      // Z-axis movement speed (1-100%, where 100% = fastest, 1% = slowest)
+      // This controls the delay between stepper motor steps
+      zAxisSpeed: options.zAxisSpeed || 80,
       fans: { machine: false, tip: false },
       fumeExtractor: {
         enabled: false,
@@ -696,11 +699,13 @@ export default class SolderingHardware extends EventEmitter {
 
     if (this.mode === 'hardware' && this.serialManager) {
       try {
-        // Send JSON command to Arduino: {"command":"jog","axis":"z","distance":1.0}
+        // Send JSON command to Arduino: {"command":"jog","axis":"z","distance":1.0,"speed":50}
+        // Speed: 1-100% (100% = fastest, 1% = slowest)
         await this._sendArduinoJsonCommand({
           command: 'jog',
           axis: axis.toLowerCase(),
-          distance: step
+          distance: step,
+          speed: this.state.zAxisSpeed // Send current speed setting
         })
         
         // Update position (will be confirmed by Arduino JSON response)
@@ -768,9 +773,10 @@ export default class SolderingHardware extends EventEmitter {
 
     if (this.mode === 'hardware' && this.serialManager) {
       try {
-        // Send JSON command to Arduino: {"command":"home"}
+        // Send JSON command to Arduino: {"command":"home","speed":50}
         await this._sendArduinoJsonCommand({
-          command: 'home'
+          command: 'home',
+          speed: this.state.zAxisSpeed // Send current speed setting
         })
         
         // Update position (Z-axis only) - Arduino will confirm via JSON response
@@ -823,6 +829,85 @@ export default class SolderingHardware extends EventEmitter {
     } else {
       // Simulation mode
       return { status: 'Movement sequence saved (simulation mode)' }
+    }
+  }
+
+  /**
+   * Set Z-axis movement speed
+   * @param {number} speed - Speed percentage (1-100), where 100% = fastest, 1% = slowest
+   * @returns {object} Status object
+   */
+  setZAxisSpeed(speed) {
+    const speedValue = Math.max(1, Math.min(100, Number(speed) || 50))
+    this.state.zAxisSpeed = speedValue
+    
+    // If connected to hardware, send speed command to Arduino
+    if (this.mode === 'hardware' && this.serialManager && this.connected) {
+      this._sendArduinoJsonCommand({
+        command: 'setspeed',
+        speed: speedValue
+      }).catch((error) => {
+        console.error('[SolderingHardware] Error setting speed:', error)
+      })
+    }
+    
+    return { status: `Z-axis speed set to ${speedValue}%` }
+  }
+
+  /**
+   * Calibrate Z-axis steps per millimeter
+   * @param {object} options - Calibration options
+   * @param {number} [options.stepsPerMm] - Direct value for steps per mm (e.g., 204.1)
+   * @param {number} [options.commanded] - Commanded distance in mm (e.g., 5.0)
+   * @param {number} [options.actual] - Actual measured distance in mm (e.g., 4.89)
+   * @returns {object} Status object
+   */
+  calibrateZAxisStepsPerMm(options = {}) {
+    const { stepsPerMm, commanded, actual } = options
+    
+    if (this.mode === 'hardware' && this.serialManager && this.connected) {
+      try {
+        if (stepsPerMm !== undefined) {
+          // Direct calibration: set steps per mm value
+          const value = Number(stepsPerMm)
+          if (value > 0 && value < 10000) {
+            this._sendArduinoJsonCommand({
+              command: 'calibrate',
+              stepsPerMm: value
+            }).catch((error) => {
+              console.error('[SolderingHardware] Error calibrating steps per mm:', error)
+            })
+            return { status: `Z-axis steps per mm set to ${value}` }
+          } else {
+            return { error: 'Invalid steps per mm value (must be > 0 and < 10000)' }
+          }
+        } else if (commanded !== undefined && actual !== undefined) {
+          // Auto-calibration: calculate from commanded vs actual movement
+          const commandedValue = Number(commanded)
+          const actualValue = Number(actual)
+          if (commandedValue > 0 && actualValue > 0) {
+            this._sendArduinoJsonCommand({
+              command: 'calibrate',
+              commanded: commandedValue,
+              actual: actualValue
+            }).catch((error) => {
+              console.error('[SolderingHardware] Error calibrating:', error)
+            })
+            const correctionFactor = (commandedValue / actualValue).toFixed(4)
+            return { 
+              status: `Calibration sent: Commanded ${commandedValue}mm, Actual ${actualValue}mm, Correction factor: ${correctionFactor}` 
+            }
+          } else {
+            return { error: 'Invalid commanded/actual values (must be > 0)' }
+          }
+        } else {
+          return { error: 'Must provide either stepsPerMm or both commanded and actual values' }
+        }
+      } catch (error) {
+        return { error: error.message }
+      }
+    } else {
+      return { error: 'Not connected to hardware' }
     }
   }
 
@@ -1938,6 +2023,15 @@ export default class SolderingHardware extends EventEmitter {
     })
   }
 
+  /**
+   * Alias for _updateCalibration - updates a calibration entry by label
+   * @param {string} label - The label of the calibration entry to update
+   * @param {object} updates - Object with properties to update (e.g., { value: '123.45' })
+   */
+  _updateCalibrationEntry(label, updates) {
+    this._updateCalibration(label, updates)
+  }
+
   _emitFlux() {
     this.emit('flux', this.getFluxState())
   }
@@ -2348,6 +2442,19 @@ export default class SolderingHardware extends EventEmitter {
       if (updates.componentHeight !== undefined && updates.componentHeight !== null) {
         this.state.componentHeightMm = updates.componentHeight
       }
+
+      // Update limit switch status
+      // if (updates.limitSwitches) {
+      //   const upperLimitTriggered = Boolean(updates.limitSwitches.upper)
+      //   const lowerLimitTriggered = Boolean(updates.limitSwitches.lower)
+        
+      //   // Emit limit switch events for both upper and lower
+      //   this.emit('limitSwitch', {
+      //     upper: upperLimitTriggered,
+      //     lower: lowerLimitTriggered,
+      //     timestamp: Date.now()
+      //   })
+      // }
     } catch (error) {
       console.error('[SolderingHardware] Error handling Arduino data:', error)
     }

@@ -143,6 +143,7 @@ export default function HomePage() {
     isMoving: false,
   })
   const [limitSwitchAlert, setLimitSwitchAlert] = useState(false)
+  // const [limitSwitchMessage, setLimitSwitchMessage] = useState('Upper limit switch reached - can\'t go upward')
   const [stepSize, setStepSize] = useState(1.0)
   const [padShape, setPadShape] = useState('')
   const [padDimensions, setPadDimensions] = useState({
@@ -600,6 +601,40 @@ export default function HomePage() {
     // Listen for actual Arduino JSON data (only this counts as real Arduino data)
     window.ipc.on?.('arduino:data:received', handleArduinoDataReceived)
 
+    // Listen for limit switch status from Arduino hardware
+    // const handleLimitSwitchUpdate = (payload) => {
+    //   if (payload) {
+    //     const upperTriggered = Boolean(payload.upper)
+    //     const lowerTriggered = Boolean(payload.lower)
+        
+    //     // Show alert if either limit switch is triggered
+    //     if (upperTriggered) {
+    //       setLimitSwitchMessage('Upper limit switch reached - can\'t go upward')
+    //       setLimitSwitchAlert(true)
+    //       setManualMovementStatus('Upper limit switch reached - can\'t go upward')
+    //       // Auto-hide alert after 3 seconds
+    //       setTimeout(() => {
+    //         setLimitSwitchAlert(false)
+    //         setManualMovementStatus('')
+    //       }, 3000)
+    //     } else if (lowerTriggered) {
+    //       setLimitSwitchMessage('Lower limit switch reached - can\'t go downward')
+    //       setLimitSwitchAlert(true)
+    //       setManualMovementStatus('Lower limit switch reached - can\'t go downward')
+    //       // Auto-hide alert after 3 seconds
+    //       setTimeout(() => {
+    //         setLimitSwitchAlert(false)
+    //         setManualMovementStatus('')
+    //       }, 3000)
+    //     } else {
+    //       // Both switches released - clear alert
+    //       setLimitSwitchAlert(false)
+    //       setManualMovementStatus('')
+    //     }
+    //   }
+    // }
+    // window.ipc.on?.('limitSwitch:update', handleLimitSwitchUpdate)
+
     window.ipc.send?.('tip:status:request')
     window.ipc.send?.('wire:feed:status:request')
     window.ipc.send?.('spool:status:request')
@@ -624,6 +659,7 @@ export default function HomePage() {
       window.ipc.off?.('airBreeze:update', handleAirBreezeState)
       window.ipc.off?.('airJetPressure:update', handleAirJetPressureState)
       window.ipc.off?.('arduino:data:received', handleArduinoDataReceived)
+      // window.ipc.off?.('limitSwitch:update', handleLimitSwitchUpdate)
     }
   }, [])
 
@@ -1839,6 +1875,7 @@ export default function HomePage() {
             isMoving={currentPosition.isMoving}
             statusMessage={manualMovementStatus}
             limitSwitchAlert={limitSwitchAlert}
+            // limitSwitchMessage={limitSwitchMessage}
             isSerialConnected={isSerialConnected}
             isReceivingArduinoData={isReceivingArduinoData}
             />

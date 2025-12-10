@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import styles from './ManualMovementControl.module.css'
 
 const stepSizes = [
@@ -24,21 +24,27 @@ export default function ManualMovementControl({
 }) {
   const [customStepSize, setCustomStepSize] = React.useState(stepSize?.toString() || '1.0')
   const [useCustomStepSize, setUseCustomStepSize] = React.useState(false)
+  // Track if user manually switched to custom mode (prevents auto-switching back)
+  const [userSelectedCustomMode, setUserSelectedCustomMode] = React.useState(false)
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (stepSize !== undefined) {
-      // Check if current stepSize matches any preset value
-      const matchesPreset = stepSizes.some((preset) => Math.abs(preset.value - stepSize) < 0.001)
-      setUseCustomStepSize(!matchesPreset)
-      if (!matchesPreset) {
+      if (!userSelectedCustomMode) {
+        const matchesPreset = stepSizes.some((preset) => Math.abs(preset.value - stepSize) < 0.001)
+        setUseCustomStepSize(!matchesPreset)
+        if (!matchesPreset) {
+          setCustomStepSize(stepSize.toString())
+        }
+      } else {
         setCustomStepSize(stepSize.toString())
       }
     }
-  }, [stepSize])
+  }, [stepSize, userSelectedCustomMode])
 
   const handlePresetStepSizeChange = React.useCallback(
     (value) => {
       setUseCustomStepSize(false)
+      setUserSelectedCustomMode(false) // User selected preset mode
       onStepSizeChange(value)
     },
     [onStepSizeChange]
@@ -59,7 +65,12 @@ export default function ManualMovementControl({
 
   const handleToggleCustomStepSize = React.useCallback(() => {
     if (!useCustomStepSize) {
+      // Switching TO custom mode - mark that user selected it
       setCustomStepSize(stepSize?.toString() || '1.0')
+      setUserSelectedCustomMode(true)
+    } else {
+      // Switching FROM custom mode - allow auto-detection again
+      setUserSelectedCustomMode(false)
     }
     setUseCustomStepSize(!useCustomStepSize)
   }, [useCustomStepSize, stepSize])

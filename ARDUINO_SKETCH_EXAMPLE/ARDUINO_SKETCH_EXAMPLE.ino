@@ -69,8 +69,18 @@ const int LIMIT_SWITCH_Z_MAX_PIN = 3;
 // Moving up = increases towards 0 (cannot exceed 0.00mm)
 const float Z_MAX_POSITION = 40.0f;  // mm - Maximum travel distance from home (downward)
 const float Z_HOME_POSITION = 0.0f;  // mm - Home position (at Z_MAX limit switch)
-const int Z_STEPS_PER_MM = 200;      // Adjust to your mechanics (lead screw pitch / micro-stepping)
-const unsigned int Z_STEP_DELAY_US = 600; // Pulse width for stepper (microseconds)
+// Z-axis steps per millimeter (calibrated value - can be adjusted via calibration command)
+// Formula: (Motor steps per revolution × Microstepping) / (Lead screw pitch in mm per revolution)
+// Default: 204.1 steps/mm (calibrated from measurements: 5mm→4.89mm, 12mm→11.78mm)
+// To calibrate: Use {"command":"calibrate","commanded":5.0,"actual":4.89} after measuring with dial gauge
+float zStepsPerMm = 204.1f;  // Changed to float for precision, and made variable for calibration
+const unsigned int Z_STEP_DELAY_US = 300; // Default pulse width for stepper (microseconds)
+const unsigned int Z_STEP_DELAY_MIN = 100; // Minimum delay (fastest speed) - adjust based on your stepper motor
+const unsigned int Z_STEP_DELAY_MAX = 2000; // Maximum delay (slowest speed)
+
+// Current movement speed (delay in microseconds)
+// Lower value = faster movement, Higher value = slower movement
+unsigned int currentZStepDelay = Z_STEP_DELAY_US; // Default speed
 
 // -------------------------------
 // Wire Feed stepper configuration
@@ -127,9 +137,12 @@ float homePosition = 0.0f;  // Home position is 0.00mm (at Z_MAX limit switch)
 bool isExecutingSavedMovement = false;
 
 // Forward declarations for motion helpers
-void moveZAxisByDistance(float distanceMm);
-void moveZAxisTo(float targetMm);
-void homeZAxis();
+void moveZAxisByDistance(float distanceMm, unsigned int stepDelayUs = 0);
+void moveZAxisTo(float targetMm, unsigned int stepDelayUs = 0);
+void homeZAxis(unsigned int stepDelayUs = 0);
+// void moveZAxisByDistance(float distanceMm);
+// void moveZAxisTo(float targetMm);
+// void homeZAxis();
 void feedWireByLength(float lengthMm);
 void handleButtonControls();
 void saveMovementSequence();
@@ -512,10 +525,36 @@ void processCommands() {
           String axis = cmdDoc["axis"] | "";
           float distance = cmdDoc["distance"] | 0;
           
+          // Speed control: delay in microseconds (optional)
+          // If not provided, uses current global speed (currentZStepDelay)
+          // Lower value = faster, Higher value = slower
+          unsigned int speedDelay = 0;
+          if (cmdDoc.containsKey("speed")) {
+            // Speed can be provided as:
+            // 1. Direct delay in microseconds: {"speed": 200}
+            // 2. Speed percentage (1-100): {"speed": 50} means 50% speed
+            float speedValue = cmdDoc["speed"] | 0;
+            if (speedValue > 0 && speedValue <= 100) {
+              // Interpret as percentage (1-100%)
+              // Map to delay range: 100% = Z_STEP_DELAY_MIN (fastest), 1% = Z_STEP_DELAY_MAX (slowest)
+              // Formula: delay = MAX - ((speed - 1) / (100 - 1)) * (MAX - MIN)
+              speedDelay = Z_STEP_DELAY_MAX - static_cast<unsigned int>(((speedValue - 1.0f) / 99.0f) * (Z_STEP_DELAY_MAX - Z_STEP_DELAY_MIN));
+            } else if (speedValue > 100) {
+              // Interpret as direct delay in microseconds
+              speedDelay = static_cast<unsigned int>(speedValue);
+            }
+          }
+          
           Serial.print("[CMD] Jog command: axis=");
           Serial.print(axis);
           Serial.print(", distance=");
-          Serial.println(distance);
+          Serial.print(distance);
+          if (speedDelay > 0) {
+            Serial.print(", speedDelay=");
+            Serial.print(speedDelay);
+            Serial.print("us");
+          }
+          Serial.println();
           
           // Single-axis machine: only Z-axis movement is supported
           if (axis == "z" || axis == "Z") {
@@ -526,14 +565,89 @@ void processCommands() {
             // Ignore the command
           }
         }
+        else if (cmd == "setspeed" || cmd == "speed") {
+          // Set global movement speed for Z-axis
+          // Speed can be provided as:
+          // 1. Direct delay in microseconds: {"speed": 200}
+          // 2. Speed percentage (1-100): {"speed": 50} means 50% speed
+          float speedValue = cmdDoc["speed"] | 0;
+          if (speedValue > 0 && speedValue <= 100) {
+            // Interpret as percentage (1-100%)
+            // Formula: delay = MAX - ((speed - 1) / (100 - 1)) * (MAX - MIN)
+            currentZStepDelay = Z_STEP_DELAY_MAX - static_cast<unsigned int>(((speedValue - 1.0f) / 99.0f) * (Z_STEP_DELAY_MAX - Z_STEP_DELAY_MIN));
+            Serial.print("[CMD] Speed set to ");
+            Serial.print(speedValue);
+            Serial.print("% (delay: ");
+            Serial.print(currentZStepDelay);
+            Serial.println("us)");
+          } else if (speedValue > 100) {
+            // Interpret as direct delay in microseconds
+            currentZStepDelay = static_cast<unsigned int>(speedValue);
+            if (currentZStepDelay < Z_STEP_DELAY_MIN) currentZStepDelay = Z_STEP_DELAY_MIN;
+            if (currentZStepDelay > Z_STEP_DELAY_MAX) currentZStepDelay = Z_STEP_DELAY_MAX;
+            Serial.print("[CMD] Speed delay set to ");
+            Serial.print(currentZStepDelay);
+            Serial.println("us");
+          }
+        }
         else if (cmd == "home") {
+          // Optional speed parameter for homing
+          unsigned int speedDelay = 0;
+          if (cmdDoc.containsKey("speed")) {
+            float speedValue = cmdDoc["speed"] | 0;
+            if (speedValue > 0 && speedValue <= 100) {
+              // Formula: delay = MAX - ((speed - 1) / (100 - 1)) * (MAX - MIN)
+              speedDelay = Z_STEP_DELAY_MAX - static_cast<unsigned int>(((speedValue - 1.0f) / 99.0f) * (Z_STEP_DELAY_MAX - Z_STEP_DELAY_MIN));
+            } else if (speedValue > 100) {
+              speedDelay = static_cast<unsigned int>(speedValue);
+            }
+          }
           Serial.println("[CMD] Executing home command");
-          homeZAxis();
+          homeZAxis(speedDelay);
         }
         else if (cmd == "save") {
           // Save movement sequence from home position to current position
           Serial.println("[CMD] Executing save command");
           saveMovementSequence();
+        }
+        else if (cmd == "calibrate" || cmd == "setstepspermm") {
+          // Calibrate Z-axis steps per millimeter
+          // Usage: {"command":"calibrate","stepsPerMm":204.5}
+          // OR: {"command":"calibrate","commanded":5.0,"actual":4.89} - auto-calculates correction
+          if (cmdDoc.containsKey("stepsPerMm")) {
+            float newStepsPerMm = cmdDoc["stepsPerMm"] | zStepsPerMm;
+            if (newStepsPerMm > 0 && newStepsPerMm < 10000) {
+              zStepsPerMm = newStepsPerMm;
+              Serial.print("[CMD] Z-axis steps per mm set to: ");
+              Serial.println(zStepsPerMm, 3);
+            } else {
+              Serial.println("[CMD] ERROR: Invalid steps per mm value (must be > 0 and < 10000)");
+            }
+          } else if (cmdDoc.containsKey("commanded") && cmdDoc.containsKey("actual")) {
+            // Auto-calibrate based on commanded vs actual movement
+            float commanded = cmdDoc["commanded"] | 0;
+            float actual = cmdDoc["actual"] | 0;
+            if (commanded > 0 && actual > 0) {
+              // Calculate correction factor: new_steps_per_mm = old_steps_per_mm * (commanded / actual)
+              float correctionFactor = commanded / actual;
+              zStepsPerMm = zStepsPerMm * correctionFactor;
+              Serial.print("[CMD] Calibration: Commanded ");
+              Serial.print(commanded, 2);
+              Serial.print("mm, Actual ");
+              Serial.print(actual, 2);
+              Serial.print("mm, Correction factor: ");
+              Serial.print(correctionFactor, 4);
+              Serial.print(", New steps per mm: ");
+              Serial.println(zStepsPerMm, 3);
+            } else {
+              Serial.println("[CMD] ERROR: Invalid commanded/actual values (must be > 0)");
+            }
+          } else {
+            Serial.println("[CMD] Usage: {\"command\":\"calibrate\",\"stepsPerMm\":204.5}");
+            Serial.println("[CMD]   OR: {\"command\":\"calibrate\",\"commanded\":5.0,\"actual\":4.89}");
+            Serial.print("[CMD] Current steps per mm: ");
+            Serial.println(zStepsPerMm, 3);
+          }
         }
         else {
           Serial.print("[CMD] WARNING: Unknown command: ");
@@ -582,7 +696,7 @@ float readEncoderPosition(int encoderPin) {
   
   // Alternative: For digital/incremental encoder, use interrupt-based counting
   // static volatile long encoderCount = 0;
-  // Return encoderCount / (float)Z_STEPS_PER_MM;
+  // Return encoderCount / zStepsPerMm;
 }
 
 /**
@@ -707,11 +821,14 @@ bool isLimitSwitchTriggered(int pin) {
   return digitalRead(pin) == LOW;
 }
 
-void pulseZStep() {
+// void pulseZStep() {
+void pulseZStep(unsigned int stepDelayUs = 0) {
+  // Use provided delay, or current global delay, or default
+  unsigned int delay = (stepDelayUs > 0) ? stepDelayUs : currentZStepDelay;
   digitalWrite(STEPPER_Z_STEP_PIN, HIGH);
-  delayMicroseconds(Z_STEP_DELAY_US);
+  delayMicroseconds(delay);
   digitalWrite(STEPPER_Z_STEP_PIN, LOW);
-  delayMicroseconds(Z_STEP_DELAY_US);
+  delayMicroseconds(delay);
 }
 
 void applyZMovement(long steps, bool moveUp) {
@@ -743,7 +860,7 @@ void applyZMovement(long steps, bool moveUp) {
 
   // Calculate position change
   // moveUp = true: increases Z (towards 0), moveUp = false: decreases Z (negative)
-  float deltaMm = (stepsCompleted / static_cast<float>(Z_STEPS_PER_MM)) * (moveUp ? 1.0f : -1.0f);
+  float deltaMm = (stepsCompleted / zStepsPerMm) * (moveUp ? 1.0f : -1.0f);
   zPosition = zPosition + deltaMm;
   
   // Clamp: cannot go above home (0.00mm), can go negative (downward)
@@ -786,12 +903,17 @@ void moveZAxisByDistance(float distanceMm) {
   }
   
   float actualDistance = target - zPosition;
-  long stepsToMove = labs(static_cast<long>(actualDistance * Z_STEPS_PER_MM));
+  long stepsToMove = labs(static_cast<long>(actualDistance * zStepsPerMm));
 
   if (stepsToMove == 0) {
     zPosition = target;
     return;
   }
+
+  // Use provided delay, or clamp to valid range if using global delay
+  unsigned int delay = (stepDelayUs > 0) ? stepDelayUs : currentZStepDelay;
+  if (delay < Z_STEP_DELAY_MIN) delay = Z_STEP_DELAY_MIN;
+  if (delay > Z_STEP_DELAY_MAX) delay = Z_STEP_DELAY_MAX;
 
   isMoving = true;
   applyZMovement(stepsToMove, actualDistance > 0);
@@ -810,7 +932,12 @@ void moveZAxisTo(float targetMm) {
 
 void homeZAxis() {
   // Calculate maximum steps needed (from maximum downward position to home)
-  const long maxSteps = static_cast<long>(Z_MAX_POSITION * Z_STEPS_PER_MM) + 200;
+  const long maxSteps = static_cast<long>(Z_MAX_POSITION * zStepsPerMm) + 200;
+
+  // Use provided delay, or clamp to valid range if using global delay
+  unsigned int delay = (stepDelayUs > 0) ? stepDelayUs : currentZStepDelay;
+  if (delay < Z_STEP_DELAY_MIN) delay = Z_STEP_DELAY_MIN;
+  if (delay > Z_STEP_DELAY_MAX) delay = Z_STEP_DELAY_MAX;
 
   isMoving = true;
   digitalWrite(STEPPER_Z_DIR_PIN, HIGH); // Move towards home (upward, towards Z_MAX limit switch)
