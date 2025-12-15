@@ -7,6 +7,8 @@
     inset 0 2px 4px rgba(255, 255, 255, 0.15),
     inset 0 -2px 6px rgba(0, 0, 0, 0.45),
     0 10px 25px rgba(0, 0, 0, 0.35);
+  position: relative;
+  overflow: visible;
 }
 
 .lcdBezel {
@@ -31,6 +33,12 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.lcdHeaderActionsContainer {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .lcdHeaderActions {
@@ -84,6 +92,52 @@
   font-weight: 600;
   letter-spacing: 0.24em;
   color: #cafff1;
+}
+
+.lcdSettingsButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(115, 255, 238, 0.25);
+  background: rgba(15, 32, 28, 0.65);
+  color: #9ff7ff;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+  flex-shrink: 0;
+}
+
+.lcdSettingsButton:hover {
+  transform: translateY(-1px);
+  border-color: rgba(115, 255, 238, 0.45);
+  box-shadow: 0 8px 14px rgba(52, 168, 139, 0.2);
+  background: rgba(15, 32, 28, 0.85);
+}
+
+.lcdSettingsButton:focus-visible {
+  outline: 2px solid rgba(115, 255, 238, 0.8);
+  outline-offset: 2px;
+}
+
+.lcdSettingsButton:active {
+  transform: translateY(0);
+}
+
+.lcdSettingsIcon {
+  font-size: 16px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 0 3px rgba(107, 232, 201, 0.6));
+  transition: transform 160ms ease;
+}
+
+.lcdSettingsButton:hover .lcdSettingsIcon {
+  transform: rotate(15deg);
 }
 
 .lcdTitle {
@@ -501,6 +555,115 @@
   text-shadow: 0 0 8px rgba(254, 202, 202, 0.7);
 }
 
+/* Settings Panel - Slides from right */
+.lcdSettingsPanel {
+  position: absolute;
+  top: 16px;
+  right: 0;
+  width: 945px;
+  height: calc(100% - 32px);
+  background: linear-gradient(145deg, #1f2225, #363b42);
+  border-left: 2px solid rgba(115, 255, 238, 0.3);
+  border-radius: 12px 12px;
+  box-shadow:
+    -4px 0 20px rgba(0, 0, 0, 0.5),
+    inset 2px 0 8px rgba(115, 255, 238, 0.1);
+  transform: translateX(100%);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), visibility 0s linear 0.3s;
+  z-index: 1000;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  color: #b5ffd9;
+  font-family: 'Share Tech Mono', 'VT323', 'Roboto Mono', monospace;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.lcdSettingsPanelOpen {
+  transform: translateX(0);
+  visibility: visible;
+  pointer-events: auto;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), visibility 0s linear 0s;
+}
+
+.lcdSettingsPanelHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid rgba(115, 255, 238, 0.2);
+  background: rgba(15, 32, 28, 0.4);
+}
+
+.lcdSettingsPanelTitle {
+  font-size: 18px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9ff7ff;
+  text-shadow: 0 0 8px rgba(115, 255, 238, 0.6);
+  margin: 0;
+  font-weight: 600;
+}
+
+.lcdSettingsPanelClose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(115, 255, 238, 0.25);
+  background: rgba(15, 32, 28, 0.65);
+  color: #9ff7ff;
+  cursor: pointer;
+  font-size: 24px;
+  line-height: 1;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+  font-family: inherit;
+}
+
+.lcdSettingsPanelClose:hover {
+  transform: translateY(-1px);
+  border-color: rgba(115, 255, 238, 0.45);
+  background: rgba(15, 32, 28, 0.85);
+}
+
+.lcdSettingsPanelClose:focus-visible {
+  outline: 2px solid rgba(115, 255, 238, 0.8);
+  outline-offset: 2px;
+}
+
+.lcdSettingsPanelContent {
+  flex: 1;
+  padding: 24px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.lcdSettingsPanelContent::-webkit-scrollbar {
+  width: 6px;
+}
+
+.lcdSettingsPanelContent::-webkit-scrollbar-thumb {
+  background: rgba(115, 255, 238, 0.3);
+  border-radius: 999px;
+}
+
+.lcdSettingsPanelContent::-webkit-scrollbar-track {
+  background: rgba(15, 32, 28, 0.3);
+}
+
+.lcdSettingsPanelPlaceholder {
+  font-size: 14px;
+  letter-spacing: 0.12em;
+  color: rgba(159, 247, 204, 0.7);
+  text-align: center;
+  margin: 0;
+  padding: 20px 0;
+}
+
 @media (max-width: 480px) {
   .lcdBezel {
     min-width: auto;
@@ -511,6 +674,10 @@
     flex-direction: column;
     align-items: stretch;
     gap: 12px;
+  }
+
+  .lcdHeaderActionsContainer {
+    justify-content: flex-end;
   }
 
   .lcdHeaderActions {
@@ -536,6 +703,11 @@
 
   .lcdAlertMessage {
     font-size: 11px;
+  }
+
+  .lcdSettingsPanel {
+    width: 100%;
+    border-radius: 12px 0 0 12px;
   }
 }
 

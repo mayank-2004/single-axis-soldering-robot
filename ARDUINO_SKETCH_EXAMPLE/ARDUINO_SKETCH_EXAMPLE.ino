@@ -6,22 +6,31 @@ const unsigned long BAUD_RATE = 115200;
 const unsigned long UPDATE_INTERVAL = 100; // Send data every 100ms
 
 // Mock sensor values (replace with actual sensor readings)
-// Single-axis machine: Only Z-axis position is tracked
-float zPosition = 0.0;  // Z-axis position in mm - starts at home (0.00mm at top limit switch)
+float zPosition = 0.0;  // Z-axis position in mm - starts at home
 bool isMoving = false;
 
 float targetTemperature = 345.0;
-float currentTemperature = 25.0;
+// float currentTemperature = 25.0;  // Sensor reading variable - commented out
+// Placeholder for simulation mode (since sensor reading is disabled)+6
+float currentTemperature = 25.0;  // Default value for simulation
 bool heaterEnabled = false;
 
 String wireFeedStatus = "idle";
 float wireFeedRate = 8.0;
-bool wireBreakDetected = false;
+// bool wireBreakDetected = false;  // Sensor reading variable - commented out
+// Placeholder for simulation mode (since sensor reading is disabled)
+bool wireBreakDetected = false;  // Default value for simulation
 
-float spoolWeight = 500.0;
-float wireLength = 10000.0;
+// float spoolWeight = 500.0;  // Sensor reading variable (load cell) - commented out
+// Placeholder for simulation mode (since sensor reading is disabled)
+float spoolWeight = 500.0;  // Default value for simulation
+// float wireLength = 10000.0;  // Calculated from sensor reading - commented out
+// Placeholder for simulation mode (since sensor reading is disabled)
+float wireLength = 10000.0;  // Default value for simulation
 float wireDiameter = 0.5;
-float remainingPercentage = 100.0;
+// float remainingPercentage = 100.0;  // Calculated from sensor reading - commented out
+// Placeholder for simulation mode (since sensor reading is disabled)
+float remainingPercentage = 100.0;  // Default value for simulation
 bool isWireFeeding = false;
 
 float fluxPercentage = 82.0;
@@ -69,10 +78,7 @@ const int LIMIT_SWITCH_Z_MAX_PIN = 3;
 // Moving up = increases towards 0 (cannot exceed 0.00mm)
 const float Z_MAX_POSITION = 40.0f;  // mm - Maximum travel distance from home (downward)
 const float Z_HOME_POSITION = 0.0f;  // mm - Home position (at Z_MAX limit switch)
-// Z-axis steps per millimeter (calibrated value - can be adjusted via calibration command)
 // Formula: (Motor steps per revolution × Microstepping) / (Lead screw pitch in mm per revolution)
-// Default: 204.1 steps/mm (calibrated from measurements: 5mm→4.89mm, 12mm→11.78mm)
-// To calibrate: Use {"command":"calibrate","commanded":5.0,"actual":4.89} after measuring with dial gauge
 float zStepsPerMm = 204.1f;  // Changed to float for precision, and made variable for calibration
 const unsigned int Z_STEP_DELAY_US = 300; // Default pulse width for stepper (microseconds)
 const unsigned int Z_STEP_DELAY_MIN = 100; // Minimum delay (fastest speed) - adjust based on your stepper motor
@@ -104,17 +110,19 @@ const int PADDLE_PIN = 34;
 // Sensor pin configuration
 // -------------------------------
 // TODO: Update these pin numbers to match your actual hardware wiring
-const int Z_ENCODER_PIN = A0;           // Z-axis encoder/position sensor (analog or digital)
-const int THERMOCOUPLE_CS_PIN = 10;     // MAX6675 thermocouple CS pin (or similar)
-const int THERMOCOUPLE_SCK_PIN = 13;    // MAX6675 thermocouple SCK pin
-const int THERMOCOUPLE_SO_PIN = 12;     // MAX6675 thermocouple SO pin
-const int LOAD_CELL_DT_PIN = A1;        // HX711 load cell DT pin (or similar)
-const int LOAD_CELL_SCK_PIN = A2;       // HX711 load cell SCK pin
-const int WIRE_BREAK_SENSOR_PIN = 4;    // Wire break detection sensor (digital)
-const int HEATER_PIN = 5;               // Heater control pin (PWM)
+// const int Z_ENCODER_PIN = A0;           // Z-axis encoder/position sensor (analog or digital) - commented out
+// const int THERMOCOUPLE_CS_PIN = 10;     // MAX6675 thermocouple CS pin (or similar) - commented out
+// const int THERMOCOUPLE_SCK_PIN = 13;    // MAX6675 thermocouple SCK pin - commented out
+// const int THERMOCOUPLE_SO_PIN = 12;     // MAX6675 thermocouple SO pin - commented out
+// const int LOAD_CELL_DT_PIN = A1;        // HX711 load cell DT pin (or similar) - commented out
+// const int LOAD_CELL_SCK_PIN = A2;       // HX711 load cell SCK pin - commented out
+// const int WIRE_BREAK_SENSOR_PIN = 4;    // Wire break detection sensor (digital) - commented out
+// const int HEATER_PIN = 5;               // Heater control pin (PWM) - commented out
 
 // Sensor reading flags
-bool useRealSensors = true;  // Set to false to use simulation mode
+// bool useRealSensors = true;  // Set to false to use simulation mode - commented out
+// Placeholder for simulation mode (since sensor reading is disabled)
+bool useRealSensors = false;  // Always use simulation mode since sensors are disabled
 
 // Button debouncing and continuous movement
 const unsigned long BUTTON_DEBOUNCE_MS = 50;
@@ -149,10 +157,10 @@ void saveMovementSequence();
 void executeSavedMovement();
 
 // Forward declarations for sensor reading
-float readEncoderPosition(int encoderPin);
-float readThermocouple(int csPin, int sckPin, int soPin);
-float readLoadCell(int dtPin, int sckPin);
-void handleWireBreak();
+// float readEncoderPosition(int encoderPin);
+// float readThermocouple(int csPin, int sckPin, int soPin);
+// float readLoadCell(int dtPin, int sckPin);
+// void handleWireBreak();
 
 
 void setup() {
@@ -188,28 +196,28 @@ void setup() {
   lastPaddleState = digitalRead(PADDLE_PIN);
 
   // Sensor pins initialization
-  if (useRealSensors) {
-    // Z-axis encoder (if using analog encoder)
-    pinMode(Z_ENCODER_PIN, INPUT);
-    
-    // Thermocouple pins (MAX6675)
-    pinMode(THERMOCOUPLE_CS_PIN, OUTPUT);
-    pinMode(THERMOCOUPLE_SCK_PIN, OUTPUT);
-    pinMode(THERMOCOUPLE_SO_PIN, INPUT);
-    digitalWrite(THERMOCOUPLE_CS_PIN, HIGH);
-    
-    // Load cell pins (HX711)
-    pinMode(LOAD_CELL_DT_PIN, INPUT);
-    pinMode(LOAD_CELL_SCK_PIN, OUTPUT);
-    
-    // Wire break sensor
-    pinMode(WIRE_BREAK_SENSOR_PIN, INPUT_PULLUP);
-    attachInterrupt(digitalPinToInterrupt(WIRE_BREAK_SENSOR_PIN), handleWireBreak, CHANGE);
-    
-    // Heater control
-    pinMode(HEATER_PIN, OUTPUT);
-    digitalWrite(HEATER_PIN, LOW);
-  }
+  // if (useRealSensors) {
+  //   // Z-axis encoder (if using analog encoder)
+  //   pinMode(Z_ENCODER_PIN, INPUT);
+  //   
+  //   // Thermocouple pins (MAX6675)
+  //   pinMode(THERMOCOUPLE_CS_PIN, OUTPUT);
+  //   pinMode(THERMOCOUPLE_SCK_PIN, OUTPUT);
+  //   pinMode(THERMOCOUPLE_SO_PIN, INPUT);
+  //   digitalWrite(THERMOCOUPLE_CS_PIN, HIGH);
+  //   
+  //   // Load cell pins (HX711)
+  //   pinMode(LOAD_CELL_DT_PIN, INPUT);
+  //   pinMode(LOAD_CELL_SCK_PIN, OUTPUT);
+  //   
+  //   // Wire break sensor
+  //   pinMode(WIRE_BREAK_SENSOR_PIN, INPUT_PULLUP);
+  //   attachInterrupt(digitalPinToInterrupt(WIRE_BREAK_SENSOR_PIN), handleWireBreak, CHANGE);
+  //   
+  //   // Heater control
+  //   pinMode(HEATER_PIN, OUTPUT);
+  //   digitalWrite(HEATER_PIN, LOW);
+  // }
   
   delay(1000); // Give time for serial connection to stabilize
   
@@ -242,7 +250,6 @@ void readSensors() {
   if (useRealSensors) {
     // Read actual sensor values from hardware
     
-    // Z-axis position: Already updated by movement functions (moveZAxisByDistance, homeZAxis)
     // If you have an encoder, uncomment the line below and comment out position tracking in movement functions
     // zPosition = readEncoderPosition(Z_ENCODER_PIN);
     
@@ -252,37 +259,37 @@ void readSensors() {
     }
     
     // Read temperature from thermocouple
-    currentTemperature = readThermocouple(THERMOCOUPLE_CS_PIN, THERMOCOUPLE_SCK_PIN, THERMOCOUPLE_SO_PIN);
+    // currentTemperature = readThermocouple(THERMOCOUPLE_CS_PIN, THERMOCOUPLE_SCK_PIN, THERMOCOUPLE_SO_PIN);
     
     // Read spool weight from load cell
-    spoolWeight = readLoadCell(LOAD_CELL_DT_PIN, LOAD_CELL_SCK_PIN);
+    // spoolWeight = readLoadCell(LOAD_CELL_DT_PIN, LOAD_CELL_SCK_PIN);
     
     // Read wire break sensor (interrupt-driven, but also check here as backup)
-    wireBreakDetected = digitalRead(WIRE_BREAK_SENSOR_PIN) == LOW;
+    // wireBreakDetected = digitalRead(WIRE_BREAK_SENSOR_PIN) == LOW;
     
     // Control heater based on target temperature
-    if (heaterEnabled && currentTemperature < targetTemperature) {
-      // Heat up - use PWM to control heating rate
-      analogWrite(HEATER_PIN, 255);  // Full power (adjust as needed)
-    } else if (!heaterEnabled || currentTemperature >= targetTemperature) {
-      // Turn off heater
-      analogWrite(HEATER_PIN, 0);
-    }
+    // if (heaterEnabled && currentTemperature < targetTemperature) {
+    //   // Heat up - use PWM to control heating rate
+    //   analogWrite(HEATER_PIN, 255);  // Full power (adjust as needed)
+    // } else if (!heaterEnabled || currentTemperature >= targetTemperature) {
+    //   // Turn off heater
+    //   analogWrite(HEATER_PIN, 0);
+    // }
     
     // Update wire length and remaining percentage based on spool weight
     // Assuming wire density and spool empty weight (adjust these values)
-    const float WIRE_DENSITY_G_PER_MM = 0.001;  // grams per mm (adjust based on wire type)
-    const float EMPTY_SPOOL_WEIGHT = 100.0;  // grams (adjust based on your spool)
-    float wireWeight = spoolWeight - EMPTY_SPOOL_WEIGHT;
-    if (wireWeight > 0) {
-      wireLength = wireWeight / WIRE_DENSITY_G_PER_MM;
-      remainingPercentage = (wireLength / 10000.0) * 100.0;  // Assuming 10000mm is full spool
-      if (remainingPercentage > 100.0) remainingPercentage = 100.0;
-      if (remainingPercentage < 0.0) remainingPercentage = 0.0;
-    } else {
-      wireLength = 0.0;
-      remainingPercentage = 0.0;
-    }
+    // const float WIRE_DENSITY_G_PER_MM = 0.001;  // grams per mm (adjust based on wire type)
+    // const float EMPTY_SPOOL_WEIGHT = 100.0;  // grams (adjust based on your spool)
+    // float wireWeight = spoolWeight - EMPTY_SPOOL_WEIGHT;
+    // if (wireWeight > 0) {
+    //   wireLength = wireWeight / WIRE_DENSITY_G_PER_MM;
+    //   remainingPercentage = (wireLength / 10000.0) * 100.0;  // Assuming 10000mm is full spool
+    //   if (remainingPercentage > 100.0) remainingPercentage = 100.0;
+    //   if (remainingPercentage < 0.0) remainingPercentage = 0.0;
+    // } else {
+    //   wireLength = 0.0;
+    //   remainingPercentage = 0.0;
+    // }
     
     // Movement status is managed by movement functions (isMoving flag)
     // Wire feeding status is managed by feedWireByLength function
@@ -436,10 +443,6 @@ void processCommands() {
       return;
     }
     
-    // Expected command formats:
-    // 1. JSON format: {"command":"move","x":120,"y":45,"z":5}
-    // 2. Temperature: "TEMP:345" or {"command":"temp","target":345}
-    
     // Parse JSON commands
     if (command.startsWith("{")) {
       StaticJsonDocument<512> cmdDoc;
@@ -524,15 +527,8 @@ void processCommands() {
           // Manual movement commands (single-axis: only Z-axis)
           String axis = cmdDoc["axis"] | "";
           float distance = cmdDoc["distance"] | 0;
-          
-          // Speed control: delay in microseconds (optional)
-          // If not provided, uses current global speed (currentZStepDelay)
-          // Lower value = faster, Higher value = slower
           unsigned int speedDelay = 0;
           if (cmdDoc.containsKey("speed")) {
-            // Speed can be provided as:
-            // 1. Direct delay in microseconds: {"speed": 200}
-            // 2. Speed percentage (1-100): {"speed": 50} means 50% speed
             float speedValue = cmdDoc["speed"] | 0;
             if (speedValue > 0 && speedValue <= 100) {
               // Interpret as percentage (1-100%)
@@ -540,7 +536,6 @@ void processCommands() {
               // Formula: delay = MAX - ((speed - 1) / (100 - 1)) * (MAX - MIN)
               speedDelay = Z_STEP_DELAY_MAX - static_cast<unsigned int>(((speedValue - 1.0f) / 99.0f) * (Z_STEP_DELAY_MAX - Z_STEP_DELAY_MIN));
             } else if (speedValue > 100) {
-              // Interpret as direct delay in microseconds
               speedDelay = static_cast<unsigned int>(speedValue);
             }
           }
@@ -560,20 +555,12 @@ void processCommands() {
           if (axis == "z" || axis == "Z") {
             moveZAxisByDistance(distance);
           } else {
-            // X and Y axes are not supported (PCB moved manually)
             Serial.println("[CMD] WARNING: X/Y axis not supported (single-axis machine)");
-            // Ignore the command
           }
         }
         else if (cmd == "setspeed" || cmd == "speed") {
-          // Set global movement speed for Z-axis
-          // Speed can be provided as:
-          // 1. Direct delay in microseconds: {"speed": 200}
-          // 2. Speed percentage (1-100): {"speed": 50} means 50% speed
           float speedValue = cmdDoc["speed"] | 0;
           if (speedValue > 0 && speedValue <= 100) {
-            // Interpret as percentage (1-100%)
-            // Formula: delay = MAX - ((speed - 1) / (100 - 1)) * (MAX - MIN)
             currentZStepDelay = Z_STEP_DELAY_MAX - static_cast<unsigned int>(((speedValue - 1.0f) / 99.0f) * (Z_STEP_DELAY_MAX - Z_STEP_DELAY_MIN));
             Serial.print("[CMD] Speed set to ");
             Serial.print(speedValue);
@@ -581,7 +568,6 @@ void processCommands() {
             Serial.print(currentZStepDelay);
             Serial.println("us)");
           } else if (speedValue > 100) {
-            // Interpret as direct delay in microseconds
             currentZStepDelay = static_cast<unsigned int>(speedValue);
             if (currentZStepDelay < Z_STEP_DELAY_MIN) currentZStepDelay = Z_STEP_DELAY_MIN;
             if (currentZStepDelay > Z_STEP_DELAY_MAX) currentZStepDelay = Z_STEP_DELAY_MAX;
@@ -672,145 +658,145 @@ void processCommands() {
  * Read Z-axis encoder position
  * Adjust this function based on your encoder type (incremental, absolute, analog, etc.)
  */
-float readEncoderPosition(int encoderPin) {
-  // Example for analog encoder (potentiometer or analog encoder)
-  // Returns position in mm
-  int rawValue = analogRead(encoderPin);
-  
-  // Convert analog reading (0-1023) to position in mm
-  // Adjust these values based on your encoder's range and mechanics
-  const float ENCODER_MIN_RAW = 0.0;
-  const float ENCODER_MAX_RAW = 1023.0;
-  const float ENCODER_MIN_POSITION = -70.0;  // mm (maximum downward travel)
-  const float ENCODER_MAX_POSITION = 0.0;    // mm (home position)
-  
-  // Linear interpolation
-  float normalized = (rawValue - ENCODER_MIN_RAW) / (ENCODER_MAX_RAW - ENCODER_MIN_RAW);
-  float position = ENCODER_MIN_POSITION + normalized * (ENCODER_MAX_POSITION - ENCODER_MIN_POSITION);
-  
-  // Clamp to valid range
-  if (position > ENCODER_MAX_POSITION) position = ENCODER_MAX_POSITION;
-  if (position < ENCODER_MIN_POSITION) position = ENCODER_MIN_POSITION;
-  
-  return position;
-  
-  // Alternative: For digital/incremental encoder, use interrupt-based counting
-  // static volatile long encoderCount = 0;
-  // Return encoderCount / zStepsPerMm;
-}
+// float readEncoderPosition(int encoderPin) {
+//   // Example for analog encoder (potentiometer or analog encoder)
+//   // Returns position in mm
+//   int rawValue = analogRead(encoderPin);
+//   
+//   // Convert analog reading (0-1023) to position in mm
+//   // Adjust these values based on your encoder's range and mechanics
+//   const float ENCODER_MIN_RAW = 0.0;
+//   const float ENCODER_MAX_RAW = 1023.0;
+//   const float ENCODER_MIN_POSITION = -70.0;  // mm (maximum downward travel)
+//   const float ENCODER_MAX_POSITION = 0.0;    // mm (home position)
+//   
+//   // Linear interpolation
+//   float normalized = (rawValue - ENCODER_MIN_RAW) / (ENCODER_MAX_RAW - ENCODER_MIN_RAW);
+//   float position = ENCODER_MIN_POSITION + normalized * (ENCODER_MAX_POSITION - ENCODER_MIN_POSITION);
+//   
+//   // Clamp to valid range
+//   if (position > ENCODER_MAX_POSITION) position = ENCODER_MAX_POSITION;
+//   if (position < ENCODER_MIN_POSITION) position = ENCODER_MIN_POSITION;
+//   
+//   return position;
+//   
+//   // Alternative: For digital/incremental encoder, use interrupt-based counting
+//   // static volatile long encoderCount = 0;
+//   // Return encoderCount / zStepsPerMm;
+// }
 
 /**
  * Read temperature from MAX6675 thermocouple amplifier
  * Returns temperature in Celsius
  */
-float readThermocouple(int csPin, int sckPin, int soPin) {
-  // MAX6675 communication protocol
-  uint16_t value = 0;
-  
-  // Pull CS low to start communication
-  digitalWrite(csPin, LOW);
-  delayMicroseconds(10);
-  
-  // Read 16 bits from MAX6675
-  for (int i = 15; i >= 0; i--) {
-    digitalWrite(sckPin, LOW);
-    delayMicroseconds(1);
-    if (digitalRead(soPin)) {
-      value |= (1 << i);
-    }
-    digitalWrite(sckPin, HIGH);
-    delayMicroseconds(1);
-  }
-  
-  // Pull CS high to end communication
-  digitalWrite(csPin, HIGH);
-  
-  // Check for thermocouple connection error (bit D2)
-  if (value & 0x04) {
-    // Thermocouple disconnected or error
-    return -1.0;  // Error value
-  }
-  
-  // Extract temperature (bits D14-D3)
-  value = value >> 3;
-  float temperature = value * 0.25;  // MAX6675 resolution is 0.25°C
-  
-  return temperature;
-}
+// float readThermocouple(int csPin, int sckPin, int soPin) {
+//   // MAX6675 communication protocol
+//   uint16_t value = 0;
+//   
+//   // Pull CS low to start communication
+//   digitalWrite(csPin, LOW);
+//   delayMicroseconds(10);
+//   
+//   // Read 16 bits from MAX6675
+//   for (int i = 15; i >= 0; i--) {
+//     digitalWrite(sckPin, LOW);
+//     delayMicroseconds(1);
+//     if (digitalRead(soPin)) {
+//       value |= (1 << i);
+//     }
+//     digitalWrite(sckPin, HIGH);
+//     delayMicroseconds(1);
+//   }
+//   
+//   // Pull CS high to end communication
+//   digitalWrite(csPin, HIGH);
+//   
+//   // Check for thermocouple connection error (bit D2)
+//   if (value & 0x04) {
+//     // Thermocouple disconnected or error
+//     return -1.0;  // Error value
+//   }
+//   
+//   // Extract temperature (bits D14-D3)
+//   value = value >> 3;
+//   float temperature = value * 0.25;  // MAX6675 resolution is 0.25°C
+//   
+//   return temperature;
+// }
 
 /**
  * Read weight from HX711 load cell amplifier
  * Returns weight in grams
  * Note: This is a simplified implementation. For production, use a proper HX711 library
  */
-float readLoadCell(int dtPin, int sckPin) {
-  // HX711 communication protocol
-  // Wait for data ready (DT goes LOW when data is ready)
-  unsigned long timeout = millis() + 100;
-  while (digitalRead(dtPin) == HIGH) {
-    if (millis() > timeout) {
-      return 0.0;  // Timeout - sensor not responding
-    }
-  }
-  
-  // Read 24-bit value from HX711
-  long value = 0;
-  for (int i = 0; i < 24; i++) {
-    digitalWrite(sckPin, HIGH);
-    delayMicroseconds(1);
-    value = value << 1;
-    if (digitalRead(dtPin)) {
-      value++;
-    }
-    digitalWrite(sckPin, LOW);
-    delayMicroseconds(1);
-  }
-  
-  // Set gain for next reading (channel A, gain 128)
-  digitalWrite(sckPin, HIGH);
-  delayMicroseconds(1);
-  digitalWrite(sckPin, LOW);
-  delayMicroseconds(1);
-  
-  // Convert to signed value (24-bit two's complement)
-  if (value & 0x800000) {
-    value |= 0xFF000000;  // Sign extend
-  }
-  
-  // Calibrate: Adjust these values based on your load cell calibration
-  // offset = tare weight reading
-  // scale = known weight / (reading - offset)
-  const long OFFSET = 0;  // Tare offset (adjust after calibration)
-  const float SCALE = 1.0;  // Scale factor (adjust after calibration with known weight)
-  
-  float weight = (value - OFFSET) / SCALE;
-  
-  // Ensure non-negative weight
-  if (weight < 0) weight = 0;
-  
-  return weight;
-  
-  // Note: For production, implement proper calibration routine
-  // and use a dedicated HX711 library for better accuracy
-}
+// float readLoadCell(int dtPin, int sckPin) {
+//   // HX711 communication protocol
+//   // Wait for data ready (DT goes LOW when data is ready)
+//   unsigned long timeout = millis() + 100;
+//   while (digitalRead(dtPin) == HIGH) {
+//     if (millis() > timeout) {
+//       return 0.0;  // Timeout - sensor not responding
+//     }
+//   }
+//   
+//   // Read 24-bit value from HX711
+//   long value = 0;
+//   for (int i = 0; i < 24; i++) {
+//     digitalWrite(sckPin, HIGH);
+//     delayMicroseconds(1);
+//     value = value << 1;
+//     if (digitalRead(dtPin)) {
+//       value++;
+//     }
+//     digitalWrite(sckPin, LOW);
+//     delayMicroseconds(1);
+//   }
+//   
+//   // Set gain for next reading (channel A, gain 128)
+//   digitalWrite(sckPin, HIGH);
+//   delayMicroseconds(1);
+//   digitalWrite(sckPin, LOW);
+//   delayMicroseconds(1);
+//   
+//   // Convert to signed value (24-bit two's complement)
+//   if (value & 0x800000) {
+//     value |= 0xFF000000;  // Sign extend
+//   }
+//   
+//   // Calibrate: Adjust these values based on your load cell calibration
+//   // offset = tare weight reading
+//   // scale = known weight / (reading - offset)
+//   const long OFFSET = 0;  // Tare offset (adjust after calibration)
+//   const float SCALE = 1.0;  // Scale factor (adjust after calibration with known weight)
+//   
+//   float weight = (value - OFFSET) / SCALE;
+//   
+//   // Ensure non-negative weight
+//   if (weight < 0) weight = 0;
+//   
+//   return weight;
+//   
+//   // Note: For production, implement proper calibration routine
+//   // and use a dedicated HX711 library for better accuracy
+// }
 
 /**
  * Interrupt handler for wire break detection
  * Called when wire break sensor state changes
  */
-void handleWireBreak() {
-  // Check sensor state
-  if (digitalRead(WIRE_BREAK_SENSOR_PIN) == LOW) {
-  wireBreakDetected = true;
-    // Optional: Stop wire feeding immediately
-    if (isWireFeeding) {
-      isWireFeeding = false;
-      wireFeedStatus = "error";
-}
-  } else {
-    wireBreakDetected = false;
-  }
-}
+// void handleWireBreak() {
+//   // Check sensor state
+//   if (digitalRead(WIRE_BREAK_SENSOR_PIN) == LOW) {
+//   wireBreakDetected = true;
+//     // Optional: Stop wire feeding immediately
+//     if (isWireFeeding) {
+//       isWireFeeding = false;
+//       wireFeedStatus = "error";
+// }
+//   } else {
+//     wireBreakDetected = false;
+//   }
+// }
 
 // ----------------------------------
 // Z-axis motion helper functions
@@ -860,9 +846,13 @@ void applyZMovement(long steps, bool moveUp) {
 
   // Calculate position change
   // moveUp = true: increases Z (towards 0), moveUp = false: decreases Z (negative)
-  float deltaMm = (stepsCompleted / zStepsPerMm) * (moveUp ? 1.0f : -1.0f);
+  // float deltaMm = (stepsCompleted / zStepsPerMm) * (moveUp ? 1.0f : -1.0f);
+  float deltaMm = (static_cast<float>(stepsCompleted) / zStepsPerMm) * (moveUp ? 1.0f : -1.0f);
+  Serial.print("Delta mm: ");
+  Serial.println(deltaMm);
   zPosition = zPosition + deltaMm;
-  
+  Serial.print("New zPosition: ");
+  Serial.println(zPosition);
   // Clamp: cannot go above home (0.00mm), can go negative (downward)
   if (zPosition > Z_HOME_POSITION) {
     zPosition = Z_HOME_POSITION;
@@ -896,6 +886,12 @@ void moveZAxisByDistance(float distanceMm) {
 
   // Calculate target position
   float target = zPosition + distanceMm;
+  Serial.print("Target position: ");
+  Serial.println(target);
+  Serial.print("Z position: ");
+  Serial.println(zPosition);
+  Serial.print("distanceMm: ");
+  Serial.println(distanceMm);
   
   // Clamp target: cannot exceed home (0.00mm), can go negative
   if (target > Z_HOME_POSITION) {
@@ -903,7 +899,16 @@ void moveZAxisByDistance(float distanceMm) {
   }
   
   float actualDistance = target - zPosition;
-  long stepsToMove = labs(static_cast<long>(actualDistance * zStepsPerMm));
+  // long stepsToMove = labs(static_cast<long>(actualDistance * zStepsPerMm));
+  // For downward movement, use ceilf to ensure at least the commanded distance
+  // For upward movement, use roundf for normal rounding
+   float stepsFloat = fabsf(actualDistance * zStepsPerMm);
+   long stepsToMove;
+   if (actualDistance < 0) { // Downward movement
+     stepsToMove = static_cast<long>(ceilf(stepsFloat)); // Round up to ensure at least commanded distance
+   } else { // Upward movement
+     stepsToMove = static_cast<long>(roundf(stepsFloat)); // Round to nearest for upward
+   }
 
   if (stepsToMove == 0) {
     zPosition = target;

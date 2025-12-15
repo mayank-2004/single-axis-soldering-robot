@@ -41,6 +41,11 @@ export default class SolderingHardware extends EventEmitter {
     this.serialManager = null
     this.commandProtocol = null
     this.serialConfig = options.serialConfig || {}
+    
+    // Track last movement command for comparison logging
+    this._lastMovementCommand = null
+    // Flag to prevent compensation loops (compensation shouldn't trigger more compensation)
+    this._isCompensating = false
 
     // Setup serial communication if in hardware mode
     if (this.mode === 'hardware') {
@@ -699,6 +704,10 @@ export default class SolderingHardware extends EventEmitter {
 
     if (this.mode === 'hardware' && this.serialManager) {
       try {
+        // Store previous position and commanded distance for movement tracking
+        const previousPosition = this.state.position[axisKey]
+        const commandedDistance = step
+        
         // Send JSON command to Arduino: {"command":"jog","axis":"z","distance":1.0,"speed":50}
         // Speed: 1-100% (100% = fastest, 1% = slowest)
         await this._sendArduinoJsonCommand({
@@ -708,8 +717,16 @@ export default class SolderingHardware extends EventEmitter {
           speed: this.state.zAxisSpeed // Send current speed setting
         })
         
-        // Update position (will be confirmed by Arduino JSON response)
-        this.state.position[axisKey] = newPosition
+        // Store movement tracking data for logging when Arduino confirms position
+        // Use the CURRENT position (before local update) as the baseline
+        this._lastMovementCommand = {
+          previousPosition,  // Position before command was sent
+          commandedDistance,
+          timestamp: Date.now()
+        }
+        
+        // Don't update local position immediately - wait for Arduino to confirm
+        // This ensures we use Arduino's actual reported position for comparison
         this.state.position.isMoving = true
 
         this._updateCalibrationEntry(
@@ -773,6 +790,9 @@ export default class SolderingHardware extends EventEmitter {
 
     if (this.mode === 'hardware' && this.serialManager) {
       try {
+        // Clear any pending movement tracking since home resets position
+        this._lastMovementCommand = null
+        
         // Send JSON command to Arduino: {"command":"home","speed":50}
         await this._sendArduinoJsonCommand({
           command: 'home',
@@ -2235,7 +2255,7 @@ export default class SolderingHardware extends EventEmitter {
 
     this.serialManager.on('data', (line) => {
       // Log incoming data for debugging
-      console.log('[Serial]', line)
+      // console.log('[Serial]', line)  // Commented out - Arduino sends status updates every 100ms
     })
 
     // Handle Arduino JSON data updates
@@ -2281,9 +2301,80 @@ export default class SolderingHardware extends EventEmitter {
     try {
       // Update position (Z-axis only - single-axis machine)
       if (updates.position) {
+        const previousZ = this.state.position.z
+        const wasMoving = this.state.position.isMoving
+        const newZ = updates.position.z ?? this.state.position.z
+        const isNowMoving = updates.position.isMoving ?? this.state.position.isMoving
+        
         // Only update Z position (X and Y are not controlled by machine)
-        this.state.position.z = updates.position.z ?? this.state.position.z
-        this.state.position.isMoving = updates.position.isMoving ?? this.state.position.isMoving
+        this.state.position.z = newZ
+        this.state.position.isMoving = isNowMoving
+        
+        // Log movement comparison when movement completes (was moving, now stopped)
+        if (this._lastMovementCommand && wasMoving && !isNowMoving) {
+          const actualDistance = newZ - this._lastMovementCommand.previousPosition
+          const commandedDistance = this._lastMovementCommand.commandedDistance
+          const timeSinceCommand = Date.now() - this._lastMovementCommand.timestamp
+          
+          // Only process if movement was recent (within 3 seconds) to avoid processing old movements
+          if (timeSinceCommand < 3000) {
+            const difference = actualDistance - commandedDistance
+            const differencePercent = Math.abs(commandedDistance) > 0 
+              ? ((difference / Math.abs(commandedDistance)) * 100).toFixed(2)
+              : '0.00'
+            
+            console.log(`[Movement] Previous: ${this._lastMovementCommand.previousPosition.toFixed(2)}mm | Commanded: ${commandedDistance.toFixed(2)}mm | New Position: ${newZ.toFixed(2)}mm | Actual Movement: ${actualDistance.toFixed(2)}mm | Difference: ${difference > 0 ? '+' : ''}${difference.toFixed(2)}mm (${differencePercent}%)`)
+            
+            // Automatic compensation: if actual movement is less than commanded, add the difference
+            // Only compensate if:
+            // 1. Not already compensating (prevent loops)
+            // 2. Difference is significant (> 0.01mm)
+            // 3. Actual movement is less than commanded (difference is negative for downward, positive for upward)
+            const needsCompensation = !this._isCompensating && 
+                                     Math.abs(difference) > 0.01 &&
+                                     ((commandedDistance < 0 && actualDistance > commandedDistance) || // Downward: actual less negative = moved less
+                                      (commandedDistance > 0 && actualDistance < commandedDistance))  // Upward: actual less positive = moved less
+            
+            if (needsCompensation) {
+              const compensationDistance = commandedDistance - actualDistance
+              console.log(`[Compensation] Actual movement (${actualDistance.toFixed(2)}mm) is less than commanded (${commandedDistance.toFixed(2)}mm). Compensating with additional ${compensationDistance.toFixed(2)}mm movement.`)
+              
+              // Set compensation flag to prevent loops
+              this._isCompensating = true
+              
+              // Store compensation tracking (use current position as previous)
+              // This will be used when compensation movement completes
+              this._lastMovementCommand = {
+                previousPosition: newZ,
+                commandedDistance: compensationDistance,
+                timestamp: Date.now(),
+                isCompensation: true // Mark this as a compensation movement
+              }
+              
+              // Send compensation jog command
+              this._sendArduinoJsonCommand({
+                command: 'jog',
+                axis: 'z',
+                distance: compensationDistance,
+                speed: this.state.zAxisSpeed
+              }).catch((error) => {
+                console.error('[Compensation] Error sending compensation command:', error)
+                this._isCompensating = false
+                this._lastMovementCommand = null
+              })
+            } else {
+              // If this was a compensation movement, clear the flag when it completes
+              if (this._lastMovementCommand && this._lastMovementCommand.isCompensation) {
+                console.log(`[Compensation] Compensation movement completed. Total movement should now match commanded distance.`)
+                this._isCompensating = false
+              }
+              
+              // Clear the tracking data after logging
+              this._lastMovementCommand = null
+            }
+          }
+        }
+        
         this._updateCalibrationEntry('Z Axis', { value: `${this.state.position.z.toFixed(2)}` })
         this.emit('position:update', this.getPosition())
       }

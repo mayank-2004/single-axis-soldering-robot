@@ -16,6 +16,7 @@ import SerialPortConnection from '../components/SerialPortConnection'
 // G-CODE MONITOR COMPONENT IMPORT COMMENTED OUT
 // import GCodeMonitor from '../components/GCodeMonitor'
 import CameraView from '../components/CameraView'
+import ThemeToggle from '../components/ThemeToggle'
 import styles from './home.module.css'
 
 const initialCalibration = [
@@ -1812,11 +1813,16 @@ export default function HomePage() {
       </Head>
       <main className={styles.page} role="main">
         <header className={styles.pageHeader}>
-          <h1 className={styles.heading}>Single Axis Soldering Robot Console</h1>
-          <p className={styles.subtitle}>
-            Track axis calibration, solder flow, and thermal data from the virtual LCD
-            that mirrors your hardware display.
-          </p>
+          <div className={styles.pageHeaderContent}>
+            <div>
+              <h1 className={styles.heading}>Single Axis Soldering Robot Console</h1>
+              <p className={styles.subtitle}>
+                Track axis calibration, solder flow, and thermal data from the virtual LCD
+                that mirrors your hardware display.
+              </p>
+            </div>
+            <ThemeToggle className={styles.themeToggleButton} />
+          </div>
         </header>
 
         {/* Navigation Bar */}

@@ -496,7 +496,7 @@ export default class SerialPortManager extends EventEmitter {
    */
   _handleIncomingData(line) {
     // Emit raw data for logging/debugging
-    this.emit('data', line)
+    // this.emit('data', line)  // Commented out to reduce noise
 
     // Check pending commands for response matching
     for (const [id, pending] of this.pendingCommands.entries()) {
@@ -512,6 +512,15 @@ export default class SerialPortManager extends EventEmitter {
       const trimmedLine = line.trim()
       // Only try to parse if it looks like JSON and has minimum length (filter out noise)
       if (trimmedLine.startsWith('{') && trimmedLine.endsWith('}') && trimmedLine.length > 10) {
+        // Check if this is a command response (not just status update)
+        // Status updates come every 100ms and contain pos/temp/etc, but no "command" field
+        const isCommandResponse = trimmedLine.includes('"command"') || trimmedLine.includes('"response"')
+        
+        // Log only command responses, not status updates (which come every 100ms)
+        if (isCommandResponse) {
+          console.log('[SerialPortManager] Received JSON command response from Arduino:', trimmedLine)
+        }
+        
         // Looks like JSON - try Arduino data handler
         const arduinoData = this.arduinoHandler.parseArduinoData(trimmedLine)
         if (arduinoData && Object.keys(arduinoData).length > 0) {

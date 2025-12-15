@@ -1,4 +1,5 @@
-import React from 'react'
+import React, { useMemo, useState } from 'react'
+import { useTheme } from '../contexts/ThemeContext'
 import styles from './LcdDisplay.module.css'
 
 const fallbackReadings = [
@@ -17,24 +18,25 @@ export default function LcdDisplay({
   readings = fallbackReadings,
   footer,
   headerActions = [],
+  onSettingsClick,
 }) {
-  const axisReadings = React.useMemo(
+  const axisReadings = useMemo(
     () => readings.filter(({ label }) => label?.includes('Axis')),
     [readings]
   )
 
-  const otherReadings = React.useMemo(
+  const otherReadings = useMemo(
     () => readings.filter(({ label }) => !label?.includes('Axis')),
     [readings]
   )
 
   // Check if wire remaining is low (<= 10%) - synced with SpoolWireControl
-  const wireRemainingReading = React.useMemo(
+  const wireRemainingReading = useMemo(
     () => otherReadings.find(({ label }) => label === 'Wire Remaining'),
     [otherReadings]
   )
 
-  const wirePercentage = React.useMemo(() => {
+  const wirePercentage = useMemo(() => {
     if (!wireRemainingReading || !wireRemainingReading.value) return null
     const numeric = typeof wireRemainingReading.value === 'number'
       ? wireRemainingReading.value
@@ -45,35 +47,61 @@ export default function LcdDisplay({
   const isWireLow = wirePercentage !== null && wirePercentage <= 10
   const isWireEmpty = wirePercentage !== null && wirePercentage <= 0
 
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const { theme, toggleTheme, isLight } = useTheme()
+
+  const handleSettingsClick = () => {
+    setIsSettingsOpen(!isSettingsOpen)
+    if (onSettingsClick) {
+      onSettingsClick()
+    }
+  }
+
   return (
     <div className={styles.lcdWrapper} role="group" aria-label="Robot calibration display">
+      <p className={styles.subtitle}>
+        Track axis calibration, solder flow, and thermal data from the virtual LCD
+        that mirrors your hardware display.
+      </p>
       <div className={styles.lcdBezel}>
         <div className={styles.lcdHeader}>
           <div className={styles.lcdHeaderInfo}>
             <span className={styles.lcdTitle}>{title}</span>
             <span className={styles.lcdSubtitle}>{subtitle}</span>
           </div>
-          {headerActions?.length ? (
-            <div className={styles.lcdHeaderActions}>
-              {headerActions.map(({ key, label, isActive, onToggle, statusText = isActive ? 'On' : 'Off' }) => (
-                <button
-                  type="button"
-                  key={key ?? label}
-                  className={[
-                    styles.lcdActionButton,
-                    isActive ? styles.lcdActionButtonActive : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                  onClick={onToggle}
-                  aria-pressed={isActive}
-                >
-                  <span className={styles.lcdActionLabel}>{label}</span>
-                  <span className={styles.lcdActionStatus}>{statusText}</span>
-                </button>
-              ))}
-            </div>
-          ) : null}
+          <div className={styles.lcdHeaderActionsContainer}>
+            {headerActions?.length ? (
+              <div className={styles.lcdHeaderActions}>
+                {headerActions.map(({ key, label, isActive, onToggle, statusText = isActive ? 'On' : 'Off' }) => (
+                  <button
+                    type="button"
+                    key={key ?? label}
+                    className={[
+                      styles.lcdActionButton,
+                      isActive ? styles.lcdActionButtonActive : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    onClick={onToggle}
+                    aria-pressed={isActive}
+                  >
+                    <span className={styles.lcdActionLabel}>{label}</span>
+                    <span className={styles.lcdActionStatus}>{statusText}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <button
+              type="button"
+              className={styles.lcdSettingsButton}
+              onClick={handleSettingsClick}
+              aria-label="Settings"
+              title="Settings"
+              aria-expanded={isSettingsOpen}
+            >
+              <span className={styles.lcdSettingsIcon}>⚙️</span>
+            </button>
+          </div>
         </div>
 
         <div className={styles.lcdScreen}>
@@ -100,7 +128,7 @@ export default function LcdDisplay({
               const isWireRemaining = label === 'Wire Remaining'
               const isEmpty = isWireRemaining && isWireEmpty
               const isLow = isWireRemaining && isWireLow && !isWireEmpty
-              
+
               return (
                 <div
                   key={label}
@@ -121,19 +149,6 @@ export default function LcdDisplay({
               )
             })}
 
-            {/* Empty spool alert - highest priority - synced with SpoolWireControl */}
-            {isWireEmpty && wirePercentage !== null && (
-              <div className={styles.lcdAlertEmpty} role="alert">
-                <span className={styles.lcdAlertEmptyIcon}>🔴</span>
-                <div className={styles.lcdAlertEmptyContent}>
-                  <span className={styles.lcdAlertEmptyTitle}>SPOOL EMPTY</span>
-                  <span className={styles.lcdAlertEmptyMessage}>
-                    WIRE COMPLETELY USED - REFILL SPOOL NOW
-                  </span>
-                </div>
-              </div>
-            )}
-
             {/* Low wire remaining alert - show only if not empty - synced with SpoolWireControl */}
             {!isWireEmpty && isWireLow && wirePercentage !== null && (
               <div className={styles.lcdAlert} role="alert">
@@ -146,10 +161,68 @@ export default function LcdDisplay({
                 </div>
               </div>
             )}
+
+            {/* Empty spool alert - highest priority - synced with SpoolWireControl */}
+            {isWireEmpty && wirePercentage !== null && (
+              <div className={styles.lcdAlertEmpty} role="alert">
+                <span className={styles.lcdAlertEmptyIcon}>🔴</span>
+                <div className={styles.lcdAlertEmptyContent}>
+                  <span className={styles.lcdAlertEmptyTitle}>SPOOL EMPTY</span>
+                  <span className={styles.lcdAlertEmptyMessage}>
+                    WIRE COMPLETELY USED - REFILL SPOOL NOW
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
         {footer ? <div className={styles.lcdFooter}>{footer}</div> : null}
+      </div>
+
+      {/* Settings Panel - Slides from right */}
+      <div
+        className={`${styles.lcdSettingsPanel} ${isSettingsOpen ? styles.lcdSettingsPanelOpen : ''}`}
+        role="dialog"
+        aria-label="Settings panel"
+        aria-hidden={!isSettingsOpen}
+      >
+        <div className={styles.lcdSettingsPanelHeader}>
+          <h3 className={styles.lcdSettingsPanelTitle}>Settings</h3>
+          <button
+            type="button"
+            className={styles.lcdSettingsPanelClose}
+            onClick={() => setIsSettingsOpen(false)}
+            aria-label="Close settings"
+          >
+            ×
+          </button>
+        </div>
+        <div className={styles.lcdSettingsPanelContent}>
+          {/* Theme Toggle */}
+          <div className={styles.lcdSettingsItem}>
+            <div className={styles.lcdSettingsItemHeader}>
+              <label className={styles.lcdSettingsLabel} htmlFor="theme-toggle">
+                Theme
+              </label>
+              <span className={styles.lcdSettingsValue}>{theme === 'dark' ? 'Dark' : 'Light'}</span>
+            </div>
+            <div className={styles.lcdSettingsItemControl}>
+              <button
+                type="button"
+                id="theme-toggle"
+                className={`${styles.lcdThemeToggle} ${isLight ? styles.lcdThemeToggleLight : ''}`}
+                onClick={toggleTheme}
+                aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+                aria-pressed={isLight}
+              >
+                <span className={styles.lcdThemeToggleTrack}>
+                  <span className={styles.lcdThemeToggleThumb} />
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   )
