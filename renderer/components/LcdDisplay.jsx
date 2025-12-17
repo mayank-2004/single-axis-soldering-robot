@@ -198,8 +198,7 @@ export default function LcdDisplay({
             ×
           </button>
         </div>
-        <div className={styles.lcdSettingsPanelContent}>
-          {/* Theme Toggle */}
+        {/* <div className={styles.lcdSettingsPanelContent}>
           <div className={styles.lcdSettingsItem}>
             <div className={styles.lcdSettingsItemHeader}>
               <label className={styles.lcdSettingsLabel} htmlFor="theme-toggle">
@@ -222,7 +221,7 @@ export default function LcdDisplay({
               </button>
             </div>
           </div>
-        </div>
+        </div> */}
       </div>
     </div>
   )

@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useState, useMemo, useEffect } from 'react'
 import Head from 'next/head'
 import LcdDisplay from '../components/LcdDisplay'
 // COMPONENT HEIGHT CONTROL COMPONENT IMPORT COMMENTED OUT
@@ -117,7 +117,7 @@ export default function HomePage() {
 
   // Calculate volume per 1mm using cylinder volume formula: V = π × r² × h
   // where r = diameter/2, h = 1mm
-  const volumePerMm = React.useMemo(() => {
+  const volumePerMm = useMemo(() => {
     const diameterNumeric = Number.parseFloat(wireDiameter)
     if (!Number.isFinite(diameterNumeric) || diameterNumeric <= 0) {
       return null
@@ -127,6 +127,7 @@ export default function HomePage() {
     const volume = Math.PI * radius * radius * height // volume in mm³
     return volume
   }, [wireDiameter])
+
   const [sequenceState, setSequenceState] = useState({
     stage: 'idle',
     lastCompleted: null,
@@ -185,11 +186,12 @@ export default function HomePage() {
   // G-CODE COMMAND HISTORY COMMENTED OUT
   // G-code command history
   // const [gcodeCommands, setGcodeCommands] = useState([])
-  const wireStatus = React.useMemo(
+  const wireStatus = useMemo(
     () => calibration.find((entry) => entry.label === 'Wire Remaining'),
     [calibration]
   )
-  const wirePercentage = React.useMemo(() => {
+
+  const wirePercentage = useMemo(() => {
     if (!wireStatus) return 0
     const numeric = typeof wireStatus.value === 'number' ? wireStatus.value : parseFloat(wireStatus.value)
     return Number.isFinite(numeric) ? numeric : 0
@@ -199,7 +201,7 @@ export default function HomePage() {
   const isWireEmpty = wirePercentage <= 0
   
   // Get flux remaining from calibration
-  const fluxRemaining = React.useMemo(() => {
+  const fluxRemaining = useMemo(() => {
     const fluxEntry = calibration.find((entry) => entry.label === 'Flux Remaining')
     if (!fluxEntry) return null
     const numeric = typeof fluxEntry.value === 'number' 
@@ -208,7 +210,7 @@ export default function HomePage() {
     return Number.isFinite(numeric) ? numeric : null
   }, [calibration])
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (typeof window === 'undefined' || !window.ipc) return undefined
 
     const handleCalibration = (payload) => {
@@ -253,7 +255,7 @@ export default function HomePage() {
     }
   }, [])
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (typeof window === 'undefined') {
       return undefined
     }
@@ -272,7 +274,7 @@ export default function HomePage() {
     }
   }, [])
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!isWireLow) {
       return undefined
     }
@@ -291,7 +293,7 @@ export default function HomePage() {
     return undefined
   }, [isWireLow, wireLength, wirePercentage])
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (typeof window === 'undefined' || !window.ipc) {
       return undefined
     }
@@ -394,7 +396,7 @@ export default function HomePage() {
     }
   }, [])
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (typeof window === 'undefined' || !window.ipc?.send) {
       return undefined
     }
@@ -411,7 +413,7 @@ export default function HomePage() {
     }
   }, [])
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (typeof window === 'undefined' || !window.ipc) {
       return undefined
     }
@@ -665,7 +667,7 @@ export default function HomePage() {
   }, [])
 
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (typeof window === 'undefined' || !window.ipc) {
       return undefined
     }
@@ -717,7 +719,7 @@ export default function HomePage() {
   }, [lastArduinoDataTime, isSerialConnected])
 
   // Sync Z-axis position from currentPosition to calibration readings (for LcdDisplay)
-  React.useEffect(() => {
+  useEffect(() => {
     if (currentPosition.z !== null && currentPosition.z !== undefined) {
       setCalibration((current) =>
         current.map((entry) => {
@@ -751,7 +753,7 @@ export default function HomePage() {
   }, [currentPosition.z])
 
   // Listen for actual Arduino data reception separately
-  React.useEffect(() => {
+  useEffect(() => {
     if (typeof window === 'undefined' || !window.ipc) {
       return undefined
     }
@@ -772,7 +774,7 @@ export default function HomePage() {
   }, [isSerialConnected])
 
   // Serial port connection handlers
-  React.useEffect(() => {
+  useEffect(() => {
     if (typeof window === 'undefined' || !window.ipc) {
       return undefined
     }
@@ -836,7 +838,7 @@ export default function HomePage() {
 
   // G-CODE COMMAND MONITORING COMMENTED OUT
   // G-code command monitoring
-  // React.useEffect(() => {
+  // useEffect(() => {
   //   if (typeof window === 'undefined' || !window.ipc) {
   //     return undefined
   //   }
@@ -1773,7 +1775,7 @@ export default function HomePage() {
 
   const isMachineFanOn = fans.machine
   const isTipFanOn = fans.tip
-  const fanHeaderActions = React.useMemo(
+  const fanHeaderActions = useMemo(
     () => [
       {
         key: 'machine-fan',

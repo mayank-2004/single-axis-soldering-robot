@@ -560,8 +560,8 @@
   position: absolute;
   top: 16px;
   right: 0;
-  width: 945px;
-  height: calc(100% - 32px);
+  width: 960px;
+  height: calc(100% - 30px);
   background: linear-gradient(145deg, #1f2225, #363b42);
   border-left: 2px solid rgba(115, 255, 238, 0.3);
   border-radius: 12px 12px;

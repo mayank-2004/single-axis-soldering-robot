@@ -63,9 +63,7 @@ String sequenceError = "";  // Empty string means no error (will send null in JS
 
 float componentHeight = 5;
 
-// -------------------------------
 // Z-Axis stepper configuration
-// -------------------------------
 const int STEPPER_Z_STEP_PIN = 48;
 const int STEPPER_Z_DIR_PIN = 46;
 // Enable pin is not used in this configuration
@@ -74,13 +72,11 @@ const int LIMIT_SWITCH_Z_MIN_PIN = 2;
 const int LIMIT_SWITCH_Z_MAX_PIN = 3;
 
 // Position system: Home is at 0.00mm (Z_MAX limit switch at top)
-// Moving down = negative values (e.g., -3.20mm)
-// Moving up = increases towards 0 (cannot exceed 0.00mm)
-const float Z_MAX_POSITION = 40.0f;  // mm - Maximum travel distance from home (downward)
+const float Z_MAX_POSITION = 60.0f;  // mm - Maximum travel distance from home (downward)
 const float Z_HOME_POSITION = 0.0f;  // mm - Home position (at Z_MAX limit switch)
 // Formula: (Motor steps per revolution × Microstepping) / (Lead screw pitch in mm per revolution)
 float zStepsPerMm = 204.1f;  // Changed to float for precision, and made variable for calibration
-const unsigned int Z_STEP_DELAY_US = 300; // Default pulse width for stepper (microseconds)
+const unsigned int Z_STEP_DELAY_US = 200; // Default pulse width for stepper (microseconds)
 const unsigned int Z_STEP_DELAY_MIN = 100; // Minimum delay (fastest speed) - adjust based on your stepper motor
 const unsigned int Z_STEP_DELAY_MAX = 2000; // Maximum delay (slowest speed)
 
@@ -88,40 +84,20 @@ const unsigned int Z_STEP_DELAY_MAX = 2000; // Maximum delay (slowest speed)
 // Lower value = faster movement, Higher value = slower movement
 unsigned int currentZStepDelay = Z_STEP_DELAY_US; // Default speed
 
-// -------------------------------
 // Wire Feed stepper configuration
-// -------------------------------
 const int WIRE_FEED_STEP_PIN = 9;
 const int WIRE_FEED_DIR_PIN = 8;
-// Enable pin is not used in this configuration
 
 const int WIRE_FEED_STEPS_PER_MM = 200;      // Adjust to your wire feed mechanics
 const unsigned int WIRE_FEED_STEP_DELAY_US = 500; // Pulse width for wire feed stepper (microseconds)
 
-// -------------------------------
 // Button and Paddle configuration
-// -------------------------------
 const int BUTTON_UP_PIN = 39;
 const int BUTTON_DOWN_PIN = 37;
 const int BUTTON_SAVE_PIN = 35;
 const int PADDLE_PIN = 34;
 
-// -------------------------------
-// Sensor pin configuration
-// -------------------------------
-// TODO: Update these pin numbers to match your actual hardware wiring
-// const int Z_ENCODER_PIN = A0;           // Z-axis encoder/position sensor (analog or digital) - commented out
-// const int THERMOCOUPLE_CS_PIN = 10;     // MAX6675 thermocouple CS pin (or similar) - commented out
-// const int THERMOCOUPLE_SCK_PIN = 13;    // MAX6675 thermocouple SCK pin - commented out
-// const int THERMOCOUPLE_SO_PIN = 12;     // MAX6675 thermocouple SO pin - commented out
-// const int LOAD_CELL_DT_PIN = A1;        // HX711 load cell DT pin (or similar) - commented out
-// const int LOAD_CELL_SCK_PIN = A2;       // HX711 load cell SCK pin - commented out
-// const int WIRE_BREAK_SENSOR_PIN = 4;    // Wire break detection sensor (digital) - commented out
-// const int HEATER_PIN = 5;               // Heater control pin (PWM) - commented out
-
-// Sensor reading flags
-// bool useRealSensors = true;  // Set to false to use simulation mode - commented out
-// Placeholder for simulation mode (since sensor reading is disabled)
+// bool useRealSensors = true;  
 bool useRealSensors = false;  // Always use simulation mode since sensors are disabled
 
 // Button debouncing and continuous movement
@@ -148,25 +124,14 @@ bool isExecutingSavedMovement = false;
 void moveZAxisByDistance(float distanceMm, unsigned int stepDelayUs = 0);
 void moveZAxisTo(float targetMm, unsigned int stepDelayUs = 0);
 void homeZAxis(unsigned int stepDelayUs = 0);
-// void moveZAxisByDistance(float distanceMm);
-// void moveZAxisTo(float targetMm);
-// void homeZAxis();
 void feedWireByLength(float lengthMm);
 void handleButtonControls();
 void saveMovementSequence();
 void executeSavedMovement();
 
-// Forward declarations for sensor reading
-// float readEncoderPosition(int encoderPin);
-// float readThermocouple(int csPin, int sckPin, int soPin);
-// float readLoadCell(int dtPin, int sckPin);
-// void handleWireBreak();
-
-
 void setup() {
   Serial.begin(BAUD_RATE);
   
-  // Initialize sensors, motors, actuators here
   // Z-axis stepper motor pins
   pinMode(STEPPER_Z_STEP_PIN, OUTPUT);
   pinMode(STEPPER_Z_DIR_PIN, OUTPUT);
@@ -194,40 +159,8 @@ void setup() {
   lastButtonDownState = digitalRead(BUTTON_DOWN_PIN);
   lastButtonSaveState = digitalRead(BUTTON_SAVE_PIN);
   lastPaddleState = digitalRead(PADDLE_PIN);
-
-  // Sensor pins initialization
-  // if (useRealSensors) {
-  //   // Z-axis encoder (if using analog encoder)
-  //   pinMode(Z_ENCODER_PIN, INPUT);
-  //   
-  //   // Thermocouple pins (MAX6675)
-  //   pinMode(THERMOCOUPLE_CS_PIN, OUTPUT);
-  //   pinMode(THERMOCOUPLE_SCK_PIN, OUTPUT);
-  //   pinMode(THERMOCOUPLE_SO_PIN, INPUT);
-  //   digitalWrite(THERMOCOUPLE_CS_PIN, HIGH);
-  //   
-  //   // Load cell pins (HX711)
-  //   pinMode(LOAD_CELL_DT_PIN, INPUT);
-  //   pinMode(LOAD_CELL_SCK_PIN, OUTPUT);
-  //   
-  //   // Wire break sensor
-  //   pinMode(WIRE_BREAK_SENSOR_PIN, INPUT_PULLUP);
-  //   attachInterrupt(digitalPinToInterrupt(WIRE_BREAK_SENSOR_PIN), handleWireBreak, CHANGE);
-  //   
-  //   // Heater control
-  //   pinMode(HEATER_PIN, OUTPUT);
-  //   digitalWrite(HEATER_PIN, LOW);
-  // }
   
   delay(1000); // Give time for serial connection to stabilize
-  
-  Serial.println("Arduino Mega 2560 - Single Axis Soldering Machine Ready");
-  Serial.println("Machine Type: Single-Axis (Z-axis only)");
-  Serial.println("PCB is moved manually by operator");
-  Serial.println("Home position: 0.00mm (at Z_MAX limit switch - top)");
-  Serial.print("Starting Z Position: ");
-  Serial.print(zPosition);
-  Serial.println("mm");
 }
 
 void loop() {
@@ -248,8 +181,6 @@ void loop() {
 
 void readSensors() {  
   if (useRealSensors) {
-    // Read actual sensor values from hardware
-    
     // If you have an encoder, uncomment the line below and comment out position tracking in movement functions
     // zPosition = readEncoderPosition(Z_ENCODER_PIN);
     
@@ -257,45 +188,8 @@ void readSensors() {
     if (zPosition > 0.0) {
       zPosition = 0.0;  // Clamp to home position
     }
-    
-    // Read temperature from thermocouple
-    // currentTemperature = readThermocouple(THERMOCOUPLE_CS_PIN, THERMOCOUPLE_SCK_PIN, THERMOCOUPLE_SO_PIN);
-    
-    // Read spool weight from load cell
-    // spoolWeight = readLoadCell(LOAD_CELL_DT_PIN, LOAD_CELL_SCK_PIN);
-    
-    // Read wire break sensor (interrupt-driven, but also check here as backup)
-    // wireBreakDetected = digitalRead(WIRE_BREAK_SENSOR_PIN) == LOW;
-    
-    // Control heater based on target temperature
-    // if (heaterEnabled && currentTemperature < targetTemperature) {
-    //   // Heat up - use PWM to control heating rate
-    //   analogWrite(HEATER_PIN, 255);  // Full power (adjust as needed)
-    // } else if (!heaterEnabled || currentTemperature >= targetTemperature) {
-    //   // Turn off heater
-    //   analogWrite(HEATER_PIN, 0);
-    // }
-    
-    // Update wire length and remaining percentage based on spool weight
-    // Assuming wire density and spool empty weight (adjust these values)
-    // const float WIRE_DENSITY_G_PER_MM = 0.001;  // grams per mm (adjust based on wire type)
-    // const float EMPTY_SPOOL_WEIGHT = 100.0;  // grams (adjust based on your spool)
-    // float wireWeight = spoolWeight - EMPTY_SPOOL_WEIGHT;
-    // if (wireWeight > 0) {
-    //   wireLength = wireWeight / WIRE_DENSITY_G_PER_MM;
-    //   remainingPercentage = (wireLength / 10000.0) * 100.0;  // Assuming 10000mm is full spool
-    //   if (remainingPercentage > 100.0) remainingPercentage = 100.0;
-    //   if (remainingPercentage < 0.0) remainingPercentage = 0.0;
-    // } else {
-    //   wireLength = 0.0;
-    //   remainingPercentage = 0.0;
-    // }
-    
-    // Movement status is managed by movement functions (isMoving flag)
-    // Wire feeding status is managed by feedWireByLength function
-    
   } else {
-    // Simulation mode (fallback if sensors are not connected)
+    // Simulation mode
   static unsigned long lastSensorUpdate = 0;
   if (millis() - lastSensorUpdate > 1000) {
       // Clamp Z position: cannot go above 0.00mm (home), can go negative (downward)
@@ -303,7 +197,6 @@ void readSensors() {
         zPosition = 0.0;  // Clamp to home position
       }
     
-    // Simulate temperature rising/cooling
     if (heaterEnabled && currentTemperature < targetTemperature) {
       currentTemperature += 1.0;  // Heat up at 1°C per second
       if (currentTemperature > targetTemperature) {
@@ -640,167 +533,13 @@ void processCommands() {
           Serial.println(cmd);
         }
     }
-    // For simple text commands (future implementation)
-    // else if (command.startsWith("MOVE")) { ... }
-    // else if (command.startsWith("TEMP:")) { ... }
-    
     // Debug: echo received command (ENABLED FOR TESTING)
     Serial.print("[CMD] Received: ");
     Serial.println(command);
   }
 }
 
-// ----------------------------------
-// Sensor reading helper functions
-// ----------------------------------
-
-/**
- * Read Z-axis encoder position
- * Adjust this function based on your encoder type (incremental, absolute, analog, etc.)
- */
-// float readEncoderPosition(int encoderPin) {
-//   // Example for analog encoder (potentiometer or analog encoder)
-//   // Returns position in mm
-//   int rawValue = analogRead(encoderPin);
-//   
-//   // Convert analog reading (0-1023) to position in mm
-//   // Adjust these values based on your encoder's range and mechanics
-//   const float ENCODER_MIN_RAW = 0.0;
-//   const float ENCODER_MAX_RAW = 1023.0;
-//   const float ENCODER_MIN_POSITION = -70.0;  // mm (maximum downward travel)
-//   const float ENCODER_MAX_POSITION = 0.0;    // mm (home position)
-//   
-//   // Linear interpolation
-//   float normalized = (rawValue - ENCODER_MIN_RAW) / (ENCODER_MAX_RAW - ENCODER_MIN_RAW);
-//   float position = ENCODER_MIN_POSITION + normalized * (ENCODER_MAX_POSITION - ENCODER_MIN_POSITION);
-//   
-//   // Clamp to valid range
-//   if (position > ENCODER_MAX_POSITION) position = ENCODER_MAX_POSITION;
-//   if (position < ENCODER_MIN_POSITION) position = ENCODER_MIN_POSITION;
-//   
-//   return position;
-//   
-//   // Alternative: For digital/incremental encoder, use interrupt-based counting
-//   // static volatile long encoderCount = 0;
-//   // Return encoderCount / zStepsPerMm;
-// }
-
-/**
- * Read temperature from MAX6675 thermocouple amplifier
- * Returns temperature in Celsius
- */
-// float readThermocouple(int csPin, int sckPin, int soPin) {
-//   // MAX6675 communication protocol
-//   uint16_t value = 0;
-//   
-//   // Pull CS low to start communication
-//   digitalWrite(csPin, LOW);
-//   delayMicroseconds(10);
-//   
-//   // Read 16 bits from MAX6675
-//   for (int i = 15; i >= 0; i--) {
-//     digitalWrite(sckPin, LOW);
-//     delayMicroseconds(1);
-//     if (digitalRead(soPin)) {
-//       value |= (1 << i);
-//     }
-//     digitalWrite(sckPin, HIGH);
-//     delayMicroseconds(1);
-//   }
-//   
-//   // Pull CS high to end communication
-//   digitalWrite(csPin, HIGH);
-//   
-//   // Check for thermocouple connection error (bit D2)
-//   if (value & 0x04) {
-//     // Thermocouple disconnected or error
-//     return -1.0;  // Error value
-//   }
-//   
-//   // Extract temperature (bits D14-D3)
-//   value = value >> 3;
-//   float temperature = value * 0.25;  // MAX6675 resolution is 0.25°C
-//   
-//   return temperature;
-// }
-
-/**
- * Read weight from HX711 load cell amplifier
- * Returns weight in grams
- * Note: This is a simplified implementation. For production, use a proper HX711 library
- */
-// float readLoadCell(int dtPin, int sckPin) {
-//   // HX711 communication protocol
-//   // Wait for data ready (DT goes LOW when data is ready)
-//   unsigned long timeout = millis() + 100;
-//   while (digitalRead(dtPin) == HIGH) {
-//     if (millis() > timeout) {
-//       return 0.0;  // Timeout - sensor not responding
-//     }
-//   }
-//   
-//   // Read 24-bit value from HX711
-//   long value = 0;
-//   for (int i = 0; i < 24; i++) {
-//     digitalWrite(sckPin, HIGH);
-//     delayMicroseconds(1);
-//     value = value << 1;
-//     if (digitalRead(dtPin)) {
-//       value++;
-//     }
-//     digitalWrite(sckPin, LOW);
-//     delayMicroseconds(1);
-//   }
-//   
-//   // Set gain for next reading (channel A, gain 128)
-//   digitalWrite(sckPin, HIGH);
-//   delayMicroseconds(1);
-//   digitalWrite(sckPin, LOW);
-//   delayMicroseconds(1);
-//   
-//   // Convert to signed value (24-bit two's complement)
-//   if (value & 0x800000) {
-//     value |= 0xFF000000;  // Sign extend
-//   }
-//   
-//   // Calibrate: Adjust these values based on your load cell calibration
-//   // offset = tare weight reading
-//   // scale = known weight / (reading - offset)
-//   const long OFFSET = 0;  // Tare offset (adjust after calibration)
-//   const float SCALE = 1.0;  // Scale factor (adjust after calibration with known weight)
-//   
-//   float weight = (value - OFFSET) / SCALE;
-//   
-//   // Ensure non-negative weight
-//   if (weight < 0) weight = 0;
-//   
-//   return weight;
-//   
-//   // Note: For production, implement proper calibration routine
-//   // and use a dedicated HX711 library for better accuracy
-// }
-
-/**
- * Interrupt handler for wire break detection
- * Called when wire break sensor state changes
- */
-// void handleWireBreak() {
-//   // Check sensor state
-//   if (digitalRead(WIRE_BREAK_SENSOR_PIN) == LOW) {
-//   wireBreakDetected = true;
-//     // Optional: Stop wire feeding immediately
-//     if (isWireFeeding) {
-//       isWireFeeding = false;
-//       wireFeedStatus = "error";
-// }
-//   } else {
-//     wireBreakDetected = false;
-//   }
-// }
-
-// ----------------------------------
 // Z-axis motion helper functions
-// ----------------------------------
 
 bool isLimitSwitchTriggered(int pin) {
   // Limit switches use INPUT_PULLUP, so LOW = triggered
@@ -809,7 +548,6 @@ bool isLimitSwitchTriggered(int pin) {
 
 // void pulseZStep() {
 void pulseZStep(unsigned int stepDelayUs = 0) {
-  // Use provided delay, or current global delay, or default
   unsigned int delay = (stepDelayUs > 0) ? stepDelayUs : currentZStepDelay;
   digitalWrite(STEPPER_Z_STEP_PIN, HIGH);
   delayMicroseconds(delay);
@@ -829,9 +567,7 @@ void applyZMovement(long steps, bool moveUp) {
   long stepsCompleted = 0;
   while (stepsCompleted < steps) {
     // Safety: stop if limit switch is hit mid-travel
-    // Z_MIN limit switch is at bottom (not used in current system, but keep for safety)
     if (!moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MIN_PIN)) {
-      // Hit bottom limit - stop movement
       break;
     }
     // Z_MAX limit switch is at top (home position)
@@ -845,7 +581,6 @@ void applyZMovement(long steps, bool moveUp) {
   }
 
   // Calculate position change
-  // moveUp = true: increases Z (towards 0), moveUp = false: decreases Z (negative)
   // float deltaMm = (stepsCompleted / zStepsPerMm) * (moveUp ? 1.0f : -1.0f);
   float deltaMm = (static_cast<float>(stepsCompleted) / zStepsPerMm) * (moveUp ? 1.0f : -1.0f);
   Serial.print("Delta mm: ");
@@ -938,6 +673,7 @@ void moveZAxisTo(float targetMm) {
 void homeZAxis() {
   // Calculate maximum steps needed (from maximum downward position to home)
   const long maxSteps = static_cast<long>(Z_MAX_POSITION * zStepsPerMm) + 200;
+  // const long maxSteps = static_cast<long>(Z_MAX_POSITION * zStepsPerMm);
 
   // Use provided delay, or clamp to valid range if using global delay
   unsigned int delay = (stepDelayUs > 0) ? stepDelayUs : currentZStepDelay;
@@ -975,7 +711,6 @@ void feedWireByLength(float lengthMm) {
   }
 
   // Set direction: HIGH = feed wire out, LOW = retract (if needed)
-  // Assuming HIGH = feed out (forward direction)
   digitalWrite(WIRE_FEED_DIR_PIN, HIGH);
 
   // Calculate number of steps needed
