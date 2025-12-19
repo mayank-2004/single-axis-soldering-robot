@@ -555,7 +555,7 @@ void pulseZStep(unsigned int stepDelayUs = 0) {
   delayMicroseconds(delay);
 }
 
-void applyZMovement(long steps, bool moveUp) {
+void applyZMovement(long steps, bool moveUp, unsigned int stepDelayUs = 0) {
   if (steps <= 0) {
     return;
   }
@@ -564,37 +564,42 @@ void applyZMovement(long steps, bool moveUp) {
   // moveUp = false means moving away from home (downward, negative) - direction LOW
   digitalWrite(STEPPER_Z_DIR_PIN, moveUp ? HIGH : LOW);
 
+  // Use provided delay or default
+  unsigned int delay = (stepDelayUs > 0) ? stepDelayUs : currentZStepDelay;
+  if (delay < Z_STEP_DELAY_MIN) delay = Z_STEP_DELAY_MIN;
+  if (delay > Z_STEP_DELAY_MAX) delay = Z_STEP_DELAY_MAX;
+
   long stepsCompleted = 0;
+  // Optimized: Check limit switches less frequently for better performance
+  const unsigned int LIMIT_CHECK_INTERVAL = 100; // Check every 100 steps
+  
   while (stepsCompleted < steps) {
-    // Safety: stop if limit switch is hit mid-travel
-    if (!moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MIN_PIN)) {
-      break;
-    }
-    // Z_MAX limit switch is at top (home position)
-    if (moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN)) {
-      zPosition = Z_HOME_POSITION;  // 0.00mm - reached home
-      break;
+    // Safety: check limit switches periodically (not every step for better performance)
+    if (stepsCompleted % LIMIT_CHECK_INTERVAL == 0) {
+      if (!moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MIN_PIN)) {
+        break; // Hit bottom limit
+      }
+      if (moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN)) {
+        zPosition = Z_HOME_POSITION;  // 0.00mm - reached home
+        break;
+      }
     }
 
-    pulseZStep();
+    pulseZStep(delay);
     stepsCompleted++;
   }
 
-  // Calculate position change
-  // float deltaMm = (stepsCompleted / zStepsPerMm) * (moveUp ? 1.0f : -1.0f);
+  // Calculate position change (optimized - removed debug Serial prints)
   float deltaMm = (static_cast<float>(stepsCompleted) / zStepsPerMm) * (moveUp ? 1.0f : -1.0f);
-  Serial.print("Delta mm: ");
-  Serial.println(deltaMm);
   zPosition = zPosition + deltaMm;
-  Serial.print("New zPosition: ");
-  Serial.println(zPosition);
+  
   // Clamp: cannot go above home (0.00mm), can go negative (downward)
   if (zPosition > Z_HOME_POSITION) {
     zPosition = Z_HOME_POSITION;
   }
 }
 
-void moveZAxisByDistance(float distanceMm) {
+void moveZAxisByDistance(float distanceMm, unsigned int stepDelayUs) {
   if (fabsf(distanceMm) < 0.001f) {
     return;
   }
@@ -619,14 +624,8 @@ void moveZAxisByDistance(float distanceMm) {
     return;
   }
 
-  // Calculate target position
+  // Calculate target position (optimized - removed debug Serial prints)
   float target = zPosition + distanceMm;
-  Serial.print("Target position: ");
-  Serial.println(target);
-  Serial.print("Z position: ");
-  Serial.println(zPosition);
-  Serial.print("distanceMm: ");
-  Serial.println(distanceMm);
   
   // Clamp target: cannot exceed home (0.00mm), can go negative
   if (target > Z_HOME_POSITION) {
@@ -634,16 +633,15 @@ void moveZAxisByDistance(float distanceMm) {
   }
   
   float actualDistance = target - zPosition;
-  // long stepsToMove = labs(static_cast<long>(actualDistance * zStepsPerMm));
   // For downward movement, use ceilf to ensure at least the commanded distance
   // For upward movement, use roundf for normal rounding
-   float stepsFloat = fabsf(actualDistance * zStepsPerMm);
-   long stepsToMove;
-   if (actualDistance < 0) { // Downward movement
-     stepsToMove = static_cast<long>(ceilf(stepsFloat)); // Round up to ensure at least commanded distance
-   } else { // Upward movement
-     stepsToMove = static_cast<long>(roundf(stepsFloat)); // Round to nearest for upward
-   }
+  float stepsFloat = fabsf(actualDistance * zStepsPerMm);
+  long stepsToMove;
+  if (actualDistance < 0) { // Downward movement
+    stepsToMove = static_cast<long>(ceilf(stepsFloat)); // Round up to ensure at least commanded distance
+  } else { // Upward movement
+    stepsToMove = static_cast<long>(roundf(stepsFloat)); // Round to nearest for upward
+  }
 
   if (stepsToMove == 0) {
     zPosition = target;
@@ -656,42 +654,69 @@ void moveZAxisByDistance(float distanceMm) {
   if (delay > Z_STEP_DELAY_MAX) delay = Z_STEP_DELAY_MAX;
 
   isMoving = true;
-  applyZMovement(stepsToMove, actualDistance > 0);
+  applyZMovement(stepsToMove, actualDistance > 0, delay);
   isMoving = false;
 }
 
-void moveZAxisTo(float targetMm) {
+void moveZAxisTo(float targetMm, unsigned int stepDelayUs) {
   // Clamp target: cannot exceed home (0.00mm), can be negative
   float clampedTarget = targetMm;
   if (clampedTarget > Z_HOME_POSITION) {
     clampedTarget = Z_HOME_POSITION;
   }
   float distance = clampedTarget - zPosition;
-  moveZAxisByDistance(distance);
+  moveZAxisByDistance(distance, stepDelayUs);
 }
 
-void homeZAxis() {
-  // Calculate maximum steps needed (from maximum downward position to home)
-  const long maxSteps = static_cast<long>(Z_MAX_POSITION * zStepsPerMm) + 200;
-  // const long maxSteps = static_cast<long>(Z_MAX_POSITION * zStepsPerMm);
-
+void homeZAxis(unsigned int stepDelayUs) {
   // Use provided delay, or clamp to valid range if using global delay
   unsigned int delay = (stepDelayUs > 0) ? stepDelayUs : currentZStepDelay;
   if (delay < Z_STEP_DELAY_MIN) delay = Z_STEP_DELAY_MIN;
   if (delay > Z_STEP_DELAY_MAX) delay = Z_STEP_DELAY_MAX;
 
+  // Check if already at home position
+  if (isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN)) {
+    zPosition = Z_HOME_POSITION;  // Already at home
+    Serial.println("[Home] Already at home position");
+    return;
+  }
+
+  Serial.println("[Home] Starting homing sequence...");
+  
   isMoving = true;
   digitalWrite(STEPPER_Z_DIR_PIN, HIGH); // Move towards home (upward, towards Z_MAX limit switch)
 
+  // Calculate safety limit
+  const long maxSteps = static_cast<long>((Z_MAX_POSITION * 1.5f) * zStepsPerMm) + 1000;
+  
   long stepsTaken = 0;
+  
+  // Optimized: Simple while loop like testing-25.ino - direct and efficient
   while (!isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN) && stepsTaken < maxSteps) {
-    pulseZStep();
+    pulseZStep(delay);
     stepsTaken++;
+    
+    // Reduced serial output - only every 5000 steps for better performance
+    if (stepsTaken % 5000 == 0) {
+      Serial.print("[Home] Steps: ");
+      Serial.println(stepsTaken);
+    }
+  }
+
+  // Safety check
+  if (stepsTaken >= maxSteps) {
+    Serial.println("[Home] WARNING: Max steps reached - check limit switch!");
   }
 
   // Home position is 0.00mm (at Z_MAX limit switch)
   zPosition = Z_HOME_POSITION;  // 0.00mm
   isMoving = false;
+  
+  Serial.print("[Home] Complete! Steps: ");
+  Serial.println(stepsTaken);
+  
+  // Immediately send state update to app
+  sendMachineState();
 }
 
 // ----------------------------------

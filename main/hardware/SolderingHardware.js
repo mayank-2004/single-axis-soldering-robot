@@ -63,11 +63,11 @@ export default class SolderingHardware extends EventEmitter {
       calibration: initialCalibration.map((entry) => ({ ...entry })),
       // Z-axis movement speed (1-100%, where 100% = fastest, 1% = slowest)
       // This controls the delay between stepper motor steps
-      zAxisSpeed: options.zAxisSpeed || 80,
+      zAxisSpeed: options.zAxisSpeed || 90,
       fans: { machine: false, tip: false },
       fumeExtractor: {
         enabled: false,
-        speed: 80, // 0-100% speed
+        speed: 90, // 0-100% speed
         autoMode: true, // Auto-activate during soldering
       },
       flux: {
@@ -793,22 +793,24 @@ export default class SolderingHardware extends EventEmitter {
         // Clear any pending movement tracking since home resets position
         this._lastMovementCommand = null
         
-        // Send JSON command to Arduino: {"command":"home","speed":50}
         await this._sendArduinoJsonCommand({
           command: 'home',
           speed: this.state.zAxisSpeed // Send current speed setting
         })
         
-        // Update position (Z-axis only) - Arduino will confirm via JSON response
-        // Home is at 0.00mm (top limit switch)
-        this.state.position.z = HOME_POSITION
-        this._updateCalibrationEntry('Z Axis', { value: HOME_POSITION.toFixed(2) })
-
-        // Set isMoving to false after a delay (Arduino will update this via JSON response)
-        setTimeout(() => {
-          this.state.position.isMoving = false
-          this.emit('position:update', this.getPosition())
-        }, 1000)
+        // IMPORTANT: DO NOT set position or isMoving here!
+        // The Arduino's homeZAxis() function is BLOCKING and will take time to complete.
+        // During homing, Arduino's loop() is blocked, so no JSON updates are sent.
+        // After homing completes, Arduino sets isMoving = false and sends JSON update.
+        // We MUST wait for Arduino to send JSON state updates indicating homing is complete.
+        // Position will be updated when Arduino sends: {"pos":{"z":0.0,"moving":false}}
+        
+        // Note: The app will receive position updates via _handleArduinoData() when:
+        // 1. Homing completes (Arduino sets isMoving = false and sends JSON)
+        // 2. Arduino's loop() resumes and calls sendMachineState()
+        
+        // No timeout needed - Arduino controls the state via JSON updates
+        // The _handleArduinoData() function will update position.z and isMoving when Arduino reports completion
 
         this.emit('position:update', this.getPosition())
         return { status: 'Homed to 0.00mm (top limit switch)', position: this.getPosition() }
