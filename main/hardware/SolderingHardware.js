@@ -60,6 +60,7 @@ export default class SolderingHardware extends EventEmitter {
 
     this.state = {
       componentHeightMm: null,
+      jigHeightMm: null, // Jig reference height from home position (0.00mm) to jig surface
       calibration: initialCalibration.map((entry) => ({ ...entry })),
       // Z-axis movement speed (1-100%, where 100% = fastest, 1% = slowest)
       // This controls the delay between stepper motor steps
@@ -303,6 +304,62 @@ export default class SolderingHardware extends EventEmitter {
     return {
       status: `Max component height set to ${numeric.toFixed(2)} ${unit}`,
     }
+  }
+
+  /**
+   * Set jig reference height
+   * @param {number} height - Height from home position (0.00mm) to jig surface in mm
+   * @param {string} unit - Unit of measurement (default: 'mm')
+   * @returns {Object} Result object with status or error
+   */
+  setJigHeight(height, unit = 'mm') {
+    const numeric = Number.parseFloat(height)
+    if (!Number.isFinite(numeric) || numeric < 0) {
+      return {
+        error: 'Jig height must be a positive number.',
+      }
+    }
+
+    this.state.jigHeightMm = numeric
+    console.log(`[SolderingHardware] Jig height set to ${numeric.toFixed(2)} ${unit}`)
+    return {
+      status: `Jig height set to ${numeric.toFixed(2)} ${unit}`,
+      jigHeight: numeric,
+    }
+  }
+
+  /**
+   * Calibrate jig height from current Z position
+   * Uses the current Z position as the jig reference height
+   * @returns {Object} Result object with status or error
+   */
+  calibrateJigFromPosition() {
+    const currentZ = this.state.position.z
+    
+    if (currentZ === null || currentZ === undefined) {
+      return {
+        error: 'Current Z position is not available. Please ensure machine is connected and homed.',
+      }
+    }
+
+    // Use absolute value since Z can be negative (below home)
+    const jigHeight = Math.abs(currentZ)
+    
+    this.state.jigHeightMm = jigHeight
+    console.log(`[SolderingHardware] Jig calibrated from current position: ${jigHeight.toFixed(2)} mm`)
+    return {
+      status: `Jig height calibrated to ${jigHeight.toFixed(2)} mm from current position`,
+      jigHeight: jigHeight,
+      currentZ: currentZ,
+    }
+  }
+
+  /**
+   * Get jig height
+   * @returns {number|null} Jig height in mm or null if not set
+   */
+  getJigHeight() {
+    return this.state.jigHeightMm
   }
 
   getFluxState() {
@@ -743,12 +800,20 @@ export default class SolderingHardware extends EventEmitter {
         }, 500)
 
         this.emit('position:update', this.getPosition())
-        return { 
+        
+        console.log('[SolderingHardware] Jog command sent to Arduino, returning immediately')
+        console.log('[SolderingHardware] Note: Limit switch status will come from Arduino JSON updates, not from this response')
+        
+         // Return a proper result object
+        const result = { 
           status: limitReached ? 'Upper limit switch reached' : 'Movement completed', 
           position: this.getPosition(),
-          limitReached: limitReached
+          limitReached: false  // Always false here - actual limit status comes from Arduino JSON
         }
+        console.log('[SolderingHardware] Returning jog result:', result)
+        return result
       } catch (error) {
+        console.error('[SolderingHardware] Error in jog:', error)
         this.state.position.isMoving = false
         return { error: error.message }
       }
@@ -1867,7 +1932,17 @@ export default class SolderingHardware extends EventEmitter {
 
   async _executeStageAction(action, padPosition, stageIndex) {
     const { x, y, z } = padPosition
-    const safeZ = this.state.componentHeightMm ? this.state.componentHeightMm + 2 : 5 // Safe height above component
+    // Calculate safe height: jig height + component height + 2mm clearance
+    // If jig height is not set, fall back to component height + 2mm, or default 5mm
+    let safeZ = 5 // Default safe height
+    if (this.state.jigHeightMm !== null && this.state.jigHeightMm !== undefined) {
+      // Jig height is set - use it as base
+      const componentHeight = this.state.componentHeightMm || 0
+      safeZ = this.state.jigHeightMm + componentHeight + 2 // Jig + component + clearance
+    } else if (this.state.componentHeightMm !== null && this.state.componentHeightMm !== undefined) {
+      // Fallback to component height only (legacy behavior)
+      safeZ = this.state.componentHeightMm + 2
+    }
 
     switch (action) {
       // Single-axis machine: X and Y movements are not supported (PCB is moved manually)
@@ -2327,6 +2402,14 @@ export default class SolderingHardware extends EventEmitter {
             
             console.log(`[Movement] Previous: ${this._lastMovementCommand.previousPosition.toFixed(2)}mm | Commanded: ${commandedDistance.toFixed(2)}mm | New Position: ${newZ.toFixed(2)}mm | Actual Movement: ${actualDistance.toFixed(2)}mm | Difference: ${difference > 0 ? '+' : ''}${difference.toFixed(2)}mm (${differencePercent}%)`)
             
+            // Check if limit switch was hit (movement stopped early)
+            // If actual movement is significantly less than commanded, likely hit a limit switch
+            const movementStoppedEarly = Math.abs(actualDistance) < Math.abs(commandedDistance) * 0.5
+            const isDownwardMovement = commandedDistance < 0
+            const isUpwardMovement = commandedDistance > 0
+            
+            // Don't compensate if limit switch was hit - that's expected behavior
+            if (!movementStoppedEarly) {
             // Automatic compensation: if actual movement is less than commanded, add the difference
             // Only compensate if:
             // 1. Not already compensating (prevent loops)
@@ -2364,6 +2447,7 @@ export default class SolderingHardware extends EventEmitter {
                 this._isCompensating = false
                 this._lastMovementCommand = null
               })
+              }
             } else {
               // If this was a compensation movement, clear the flag when it completes
               if (this._lastMovementCommand && this._lastMovementCommand.isCompensation) {
@@ -2536,18 +2620,28 @@ export default class SolderingHardware extends EventEmitter {
         this.state.componentHeightMm = updates.componentHeight
       }
 
+      // Update jig height (if sent from Arduino)
+      if (updates.jigHeight !== undefined && updates.jigHeight !== null) {
+        this.state.jigHeightMm = updates.jigHeight
+      }
+
       // Update limit switch status
-      // if (updates.limitSwitches) {
-      //   const upperLimitTriggered = Boolean(updates.limitSwitches.upper)
-      //   const lowerLimitTriggered = Boolean(updates.limitSwitches.lower)
+      if (updates.limitSwitches) {
+        const upperLimitTriggered = Boolean(updates.limitSwitches.upper)
+        const lowerLimitTriggered = Boolean(updates.limitSwitches.lower)
         
-      //   // Emit limit switch events for both upper and lower
-      //   this.emit('limitSwitch', {
-      //     upper: upperLimitTriggered,
-      //     lower: lowerLimitTriggered,
-      //     timestamp: Date.now()
-      //   })
-      // }
+        console.log('[SolderingHardware] Limit switches - Upper:', upperLimitTriggered, 'Lower:', lowerLimitTriggered)
+        
+        // Emit limit switch events for both upper and lower
+        // ALWAYS emit, even if false, so app knows current state
+        const payload = {
+          upper: upperLimitTriggered,
+          lower: lowerLimitTriggered,
+          timestamp: Date.now()
+        }
+        console.log('[SolderingHardware] Emitting limitSwitch:update:', payload)
+        this.emit('limitSwitch:update', payload)
+      }
     } catch (error) {
       console.error('[SolderingHardware] Error handling Arduino data:', error)
     }

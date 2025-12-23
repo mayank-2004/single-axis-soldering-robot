@@ -1,7 +1,6 @@
 import React, { useCallback, useState, useMemo, useEffect } from 'react'
 import Head from 'next/head'
 import LcdDisplay from '../components/LcdDisplay'
-// COMPONENT HEIGHT CONTROL COMPONENT IMPORT COMMENTED OUT
 // import ComponentHeightControl from '../components/ComponentHeightControl'
 import TipHeatingControl from '../components/TipHeatingControl'
 import WireFeedControl from '../components/WireFeedControl'
@@ -13,7 +12,7 @@ import SequenceMonitor from '../components/SequenceMonitor'
 import ManualMovementControl from '../components/ManualMovementControl'
 import PadSolderingMetrics from '../components/PadSolderingMetrics'
 import SerialPortConnection from '../components/SerialPortConnection'
-// G-CODE MONITOR COMPONENT IMPORT COMMENTED OUT
+import JigCalibration from '../components/JigCalibration'
 // import GCodeMonitor from '../components/GCodeMonitor'
 import CameraView from '../components/CameraView'
 import ThemeToggle from '../components/ThemeToggle'
@@ -79,6 +78,8 @@ export default function HomePage() {
   const [airJetPressureStatusMessage, setAirJetPressureStatusMessage] = useState('')
   const [componentHeight, setComponentHeight] = useState('5')
   const [heightStatus, setHeightStatus] = useState('')
+  const [jigHeight, setJigHeight] = useState(null)
+  const [jigCalibrationStatus, setJigCalibrationStatus] = useState('')
   const [tipTarget, setTipTarget] = useState('345')
   const [isHeaterEnabled, setIsHeaterEnabled] = useState(false)
   const [heaterStatus, setHeaterStatus] = useState('')
@@ -162,7 +163,7 @@ export default function HomePage() {
   const [wireUsed, setWireUsed] = useState(null)
   const [stepsMoved, setStepsMoved] = useState(null)
   const [isCalculatingMetrics, setIsCalculatingMetrics] = useState(false)
-  
+
   // Thermal mass compensation state
   const [padCategory, setPadCategory] = useState(null) // 'small', 'medium', 'large'
   const [compensatedTemperature, setCompensatedTemperature] = useState(null)
@@ -199,13 +200,13 @@ export default function HomePage() {
   const wireLength = wireStatus?.length
   const isWireLow = wirePercentage <= 10
   const isWireEmpty = wirePercentage <= 0
-  
+
   // Get flux remaining from calibration
   const fluxRemaining = useMemo(() => {
     const fluxEntry = calibration.find((entry) => entry.label === 'Flux Remaining')
     if (!fluxEntry) return null
-    const numeric = typeof fluxEntry.value === 'number' 
-      ? fluxEntry.value 
+    const numeric = typeof fluxEntry.value === 'number'
+      ? fluxEntry.value
       : parseFloat(String(fluxEntry.value).replace(/[^0-9.]/g, ''))
     return Number.isFinite(numeric) ? numeric : null
   }, [calibration])
@@ -226,7 +227,7 @@ export default function HomePage() {
             if (entry.label === 'Z Axis') {
               return entry
             }
-            
+
             const update = payload[entry.label]
             if (update === undefined || update === null) {
               return entry
@@ -604,39 +605,103 @@ export default function HomePage() {
     // Listen for actual Arduino JSON data (only this counts as real Arduino data)
     window.ipc.on?.('arduino:data:received', handleArduinoDataReceived)
 
+    // Listen for jig calibration responses
+    const handleJigHeightAck = (payload) => {
+      console.log('[home.jsx] handleJigHeightAck received:', payload)
+      if (!payload || typeof payload !== 'object') {
+        console.warn('[home.jsx] handleJigHeightAck: Invalid payload received', payload)
+        setJigCalibrationStatus('Error: Invalid response from server')
+        return
+      }
+      console.log('[home.jsx] handleJigHeightAck processing payload:', payload)
+      if (payload.error) {
+        setJigCalibrationStatus(`Error: ${payload.error}`)
+      } else {
+        setJigCalibrationStatus(payload.status || 'Jig height set successfully')
+        if (payload.jigHeight !== undefined) {
+          setJigHeight(payload.jigHeight)
+        }
+        // Clear status after 3 seconds
+        setTimeout(() => {
+          setJigCalibrationStatus('')
+        }, 3000)
+      }
+    }
+
+    const handleJigCalibrateAck = (payload) => {
+      console.log('[home.jsx] handleJigCalibrateAck received:', payload)
+      if (!payload || typeof payload !== 'object') {
+        console.warn('[home.jsx] handleJigCalibrateAck: Invalid payload received', payload)
+        setJigCalibrationStatus('Error: Invalid response from server')
+        return
+      }
+      console.log('[home.jsx] handleJigCalibrateAck processing payload:', payload)
+      if (payload.error) {
+        setJigCalibrationStatus(`Error: ${payload.error}`)
+      } else {
+        setJigCalibrationStatus(payload.status || 'Jig calibrated successfully')
+        if (payload.jigHeight !== undefined) {
+          setJigHeight(payload.jigHeight)
+        }
+        // Clear status after 3 seconds
+        setTimeout(() => {
+          setJigCalibrationStatus('')
+        }, 3000)
+      }
+    }
+
+    const handleJigHeightStatus = (payload) => {
+      if (!payload || typeof payload !== 'object') {
+        console.warn('[home.jsx] handleJigHeightStatus: Invalid payload received', payload)
+        return
+      }
+      if (payload.jigHeight !== null && payload.jigHeight !== undefined) {
+        setJigHeight(payload.jigHeight)
+      }
+    }
+
+    window.ipc.on?.('jig:height:ack', handleJigHeightAck)
+    window.ipc.on?.('jig:calibrate:ack', handleJigCalibrateAck)
+    window.ipc.on?.('jig:height:status', handleJigHeightStatus)
+
     // Listen for limit switch status from Arduino hardware
-    // const handleLimitSwitchUpdate = (payload) => {
-    //   if (payload) {
-    //     const upperTriggered = Boolean(payload.upper)
-    //     const lowerTriggered = Boolean(payload.lower)
-        
-    //     // Show alert if either limit switch is triggered
-    //     if (upperTriggered) {
-    //       setLimitSwitchMessage('Upper limit switch reached - can\'t go upward')
-    //       setLimitSwitchAlert(true)
-    //       setManualMovementStatus('Upper limit switch reached - can\'t go upward')
-    //       // Auto-hide alert after 3 seconds
-    //       setTimeout(() => {
-    //         setLimitSwitchAlert(false)
-    //         setManualMovementStatus('')
-    //       }, 3000)
-    //     } else if (lowerTriggered) {
-    //       setLimitSwitchMessage('Lower limit switch reached - can\'t go downward')
-    //       setLimitSwitchAlert(true)
-    //       setManualMovementStatus('Lower limit switch reached - can\'t go downward')
-    //       // Auto-hide alert after 3 seconds
-    //       setTimeout(() => {
-    //         setLimitSwitchAlert(false)
-    //         setManualMovementStatus('')
-    //       }, 3000)
-    //     } else {
-    //       // Both switches released - clear alert
-    //       setLimitSwitchAlert(false)
-    //       setManualMovementStatus('')
-    //     }
-    //   }
-    // }
-    // window.ipc.on?.('limitSwitch:update', handleLimitSwitchUpdate)
+    const handleLimitSwitchUpdate = (payload) => {
+      console.log('[home.jsx] handleLimitSwitchUpdate received:', payload)
+      if (payload) {
+        const upperTriggered = Boolean(payload.upper)
+        const lowerTriggered = Boolean(payload.lower)
+
+        console.log('[home.jsx] Limit switch status - Upper:', upperTriggered, 'Lower:', lowerTriggered)
+
+        // Show alert if either limit switch is triggered
+        if (upperTriggered) {
+          console.log('[home.jsx] Setting upper limit switch alert')
+          setLimitSwitchAlert(true)
+          setManualMovementStatus('Upper limit switch reached - can\'t go upward')
+          // Auto-hide alert after 5 seconds (increased for visibility)
+          setTimeout(() => {
+            console.log('[home.jsx] Auto-hiding upper limit alert')
+            setLimitSwitchAlert(false)
+            setManualMovementStatus('')
+          }, 5000)
+        } else if (lowerTriggered) {
+          console.log('[home.jsx] Setting lower limit switch alert')
+          setLimitSwitchAlert(true)
+          setManualMovementStatus('Lower limit switch reached - can\'t go downward')
+          // Auto-hide alert after 5 seconds (increased for visibility)
+          setTimeout(() => {
+            console.log('[home.jsx] Auto-hiding lower limit alert')
+            setLimitSwitchAlert(false)
+            setManualMovementStatus('')
+          }, 5000)
+        } else {
+          // Both switches released - only clear alert if not moving AND alert was already showing
+          // Don't clear immediately - let the timeout handle it
+          console.log('[home.jsx] Both switches released, but keeping alert if it exists')
+        }
+      }
+    }
+    window.ipc.on?.('limitSwitch:update', handleLimitSwitchUpdate)
 
     window.ipc.send?.('tip:status:request')
     window.ipc.send?.('wire:feed:status:request')
@@ -647,6 +712,7 @@ export default function HomePage() {
     window.ipc.send?.('fluxMist:state:request')
     window.ipc.send?.('airBreeze:state:request')
     window.ipc.send?.('airJetPressure:state:request')
+    window.ipc.send?.('jig:height:request')
 
     return () => {
       window.ipc.off?.('component:height:ack', handleHeightAck)
@@ -662,7 +728,10 @@ export default function HomePage() {
       window.ipc.off?.('airBreeze:update', handleAirBreezeState)
       window.ipc.off?.('airJetPressure:update', handleAirJetPressureState)
       window.ipc.off?.('arduino:data:received', handleArduinoDataReceived)
-      // window.ipc.off?.('limitSwitch:update', handleLimitSwitchUpdate)
+      window.ipc.off?.('limitSwitch:update', handleLimitSwitchUpdate)
+      window.ipc.off?.('jig:height:ack', handleJigHeightAck)
+      window.ipc.off?.('jig:calibrate:ack', handleJigCalibrateAck)
+      window.ipc.off?.('jig:height:status', handleJigHeightStatus)
     }
   }, [])
 
@@ -686,12 +755,12 @@ export default function HomePage() {
         let newZ = typeof payload.z === 'number' && Number.isFinite(payload.z)
           ? payload.z
           : current.z
-        
+
         // Clamp Z to maximum of 0.00mm (home position)
         if (newZ > 0) {
           newZ = 0.0
         }
-        
+
         return {
           z: newZ,
           isMoving:
@@ -737,12 +806,12 @@ export default function HomePage() {
             const sign = isNegative ? '-' : ''
             return `${sign}${integer}.${decimal}`
           }
-          
+
           const HOME_POSITION = 0.0 // Home is at 0.00mm (top limit switch) - FIXED VALUE
           const homeFormatted = formatPosition(HOME_POSITION) // Home is always 0.00mm - never changes
           const currentFormatted = formatPosition(currentPosition.z) // Current position - updates dynamically (can be negative)
           const formattedValue = `${homeFormatted} → ${currentFormatted}`
-          
+
           return {
             ...entry,
             value: formattedValue,
@@ -799,6 +868,17 @@ export default function HomePage() {
         setIsReceivingArduinoData(false)
         setArduinoDataCount(0)
         setLastArduinoDataTime(null)
+
+        // Auto-homing: When app starts and connects to Arduino, automatically home the head
+        // Wait a bit for Arduino to initialize, then send home command
+        setTimeout(() => {
+          console.log('[SerialConnection] Auto-homing head on connection...')
+          if (typeof window !== 'undefined' && window.ipc?.send) {
+            window.ipc.send('axis:home', {
+              timestamp: Date.now(),
+            })
+          }
+        }, 1500)  // Wait 1.5 seconds for Arduino to be ready
       }
     }
 
@@ -966,6 +1046,40 @@ export default function HomePage() {
       timestamp: Date.now(),
     })
   }, [componentHeight])
+
+  // Jig calibration handlers
+  const handleJigHeightChange = useCallback((height) => {
+    setJigHeight(height)
+  }, [])
+
+  const handleJigCalibrate = useCallback((method) => {
+    if (typeof window === 'undefined' || !window.ipc?.send) {
+      setJigCalibrationStatus('IPC unavailable; cannot calibrate jig.')
+      return
+    }
+
+    if (method === 'auto') {
+      // Auto-calibrate from current position
+      console.log('[home.jsx] Sending jig:calibrate command')
+      setJigCalibrationStatus('Calibrating from current position...')
+      window.ipc.send('jig:calibrate', {
+        timestamp: Date.now(),
+      })
+    } else if (method === 'manual') {
+      // Manual calibration - set the entered height
+      if (jigHeight === null || jigHeight === undefined || jigHeight < 0) {
+        setJigCalibrationStatus('Please enter a valid jig height.')
+        return
+      }
+      console.log('[home.jsx] Sending jig:height:set command with height:', jigHeight)
+      setJigCalibrationStatus('Setting jig height...')
+      window.ipc.send('jig:height:set', {
+        height: jigHeight,
+        unit: 'mm',
+        timestamp: Date.now(),
+      })
+    }
+  }, [jigHeight])
 
   const handleTipTargetChange = useCallback((event) => {
     setTipTarget(event.target.value)
@@ -1473,57 +1587,39 @@ export default function HomePage() {
         return
       }
 
-      // Prevent sending command if trying to go above home position (0.00mm)
-      // direction > 0 means upward movement
-      if (axis.toLowerCase() === 'z' && direction > 0 && currentPosition.z >= 0) {
-        // Already at or above home position, show alert and don't send command
-        setLimitSwitchAlert(true)
-        setManualMovementStatus('Upper limit switch reached - can\'t go upward')
-        // Auto-hide alert after 3 seconds
-        setTimeout(() => {
-          setLimitSwitchAlert(false)
-          setManualMovementStatus('')
-        }, 3000)
-        console.warn('[ManualMovement] Cannot move above home position (0.00mm)')
-        return
-      }
-
       console.log('[ManualMovement] Sending jog command:', { axis, direction, stepSize: stepSizeValue })
-      
-      // Listen for acknowledgment
+
+      // Set up acknowledgment listener BEFORE sending command to avoid race condition
       const handleAck = (event, result) => {
+        console.log('[ManualMovement] Received axis:jog:ack:', result)
         if (result.error) {
           console.error('[ManualMovement] Jog error:', result.error)
           setManualMovementStatus('')
           setLimitSwitchAlert(false)
         } else {
-          console.log('[ManualMovement] Jog completed:', result.status)
-          // Check if limit switch was reached (backup check from backend)
-          if (result.limitReached) {
-            setLimitSwitchAlert(true)
-            setManualMovementStatus('Upper limit switch reached - can\'t go upward')
-            // Auto-hide alert after 3 seconds
-            setTimeout(() => {
-              setLimitSwitchAlert(false)
-              setManualMovementStatus('')
-            }, 3000)
-          } else {
-            setLimitSwitchAlert(false)
-            setManualMovementStatus('')
-          }
+          console.log('[ManualMovement] Jog command acknowledged:', result.status)
+          console.log('[ManualMovement] Note: Limit switch status will come from limitSwitch:update event')
+          // Don't clear status here - limit switch status comes from Arduino JSON updates
+          // The limitSwitch:update event will handle showing/hiding the alert
         }
+        // Clean up listener after receiving acknowledgment
         window.ipc.off?.('axis:jog:ack', handleAck)
       }
+
+      // Register listener BEFORE sending command
       window.ipc.on?.('axis:jog:ack', handleAck)
 
+      // Send command
       window.ipc.send('axis:jog', {
         axis,
         direction,
         stepSize: stepSizeValue,
         timestamp: Date.now(),
       })
+
+      console.log('[ManualMovement] Jog command sent, waiting for acknowledgment and Arduino limit switch updates...')
     },
-    [currentPosition.z]
+    []
   )
 
   const handleHome = useCallback(() => {
@@ -1533,7 +1629,7 @@ export default function HomePage() {
     }
 
     console.log('[ManualMovement] Sending home command')
-    
+
     // Listen for acknowledgment
     const handleAck = (event, result) => {
       if (result.error) {
@@ -1557,7 +1653,7 @@ export default function HomePage() {
     }
 
     console.log('[ManualMovement] Sending save command')
-    
+
     // Listen for acknowledgment
     const handleAck = (event, result) => {
       if (result.error) {
@@ -1795,13 +1891,13 @@ export default function HomePage() {
   // Component navigation items
   const componentNavItems = [
     { id: 'serial-port', label: 'Serial Port' },
-    // COMPONENT HEIGHT CONTROL COMMENTED OUT
     // { id: 'component-height', label: 'Component Height' },
+    { id: 'jig-calibration', label: 'Jig Calibration' },
     { id: 'manual-movement', label: 'Manual Movement' },
     { id: 'tip-heating', label: 'Tip Heating' },
+    { id: 'pad-metrics', label: 'Pad Metrics' },
     { id: 'wire-feed', label: 'Wire Feed' },
     { id: 'spool-wire', label: 'Spool Wire' },
-    { id: 'pad-metrics', label: 'Pad Metrics' },
     { id: 'fume-extractor', label: 'Fume Extractor' },
     { id: 'flux-mist', label: 'Flux Mist' },
     { id: 'air-control', label: 'Air Control' },
@@ -1847,17 +1943,17 @@ export default function HomePage() {
         {/* Conditionally render components based on activeComponent */}
         {activeComponent === 'serial-port' && (
           <SerialPortConnection
-          isConnected={isSerialConnected}
-          isConnecting={isSerialConnecting}
-          currentPort={currentSerialPort}
-          availablePorts={serialPorts}
-          onRefreshPorts={handleRefreshPorts}
-          onConnect={handleSerialConnect}
-          onDisconnect={handleSerialDisconnect}
-          connectionError={serialConnectionError}
-          isReceivingData={isReceivingArduinoData}
-          lastDataReceived={lastArduinoDataTime}
-          dataCount={arduinoDataCount}
+            isConnected={isSerialConnected}
+            isConnecting={isSerialConnecting}
+            currentPort={currentSerialPort}
+            availablePorts={serialPorts}
+            onRefreshPorts={handleRefreshPorts}
+            onConnect={handleSerialConnect}
+            onDisconnect={handleSerialDisconnect}
+            connectionError={serialConnectionError}
+            isReceivingData={isReceivingArduinoData}
+            lastDataReceived={lastArduinoDataTime}
+            dataCount={arduinoDataCount}
           />
         )}
 
@@ -1871,21 +1967,33 @@ export default function HomePage() {
           />
         )} */}
 
+        {activeComponent === 'jig-calibration' && (
+          <section className={styles.solderingControls} aria-label="Jig calibration controls">
+            <JigCalibration
+              jigHeight={jigHeight}
+              onJigHeightChange={handleJigHeightChange}
+              onCalibrate={handleJigCalibrate}
+              statusMessage={jigCalibrationStatus}
+              currentZPosition={currentPosition.z}
+            />
+          </section>
+        )}
+
         {activeComponent === 'manual-movement' && (
           <section className={styles.solderingControls} aria-label="Soldering iron controls">
             <ManualMovementControl
-            currentPosition={currentPosition}
-            stepSize={stepSize}
-            onStepSizeChange={setStepSize}
-            onJog={handleJog}
-            onHome={handleHome}
-            onSave={handleSave}
-            isMoving={currentPosition.isMoving}
-            statusMessage={manualMovementStatus}
-            limitSwitchAlert={limitSwitchAlert}
-            // limitSwitchMessage={limitSwitchMessage}
-            isSerialConnected={isSerialConnected}
-            isReceivingArduinoData={isReceivingArduinoData}
+              currentPosition={currentPosition}
+              stepSize={stepSize}
+              onStepSizeChange={setStepSize}
+              onJog={handleJog}
+              onHome={handleHome}
+              onSave={handleSave}
+              isMoving={currentPosition.isMoving}
+              statusMessage={manualMovementStatus}
+              limitSwitchAlert={limitSwitchAlert}
+              // limitSwitchMessage={limitSwitchMessage}
+              isSerialConnected={isSerialConnected}
+              isReceivingArduinoData={isReceivingArduinoData}
             />
           </section>
         )}
@@ -1893,43 +2001,16 @@ export default function HomePage() {
         {activeComponent === 'tip-heating' && (
           <section className={styles.solderingControls} aria-label="Soldering iron controls">
             <TipHeatingControl
-            tipTarget={tipTarget}
-            onTipTargetChange={handleTipTargetChange}
-            onApplyTipTarget={handleApplyTipTarget}
-            isHeaterEnabled={isHeaterEnabled}
-            onToggleHeater={handleToggleHeater}
-            heaterStatus={heaterStatus}
-            currentTemperature={currentTipTemperature ?? calibration.find((entry) => entry.label === 'Tip Temp')?.value}
-            padCategory={padCategory}
-            compensatedTemperature={compensatedTemperature}
-            baseTemperature={baseTemperature}
-            />
-          </section>
-        )}
-
-        {activeComponent === 'wire-feed' && (
-          <section className={styles.solderingControls} aria-label="Soldering iron controls">
-            <WireFeedControl
-            calculatedLength={wireUsed}
-            wireDiameter={wireDiameter}
-            volumePerMm={volumePerMm}
-            status={wireFeedStatus}
-            message={wireFeedMessage}
-            onWireDiameterChange={handleWireDiameterChange}
-            onStart={handleWireFeedStart}
-            />
-          </section>
-        )}
-
-        {activeComponent === 'spool-wire' && (
-          <section className={styles.solderingControls} aria-label="Soldering iron controls">
-            <SpoolWireControl
-            spoolState={spoolState}
-            onSpoolConfigChange={() => { }}
-            onSpoolConfigSubmit={handleSpoolConfigSubmit}
-            onResetSpool={handleResetSpool}
-            onTareSpool={handleTareSpool}
-            statusMessage={spoolStatusMessage}
+              tipTarget={tipTarget}
+              onTipTargetChange={handleTipTargetChange}
+              onApplyTipTarget={handleApplyTipTarget}
+              isHeaterEnabled={isHeaterEnabled}
+              onToggleHeater={handleToggleHeater}
+              heaterStatus={heaterStatus}
+              currentTemperature={currentTipTemperature ?? calibration.find((entry) => entry.label === 'Tip Temp')?.value}
+              padCategory={padCategory}
+              compensatedTemperature={compensatedTemperature}
+              baseTemperature={baseTemperature}
             />
           </section>
         )}
@@ -1937,23 +2018,50 @@ export default function HomePage() {
         {activeComponent === 'pad-metrics' && (
           <section className={styles.solderingControls} aria-label="Soldering iron controls">
             <PadSolderingMetrics
-            padShape={padShape}
-            padDimensions={padDimensions}
-            solderHeight={solderHeight}
-            padArea={padArea}
-            padVolume={padVolume}
-            wireUsed={wireUsed}
-            stepsMoved={stepsMoved}
-            volumePerMm={volumePerMm}
-            padCategory={padCategory}
-            compensatedTemperature={compensatedTemperature}
-            baseTemperature={baseTemperature}
-            onShapeChange={handlePadShapeChange}
-            onDimensionChange={handlePadDimensionChange}
-            onSolderHeightChange={handleSolderHeightChange}
-            onCalculate={calculatePadMetrics}
-            onApplyCompensatedTemperature={handleApplyCompensatedTemperature}
-            isCalculating={isCalculatingMetrics}
+              padShape={padShape}
+              padDimensions={padDimensions}
+              solderHeight={solderHeight}
+              padArea={padArea}
+              padVolume={padVolume}
+              wireUsed={wireUsed}
+              stepsMoved={stepsMoved}
+              volumePerMm={volumePerMm}
+              padCategory={padCategory}
+              compensatedTemperature={compensatedTemperature}
+              baseTemperature={baseTemperature}
+              onShapeChange={handlePadShapeChange}
+              onDimensionChange={handlePadDimensionChange}
+              onSolderHeightChange={handleSolderHeightChange}
+              onCalculate={calculatePadMetrics}
+              onApplyCompensatedTemperature={handleApplyCompensatedTemperature}
+              isCalculating={isCalculatingMetrics}
+            />
+          </section>
+        )}
+
+        {activeComponent === 'wire-feed' && (
+          <section className={styles.solderingControls} aria-label="Soldering iron controls">
+            <WireFeedControl
+              calculatedLength={wireUsed}
+              wireDiameter={wireDiameter}
+              volumePerMm={volumePerMm}
+              status={wireFeedStatus}
+              message={wireFeedMessage}
+              onWireDiameterChange={handleWireDiameterChange}
+              onStart={handleWireFeedStart}
+            />
+          </section>
+        )}
+
+        {activeComponent === 'spool-wire' && (
+          <section className={styles.solderingControls} aria-label="Soldering iron controls">
+            <SpoolWireControl
+              spoolState={spoolState}
+              onSpoolConfigChange={() => { }}
+              onSpoolConfigSubmit={handleSpoolConfigSubmit}
+              onResetSpool={handleResetSpool}
+              onTareSpool={handleTareSpool}
+              statusMessage={spoolStatusMessage}
             />
           </section>
         )}
@@ -1961,13 +2069,13 @@ export default function HomePage() {
         {activeComponent === 'fume-extractor' && (
           <section className={styles.solderingControls} aria-label="Soldering iron controls">
             <FumeExtractorControl
-            enabled={fumeExtractor.enabled}
-            speed={fumeExtractor.speed}
-            autoMode={fumeExtractor.autoMode}
-            onToggle={toggleFumeExtractor}
-            onSpeedChange={handleFumeExtractorSpeedChange}
-            onAutoModeToggle={toggleFumeExtractorAutoMode}
-            statusMessage={fumeExtractorStatusMessage}
+              enabled={fumeExtractor.enabled}
+              speed={fumeExtractor.speed}
+              autoMode={fumeExtractor.autoMode}
+              onToggle={toggleFumeExtractor}
+              onSpeedChange={handleFumeExtractorSpeedChange}
+              onAutoModeToggle={toggleFumeExtractorAutoMode}
+              statusMessage={fumeExtractorStatusMessage}
             />
           </section>
         )}
@@ -1975,17 +2083,17 @@ export default function HomePage() {
         {activeComponent === 'flux-mist' && (
           <section className={styles.solderingControls} aria-label="Soldering iron controls">
             <FluxMistControl
-            isDispensing={fluxMist.isDispensing}
-            duration={fluxMist.duration}
-            flowRate={fluxMist.flowRate}
-            autoMode={fluxMist.autoMode}
-            onDispense={handleFluxMistDispense}
-            onDurationChange={handleFluxMistDurationChange}
-            onFlowRateChange={handleFluxMistFlowRateChange}
-            onAutoModeToggle={toggleFluxMistAutoMode}
-            statusMessage={fluxMistStatusMessage}
-            lastDispensed={fluxMist.lastDispensed}
-            fluxRemaining={fluxRemaining}
+              isDispensing={fluxMist.isDispensing}
+              duration={fluxMist.duration}
+              flowRate={fluxMist.flowRate}
+              autoMode={fluxMist.autoMode}
+              onDispense={handleFluxMistDispense}
+              onDurationChange={handleFluxMistDurationChange}
+              onFlowRateChange={handleFluxMistFlowRateChange}
+              onAutoModeToggle={toggleFluxMistAutoMode}
+              statusMessage={fluxMistStatusMessage}
+              lastDispensed={fluxMist.lastDispensed}
+              fluxRemaining={fluxRemaining}
             />
           </section>
         )}
@@ -1993,30 +2101,30 @@ export default function HomePage() {
         {activeComponent === 'air-control' && (
           <section className={styles.solderingControls} aria-label="Soldering iron controls">
             <AirControl
-            airBreezeEnabled={airBreeze.enabled}
-            airBreezeActive={airBreeze.isActive}
-            airBreezeDuration={airBreeze.duration}
-            airBreezeIntensity={airBreeze.intensity}
-            airBreezeAutoMode={airBreeze.autoMode}
-            onAirBreezeToggle={toggleAirBreeze}
-            onAirBreezeActivate={handleAirBreezeActivate}
-            onAirBreezeDurationChange={handleAirBreezeDurationChange}
-            onAirBreezeIntensityChange={handleAirBreezeIntensityChange}
-            onAirBreezeAutoModeToggle={toggleAirBreezeAutoMode}
-            airBreezeLastActivated={airBreeze.lastActivated}
-            airBreezeStatusMessage={airBreezeStatusMessage}
-            airJetEnabled={airJetPressure.enabled}
-            airJetActive={airJetPressure.isActive}
-            airJetDuration={airJetPressure.duration}
-            airJetPressure={airJetPressure.pressure}
-            airJetAutoMode={airJetPressure.autoMode}
-            onAirJetToggle={toggleAirJetPressure}
-            onAirJetActivate={handleAirJetPressureActivate}
-            onAirJetDurationChange={handleAirJetPressureDurationChange}
-            onAirJetPressureChange={handleAirJetPressurePressureChange}
-            onAirJetAutoModeToggle={toggleAirJetPressureAutoMode}
-            airJetLastActivated={airJetPressure.lastActivated}
-            airJetStatusMessage={airJetPressureStatusMessage}
+              airBreezeEnabled={airBreeze.enabled}
+              airBreezeActive={airBreeze.isActive}
+              airBreezeDuration={airBreeze.duration}
+              airBreezeIntensity={airBreeze.intensity}
+              airBreezeAutoMode={airBreeze.autoMode}
+              onAirBreezeToggle={toggleAirBreeze}
+              onAirBreezeActivate={handleAirBreezeActivate}
+              onAirBreezeDurationChange={handleAirBreezeDurationChange}
+              onAirBreezeIntensityChange={handleAirBreezeIntensityChange}
+              onAirBreezeAutoModeToggle={toggleAirBreezeAutoMode}
+              airBreezeLastActivated={airBreeze.lastActivated}
+              airBreezeStatusMessage={airBreezeStatusMessage}
+              airJetEnabled={airJetPressure.enabled}
+              airJetActive={airJetPressure.isActive}
+              airJetDuration={airJetPressure.duration}
+              airJetPressure={airJetPressure.pressure}
+              airJetAutoMode={airJetPressure.autoMode}
+              onAirJetToggle={toggleAirJetPressure}
+              onAirJetActivate={handleAirJetPressureActivate}
+              onAirJetDurationChange={handleAirJetPressureDurationChange}
+              onAirJetPressureChange={handleAirJetPressurePressureChange}
+              onAirJetAutoModeToggle={toggleAirJetPressureAutoMode}
+              airJetLastActivated={airJetPressure.lastActivated}
+              airJetStatusMessage={airJetPressureStatusMessage}
             />
           </section>
         )}
@@ -2024,17 +2132,17 @@ export default function HomePage() {
         {activeComponent === 'sequence-monitor' && (
           <section className={styles.solderingControls} aria-label="Soldering iron controls">
             <SequenceMonitor
-            sequenceState={sequenceState}
-            onStart={handleSequenceStart}
-            onStop={handleSequenceStop}
-            onPause={handleSequencePause}
-            onResume={handleSequenceResume}
-            padPositions={[
-              {
-                // Single-axis machine: Only Z-axis (X and Y removed)
-                z: Number.parseFloat(solderHeight || 0),
-              }
-            ]}
+              sequenceState={sequenceState}
+              onStart={handleSequenceStart}
+              onStop={handleSequenceStop}
+              onPause={handleSequencePause}
+              onResume={handleSequenceResume}
+              padPositions={[
+                {
+                  // Single-axis machine: Only Z-axis (X and Y removed)
+                  z: Number.parseFloat(solderHeight || 0),
+                }
+              ]}
             />
           </section>
         )}

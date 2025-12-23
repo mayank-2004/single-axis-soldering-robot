@@ -1,0 +1,296 @@
+.controlCard {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px 24px;
+  border-radius: 20px;
+  background: rgba(10, 18, 32, 0.65);
+  border: 1px solid rgba(96, 165, 250, 0.2);
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.28);
+}
+
+.controlHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.controlTitle {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #cbd5f5;
+}
+
+.controlSubtitle {
+  font-size: 12px;
+  color: #94a3b8;
+  letter-spacing: 0.06em;
+}
+
+.controlBody {
+  display: grid;
+  gap: 16px;
+}
+
+.infoSection {
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+.infoText {
+  margin: 0;
+  font-size: 13px;
+  color: #cbd5f5;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+}
+
+.currentHeightSection {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 12px;
+}
+
+.currentHeightLabel {
+  font-size: 13px;
+  font-weight: 500;
+  color: #cbd5f5;
+  letter-spacing: 0.08em;
+}
+
+.currentHeightValue {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.heightNumber {
+  font-size: 20px;
+  font-weight: 600;
+  color: #cbd5f5;
+  letter-spacing: 0.06em;
+}
+
+.heightUnit {
+  font-size: 13px;
+  color: #94a3b8;
+  letter-spacing: 0.12em;
+}
+
+.inputSection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.inputLabel {
+  font-size: 13px;
+  font-weight: 500;
+  color: #cbd5f5;
+  letter-spacing: 0.08em;
+}
+
+.inputGroup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.heightInput {
+  flex: 1 1 120px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(15, 23, 42, 0.85);
+  color: #f8fafc;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.heightInput:focus-visible {
+  border-color: rgba(56, 189, 248, 0.8);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+.heightInput:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.heightInput::placeholder {
+  color: rgba(148, 163, 184, 0.6);
+}
+
+.inputUnit {
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  font-weight: 500;
+  min-width: 2.5rem;
+}
+
+.setButton {
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.3), rgba(37, 99, 235, 0.5));
+  color: #f8fafc;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.setButton:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.25);
+  border-color: rgba(56, 189, 248, 0.65);
+}
+
+.setButton:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.setButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.inputHint {
+  margin: 0;
+  font-size: 12px;
+  color: #94a3b8;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+}
+
+.calibrationSection {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 2px dashed rgba(148, 163, 184, 0.3);
+  border-radius: 12px;
+}
+
+.calibrationLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: #cbd5f5;
+  letter-spacing: 0.08em;
+}
+
+.calibrationInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.calibrationHint {
+  margin: 0;
+  font-size: 12px;
+  color: #94a3b8;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+}
+
+.positionInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: 8px;
+}
+
+.positionLabel {
+  font-size: 12px;
+  color: #94a3b8;
+  letter-spacing: 0.06em;
+}
+
+.positionValue {
+  font-size: 13px;
+  font-weight: 600;
+  color: #cbd5f5;
+  letter-spacing: 0.06em;
+}
+
+.calibrateButton {
+  padding: 12px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #f8fafc;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.4), rgba(5, 150, 105, 0.5));
+  border: 1px solid rgba(16, 185, 129, 0.5);
+  border-radius: 10px;
+  cursor: pointer;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.calibrateButton:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(16, 185, 129, 0.25);
+  border-color: rgba(16, 185, 129, 0.7);
+}
+
+.calibrateButton:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.calibrateButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.statusMessage {
+  padding: 12px 16px;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 10px;
+  font-size: 12px;
+  color: #cbd5f5;
+  letter-spacing: 0.06em;
+}
+
+.safetyNote {
+  display: flex;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 12px;
+}
+
+.safetyIcon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.safetyText {
+  margin: 0;
+  font-size: 12px;
+  color: #cbd5f5;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+}
+
+.safetyText strong {
+  color: #fbbf24;
+}

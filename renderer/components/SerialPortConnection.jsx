@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import styles from './SerialPortConnection.module.css'
 
 export default function SerialPortConnection({
@@ -14,17 +14,17 @@ export default function SerialPortConnection({
   lastDataReceived = null,
   dataCount = 0,
 }) {
-  const [selectedPort, setSelectedPort] = React.useState('')
-  const [baudRate, setBaudRate] = React.useState('115200')
-  const [isRefreshing, setIsRefreshing] = React.useState(false)
+  const [selectedPort, setSelectedPort] = useState('')
+  const [baudRate, setBaudRate] = useState('115200')
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (currentPort) {
       setSelectedPort(currentPort)
     }
   }, [currentPort])
 
-  const handleRefreshPorts = React.useCallback(async () => {
+  const handleRefreshPorts = useCallback(async () => {
     setIsRefreshing(true)
     try {
       await onRefreshPorts()
@@ -33,7 +33,7 @@ export default function SerialPortConnection({
     }
   }, [onRefreshPorts])
 
-  const handleConnect = React.useCallback(() => {
+  const handleConnect = useCallback(() => {
     if (!selectedPort) {
       return
     }
@@ -45,12 +45,11 @@ export default function SerialPortConnection({
     })
   }, [selectedPort, baudRate, onConnect])
 
-  const handleDisconnect = React.useCallback(() => {
+  const handleDisconnect = useCallback(() => {
     onDisconnect()
   }, [onDisconnect])
 
-  React.useEffect(() => {
-    // Refresh ports on mount
+  useEffect(() => {
     handleRefreshPorts()
   }, [handleRefreshPorts])
 

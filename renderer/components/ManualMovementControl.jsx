@@ -278,7 +278,9 @@ export default function ManualMovementControl({
         {limitSwitchAlert && (
           <div className={styles.limitAlert} role="alert">
             <span className={styles.limitAlertIcon}>⚠️</span>
-            <span className={styles.limitAlertMessage}>Upper limit switch reached - can't go upward</span>
+            <span className={styles.limitAlertMessage}>
+              {statusMessage || 'Limit switch reached'}
+            </span>
           </div>
         )}
 

@@ -1,20 +1,19 @@
-import React from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import styles from './CameraView.module.css'
 
 export default function CameraView({ isActive = true }) {
-  const videoRef = React.useRef(null)
-  const streamRef = React.useRef(null)
-  const [isStreaming, setIsStreaming] = React.useState(false)
-  const [error, setError] = React.useState(null)
-  const [availableDevices, setAvailableDevices] = React.useState([])
-  const [selectedDeviceId, setSelectedDeviceId] = React.useState(null)
-  const [facingMode, setFacingMode] = React.useState('environment') // 'user' or 'environment'
+  const videoRef = useRef(null)
+  const streamRef = useRef(null)
+  const [isStreaming, setIsStreaming] = useState(false)
+  const [error, setError] = useState(null)
+  const [availableDevices, setAvailableDevices] = useState([])
+  const [selectedDeviceId, setSelectedDeviceId] = useState(null)
+  const [facingMode, setFacingMode] = useState('environment') // 'user' or 'environment'
 
   // Request camera permission first, then enumerate devices
-  const requestPermissionAndEnumerate = React.useCallback(async () => {
+  const requestPermissionAndEnumerate = useCallback(async () => {
     try {
       // First, request permission by trying to get user media with minimal constraints
-      // This will trigger the permission prompt if needed
       try {
         const tempStream = await navigator.mediaDevices.getUserMedia({ 
           video: true,
@@ -49,7 +48,7 @@ export default function CameraView({ isActive = true }) {
   }, [selectedDeviceId])
 
   // Get available video devices (legacy method - kept for fallback)
-  const enumerateDevices = React.useCallback(async () => {
+  const enumerateDevices = useCallback(async () => {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices()
       const videoDevices = devices.filter(device => device.kind === 'videoinput')
@@ -66,7 +65,7 @@ export default function CameraView({ isActive = true }) {
   }, [selectedDeviceId])
 
   // Start camera stream
-  const startStream = React.useCallback(async () => {
+  const startStream = useCallback(async () => {
     if (!videoRef.current) return
 
     try {
@@ -122,7 +121,7 @@ export default function CameraView({ isActive = true }) {
   }, [selectedDeviceId, facingMode])
 
   // Stop camera stream
-  const stopStream = React.useCallback(() => {
+  const stopStream = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop())
       streamRef.current = null
@@ -134,7 +133,7 @@ export default function CameraView({ isActive = true }) {
   }, [])
 
   // Initialize on mount - request permission first
-  React.useEffect(() => {
+  useEffect(() => {
     if (isActive) {
       // Use the new method that requests permission first
       requestPermissionAndEnumerate()
@@ -147,7 +146,7 @@ export default function CameraView({ isActive = true }) {
   }, [isActive]) // Only run on mount/unmount
 
   // Start stream when device is selected or active state changes
-  React.useEffect(() => {
+  useEffect(() => {
     if (isActive && (selectedDeviceId || availableDevices.length > 0)) {
       startStream()
     }
@@ -155,12 +154,12 @@ export default function CameraView({ isActive = true }) {
   }, [selectedDeviceId, isActive, availableDevices.length])
 
   // Handle device selection change
-  const handleDeviceChange = React.useCallback((e) => {
+  const handleDeviceChange = useCallback((e) => {
     setSelectedDeviceId(e.target.value)
   }, [])
 
   // Toggle stream
-  const handleToggleStream = React.useCallback(() => {
+  const handleToggleStream = useCallback(() => {
     if (isStreaming) {
       stopStream()
     } else {
@@ -169,7 +168,7 @@ export default function CameraView({ isActive = true }) {
   }, [isStreaming, startStream, stopStream])
 
   // Capture snapshot
-  const handleCaptureSnapshot = React.useCallback(() => {
+  const handleCaptureSnapshot = useCallback(() => {
     if (!videoRef.current || !isStreaming) return
 
     const canvas = document.createElement('canvas')

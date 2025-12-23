@@ -524,6 +524,10 @@ export default class SerialPortManager extends EventEmitter {
         // Looks like JSON - try Arduino data handler
         const arduinoData = this.arduinoHandler.parseArduinoData(trimmedLine)
         if (arduinoData && Object.keys(arduinoData).length > 0) {
+          // Debug: Log limit switch data if present
+          if (arduinoData.limitSwitches) {
+            console.log('[SerialPortManager] Parsed limit switches from Arduino:', arduinoData.limitSwitches)
+          }
           // Only emit if we got valid parsed data (not just noise)
           // Emit Arduino data event with parsed updates
           this.emit('arduino:data', arduinoData)

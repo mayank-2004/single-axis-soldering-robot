@@ -50,6 +50,7 @@ export default class ArduinoDataHandler extends EventEmitter {
       (data.airBreeze && typeof data.airBreeze === 'object') ||
       (data.airJet && typeof data.airJet === 'object') ||
       (data.seq && typeof data.seq === 'object') ||
+      (data.limits && typeof data.limits === 'object') ||
       (typeof data.height === 'number')
 
     // If no valid Arduino fields found, this is probably noise/invalid data
@@ -64,6 +65,23 @@ export default class ArduinoDataHandler extends EventEmitter {
       updates.position = {
         z: parseFloat(data.pos.z) || 0,
         isMoving: Boolean(data.pos.moving),
+      }
+    }
+
+    // Limit switch data (for warnings)
+    if (data.limits && typeof data.limits === 'object') {
+      const upperLimit = Boolean(data.limits.upper)
+      const lowerLimit = Boolean(data.limits.lower)
+      console.log('[ArduinoDataHandler] Parsed limit switches - Upper:', upperLimit, 'Lower:', lowerLimit)
+      updates.limitSwitches = {
+        upper: upperLimit,  // Upper limit (home position)
+        lower: lowerLimit,  // Lower limit (bottom)
+      }
+    } else {
+      // Debug: Log if limits object is missing
+      if (data.pos || data.temp) {
+        // Only log if this looks like valid Arduino data but missing limits
+        console.log('[ArduinoDataHandler] Arduino data received but no limits object:', Object.keys(data))
       }
     }
 

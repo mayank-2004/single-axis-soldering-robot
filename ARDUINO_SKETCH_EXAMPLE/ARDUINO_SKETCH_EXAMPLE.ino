@@ -3,7 +3,7 @@
 
 // Serial communication settings
 const unsigned long BAUD_RATE = 115200;
-const unsigned long UPDATE_INTERVAL = 100; // Send data every 100ms
+const unsigned long UPDATE_INTERVAL = 500; // Send data every 100ms
 
 // Mock sensor values (replace with actual sensor readings)
 float zPosition = 0.0;  // Z-axis position in mm - starts at home
@@ -72,17 +72,24 @@ const int LIMIT_SWITCH_Z_MIN_PIN = 2;
 const int LIMIT_SWITCH_Z_MAX_PIN = 3;
 
 // Position system: Home is at 0.00mm (Z_MAX limit switch at top)
-const float Z_MAX_POSITION = 60.0f;  // mm - Maximum travel distance from home (downward)
+const float Z_MAX_POSITION = 60.0f;  // mm - Maximum travel distance from home (downward) - NOT USED (limit switches control movement)
 const float Z_HOME_POSITION = 0.0f;  // mm - Home position (at Z_MAX limit switch)
 // Formula: (Motor steps per revolution × Microstepping) / (Lead screw pitch in mm per revolution)
 float zStepsPerMm = 204.1f;  // Changed to float for precision, and made variable for calibration
-const unsigned int Z_STEP_DELAY_US = 200; // Default pulse width for stepper (microseconds)
+const unsigned int Z_STEP_DELAY_US = 100; // Default pulse width for stepper (microseconds)
 const unsigned int Z_STEP_DELAY_MIN = 100; // Minimum delay (fastest speed) - adjust based on your stepper motor
 const unsigned int Z_STEP_DELAY_MAX = 2000; // Maximum delay (slowest speed)
 
 // Current movement speed (delay in microseconds)
 // Lower value = faster movement, Higher value = slower movement
 unsigned int currentZStepDelay = Z_STEP_DELAY_US; // Default speed
+
+// Tone-based stepper control configuration (optimized from testing-25.ino)
+// Tone duration for each step pulse (milliseconds)
+const unsigned int TONE_PULSE_DURATION_MS = 2;  // Duration of tone pulse (like testing-25.ino)
+// Tone frequency limits (Arduino tone() supports 31-65535 Hz)
+const unsigned long TONE_FREQ_MIN = 31;      // Minimum frequency (slowest)
+const unsigned long TONE_FREQ_MAX = 65535;   // Maximum frequency (fastest)
 
 // Wire Feed stepper configuration
 const int WIRE_FEED_STEP_PIN = 9;
@@ -249,6 +256,11 @@ void sendMachineState() {
   JsonObject pos = doc.createNestedObject("pos");
   pos["z"] = zPosition;
   pos["moving"] = isMoving;
+  
+  // Limit switch status (for app warnings)
+  JsonObject limits = doc.createNestedObject("limits");
+  limits["upper"] = isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN);  // Upper limit (home position)
+  limits["lower"] = isLimitSwitchTriggered(LIMIT_SWITCH_Z_MIN_PIN);  // Lower limit (bottom)
   
   // Temperature data
   JsonObject temp = doc.createNestedObject("temp");
@@ -446,7 +458,9 @@ void processCommands() {
           
           // Single-axis machine: only Z-axis movement is supported
           if (axis == "z" || axis == "Z") {
-            moveZAxisByDistance(distance);
+            moveZAxisByDistance(distance, speedDelay);
+            // Note: moveZAxisByDistance() now calls sendMachineState() internally
+            // so we don't need to call it again here (but calling twice is harmless)
           } else {
             Serial.println("[CMD] WARNING: X/Y axis not supported (single-axis machine)");
           }
@@ -546,13 +560,24 @@ bool isLimitSwitchTriggered(int pin) {
   return digitalRead(pin) == LOW;
 }
 
-// void pulseZStep() {
+// Optimized stepper pulse function using tone() (like testing-25.ino)
+// tone() uses hardware PWM for more efficient stepper control
 void pulseZStep(unsigned int stepDelayUs = 0) {
   unsigned int delay = (stepDelayUs > 0) ? stepDelayUs : currentZStepDelay;
-  digitalWrite(STEPPER_Z_STEP_PIN, HIGH);
-  delayMicroseconds(delay);
-  digitalWrite(STEPPER_Z_STEP_PIN, LOW);
-  delayMicroseconds(delay);
+  
+  // Convert delay (microseconds) to frequency (Hz) for tone()
+  // Formula: frequency = 1,000,000 / (delay * 2)
+  // The *2 accounts for both HIGH and LOW phases of the pulse
+  unsigned long frequency = 1000000UL / (static_cast<unsigned long>(delay) * 2UL);
+  
+  // Clamp frequency to valid range for Arduino tone() function
+  if (frequency < TONE_FREQ_MIN) frequency = TONE_FREQ_MIN;
+  if (frequency > TONE_FREQ_MAX) frequency = TONE_FREQ_MAX;
+  
+  // Use tone() for hardware-accelerated PWM (more efficient than manual HIGH/LOW)
+  tone(STEPPER_Z_STEP_PIN, frequency);
+  delay(TONE_PULSE_DURATION_MS);  // Duration of pulse (like testing-25.ino uses delay(2))
+  noTone(STEPPER_Z_STEP_PIN);
 }
 
 void applyZMovement(long steps, bool moveUp, unsigned int stepDelayUs = 0) {
@@ -570,23 +595,30 @@ void applyZMovement(long steps, bool moveUp, unsigned int stepDelayUs = 0) {
   if (delay > Z_STEP_DELAY_MAX) delay = Z_STEP_DELAY_MAX;
 
   long stepsCompleted = 0;
-  // Optimized: Check limit switches less frequently for better performance
-  const unsigned int LIMIT_CHECK_INTERVAL = 100; // Check every 100 steps
+  // Check limit switches every step for immediate detection and safety
+  // This ensures warnings show immediately when limit switches trigger
+  bool limitHit = false;
   
   while (stepsCompleted < steps) {
-    // Safety: check limit switches periodically (not every step for better performance)
-    if (stepsCompleted % LIMIT_CHECK_INTERVAL == 0) {
-      if (!moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MIN_PIN)) {
-        break; // Hit bottom limit
-      }
-      if (moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN)) {
-        zPosition = Z_HOME_POSITION;  // 0.00mm - reached home
-        break;
-      }
+    // Check limit switches EVERY STEP for immediate detection
+    // This ensures the app gets notified immediately when a limit switch is triggered
+    if (!moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MIN_PIN)) {
+      limitHit = true;
+      break; // Hit bottom limit
+    }
+    if (moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN)) {
+      zPosition = Z_HOME_POSITION;  // 0.00mm - reached home
+      limitHit = true;
+      break;
     }
 
     pulseZStep(delay);
     stepsCompleted++;
+  }
+  
+  // If limit switch was hit, stop movement immediately
+  if (limitHit) {
+    isMoving = false;  // Stop movement flag immediately
   }
 
   // Calculate position change (optimized - removed debug Serial prints)
@@ -596,6 +628,13 @@ void applyZMovement(long steps, bool moveUp, unsigned int stepDelayUs = 0) {
   // Clamp: cannot go above home (0.00mm), can go negative (downward)
   if (zPosition > Z_HOME_POSITION) {
     zPosition = Z_HOME_POSITION;
+  }
+  
+  // If limit switch was hit, ensure position is correct
+  if (limitHit) {
+    if (moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN)) {
+      zPosition = Z_HOME_POSITION;  // At home position
+    }
   }
 }
 
@@ -611,16 +650,22 @@ void moveZAxisByDistance(float distanceMm, unsigned int stepDelayUs) {
   // Check limit switches before moving
   // Cannot move down if at bottom limit (safety check)
   if (!moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MIN_PIN)) {
+    isMoving = false;  // Ensure movement flag is cleared
+    sendMachineState();  // Immediately notify app that limit switch is triggered
     return;  // Already at bottom, cannot move further down
   }
   // Cannot move up if already at home (0.00mm)
   if (moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN)) {
     zPosition = Z_HOME_POSITION;  // Ensure at home
+    isMoving = false;  // Ensure movement flag is cleared
+    sendMachineState();  // Immediately notify app that limit switch is triggered
     return;
   }
   // Also check if already at home and trying to move up
   if (moveUp && zPosition >= Z_HOME_POSITION) {
     zPosition = Z_HOME_POSITION;  // Clamp to home
+    isMoving = false;  // Ensure movement flag is cleared
+    sendMachineState();  // Immediately notify app
     return;
   }
 
@@ -655,7 +700,21 @@ void moveZAxisByDistance(float distanceMm, unsigned int stepDelayUs) {
 
   isMoving = true;
   applyZMovement(stepsToMove, actualDistance > 0, delay);
-  isMoving = false;
+  
+  // Check if limit switch was hit during movement (applyZMovement may have set isMoving = false)
+  bool limitHitDuringMovement = false;
+  if (actualDistance > 0 && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN)) {
+    limitHitDuringMovement = true;
+    zPosition = Z_HOME_POSITION;  // Ensure at home
+  } else if (actualDistance < 0 && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MIN_PIN)) {
+    limitHitDuringMovement = true;
+  }
+  
+  isMoving = false;  // Movement complete
+  
+  // Immediately send state update so app knows if limit switch was hit
+  // This ensures warnings show immediately when limit switches trigger
+  sendMachineState();
 }
 
 void moveZAxisTo(float targetMm, unsigned int stepDelayUs) {
@@ -678,42 +737,50 @@ void homeZAxis(unsigned int stepDelayUs) {
   if (isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN)) {
     zPosition = Z_HOME_POSITION;  // Already at home
     Serial.println("[Home] Already at home position");
+    sendMachineState();  // Send status update
     return;
   }
 
-  Serial.println("[Home] Starting homing sequence...");
+  Serial.println("[Home] Starting homing sequence - moving upward until limit switch triggers...");
   
   isMoving = true;
   digitalWrite(STEPPER_Z_DIR_PIN, HIGH); // Move towards home (upward, towards Z_MAX limit switch)
 
-  // Calculate safety limit
-  const long maxSteps = static_cast<long>((Z_MAX_POSITION * 1.5f) * zStepsPerMm) + 1000;
-  
+  // Use ONLY limit switch - no Z_MAX_POSITION dependency
+  // This ensures homing works regardless of machine configuration
   long stepsTaken = 0;
+  const long SAFETY_MAX_STEPS = 100000;  // Large safety limit (only for failsafe, should never reach)
   
-  // Optimized: Simple while loop like testing-25.ino - direct and efficient
-  while (!isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN) && stepsTaken < maxSteps) {
+  // Move until limit switch triggers (like testing-25.ino - simple and reliable)
+  while (!isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN)) {
+    // Safety failsafe: if we've taken too many steps, something is wrong
+    if (stepsTaken >= SAFETY_MAX_STEPS) {
+      Serial.println("[Home] ERROR: Safety limit reached - limit switch may be disconnected!");
+      Serial.println("[Home] Stopping for safety. Check limit switch connection.");
+      break;
+    }
+    
     pulseZStep(delay);
     stepsTaken++;
     
-    // Reduced serial output - only every 5000 steps for better performance
+    // Progress update every 5000 steps
     if (stepsTaken % 5000 == 0) {
       Serial.print("[Home] Steps: ");
       Serial.println(stepsTaken);
     }
   }
 
-  // Safety check
-  if (stepsTaken >= maxSteps) {
-    Serial.println("[Home] WARNING: Max steps reached - check limit switch!");
-  }
-
   // Home position is 0.00mm (at Z_MAX limit switch)
   zPosition = Z_HOME_POSITION;  // 0.00mm
   isMoving = false;
   
-  Serial.print("[Home] Complete! Steps: ");
-  Serial.println(stepsTaken);
+  if (isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN)) {
+    Serial.print("[Home] Complete! Reached home position after ");
+    Serial.print(stepsTaken);
+    Serial.println(" steps.");
+  } else {
+    Serial.println("[Home] WARNING: Stopped before reaching limit switch!");
+  }
   
   // Immediately send state update to app
   sendMachineState();
@@ -723,11 +790,19 @@ void homeZAxis(unsigned int stepDelayUs) {
 // Wire feed helper functions
 // ----------------------------------
 
+// Optimized wire feed step function using tone() for consistency
 void pulseWireFeedStep() {
-  digitalWrite(WIRE_FEED_STEP_PIN, HIGH);
-  delayMicroseconds(WIRE_FEED_STEP_DELAY_US);
-  digitalWrite(WIRE_FEED_STEP_PIN, LOW);
-  delayMicroseconds(WIRE_FEED_STEP_DELAY_US);
+  // Convert delay to frequency for tone()
+  unsigned long frequency = 1000000UL / (static_cast<unsigned long>(WIRE_FEED_STEP_DELAY_US) * 2UL);
+  
+  // Clamp frequency to valid range
+  if (frequency < TONE_FREQ_MIN) frequency = TONE_FREQ_MIN;
+  if (frequency > TONE_FREQ_MAX) frequency = TONE_FREQ_MAX;
+  
+  // Use tone() for hardware-accelerated PWM
+  tone(WIRE_FEED_STEP_PIN, frequency);
+  delay(TONE_PULSE_DURATION_MS);
+  noTone(WIRE_FEED_STEP_PIN);
 }
 
 void feedWireByLength(float lengthMm) {

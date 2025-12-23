@@ -146,6 +146,12 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
     sendPositionUpdate(undefined, payload)
   })
 
+  // Listen for limit switch updates from Arduino
+  registerHardwareListener('limitSwitch:update', (payload) => {
+    console.log('[robotController] Forwarding limitSwitch:update to renderer:', payload)
+    sendToRenderer('limitSwitch:update', payload)
+  })
+
   // Listen for actual Arduino JSON data reception (for connection status tracking)
   registerHardwareListener('arduino:data:received', (payload) => {
     sendToRenderer('arduino:data:received', { timestamp: payload.timestamp })
@@ -159,6 +165,91 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
   registerIpcListener('component:height:set', (event, payload = {}) => {
     const result = hardware.setComponentHeight(payload.height, payload.unit)
     event.sender.send('component:height:ack', result)
+  })
+
+  // Jig calibration handlers
+  registerIpcListener('jig:height:set', (event, payload = {}) => {
+    console.log('[robotController] jig:height:set received, payload:', payload)
+    try {
+      if (!hardware || typeof hardware.setJigHeight !== 'function') {
+        console.error('[robotController] Hardware not initialized or setJigHeight method not available')
+        const errorResult = { error: 'Hardware not initialized' }
+        console.log('[robotController] Sending error result:', errorResult)
+        event.sender.send('jig:height:ack', errorResult)
+        return
+      }
+      const result = hardware.setJigHeight(payload.height, payload.unit)
+      console.log('[robotController] setJigHeight returned:', result)
+      if (!result || typeof result !== 'object') {
+        console.error('[robotController] setJigHeight returned invalid result:', result)
+        const errorResult = { error: 'Invalid response from hardware' }
+        console.log('[robotController] Sending error result:', errorResult)
+        event.sender.send('jig:height:ack', errorResult)
+        return
+      }
+      console.log('[robotController] Sending success result:', result)
+      event.sender.send('jig:height:ack', result)
+    } catch (error) {
+      console.error('[robotController] Error in jig:height:set:', error)
+      const errorResult = { error: error.message || 'Failed to set jig height' }
+      console.log('[robotController] Sending catch error result:', errorResult)
+      event.sender.send('jig:height:ack', errorResult)
+    }
+  })
+
+  registerIpcListener('jig:calibrate', (event) => {
+    console.log('[robotController] jig:calibrate received')
+    try {
+      if (!hardware || typeof hardware.calibrateJigFromPosition !== 'function') {
+        console.error('[robotController] Hardware not initialized or calibrateJigFromPosition method not available')
+        const errorResult = { error: 'Hardware not initialized' }
+        console.log('[robotController] Sending error result:', errorResult)
+        event.sender.send('jig:calibrate:ack', errorResult)
+        return
+      }
+      const result = hardware.calibrateJigFromPosition()
+      console.log('[robotController] calibrateJigFromPosition returned:', result)
+      if (!result || typeof result !== 'object') {
+        console.error('[robotController] calibrateJigFromPosition returned invalid result:', result)
+        const errorResult = { error: 'Invalid response from hardware' }
+        console.log('[robotController] Sending error result:', errorResult)
+        event.sender.send('jig:calibrate:ack', errorResult)
+        return
+      }
+      console.log('[robotController] Sending success result:', result)
+      event.sender.send('jig:calibrate:ack', result)
+    } catch (error) {
+      console.error('[robotController] Error in jig:calibrate:', error)
+      const errorResult = { error: error.message || 'Failed to calibrate jig' }
+      console.log('[robotController] Sending catch error result:', errorResult)
+      event.sender.send('jig:calibrate:ack', errorResult)
+    }
+  })
+
+  registerIpcListener('jig:height:request', (event) => {
+    try {
+      if (!hardware || typeof hardware.getJigHeight !== 'function') {
+        console.error('[robotController] Hardware not initialized or getJigHeight method not available')
+        event.sender.send('jig:height:status', {
+          jigHeight: null,
+          status: 'not_calibrated',
+          error: 'Hardware not initialized',
+        })
+        return
+      }
+      const jigHeight = hardware.getJigHeight()
+      event.sender.send('jig:height:status', {
+        jigHeight,
+        status: jigHeight !== null ? 'calibrated' : 'not_calibrated',
+      })
+    } catch (error) {
+      console.error('[robotController] Error in jig:height:request:', error)
+      event.sender.send('jig:height:status', {
+        jigHeight: null,
+        status: 'not_calibrated',
+        error: error.message || 'Failed to get jig height',
+      })
+    }
   })
 
   registerIpcListener('flux:state:request', (event) => {
@@ -415,10 +506,20 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
   })
 
   registerIpcListener('axis:jog', async (event, payload = {}) => {
-    const { axis, direction, stepSize } = payload
-    const result = await hardware.jog(axis, direction, stepSize)
-    event.sender.send('axis:jog:ack', result)
-    sendPositionUpdate(event.sender)
+    console.log('[robotController] Received axis:jog command:', payload)
+    try {
+      const { axis, direction, stepSize } = payload
+      const result = await hardware.jog(axis, direction, stepSize)
+      console.log('[robotController] Jog result:', result)
+      
+      // Ensure result is always an object
+      const response = result || { status: 'Command sent', position: hardware.getPosition() }
+      event.sender.send('axis:jog:ack', response)
+      sendPositionUpdate(event.sender)
+    } catch (error) {
+      console.error('[robotController] Error handling jog command:', error)
+      event.sender.send('axis:jog:ack', { error: error.message })
+    }
   })
 
   registerIpcListener('axis:home', async (event) => {
