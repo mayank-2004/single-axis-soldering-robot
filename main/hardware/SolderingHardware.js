@@ -64,7 +64,7 @@ export default class SolderingHardware extends EventEmitter {
       calibration: initialCalibration.map((entry) => ({ ...entry })),
       // Z-axis movement speed (1-100%, where 100% = fastest, 1% = slowest)
       // This controls the delay between stepper motor steps
-      zAxisSpeed: options.zAxisSpeed || 90,
+      zAxisSpeed: options.zAxisSpeed || 95, // Increased default from 90% to 95% for faster movement
       fans: { machine: false, tip: false },
       fumeExtractor: {
         enabled: false,
@@ -166,6 +166,9 @@ export default class SolderingHardware extends EventEmitter {
     this._updateCalibration('Feed Rate', {
       value: this.state.wireFeed.currentFeedRate.toFixed(1),
     })
+    
+    // Initialize Z-axis speed display with calculated value
+    this._updateZAxisSpeedDisplay()
   }
 
   async connect(portPath = null, config = {}) {
@@ -920,6 +923,38 @@ export default class SolderingHardware extends EventEmitter {
   }
 
   /**
+   * Calculate Z-axis movement speed in mm/s from speed percentage
+   * @param {number} speedPercent - Speed percentage (1-100)
+   * @returns {number} Speed in mm/s
+   */
+  _calculateZAxisSpeedMmPerSecond(speedPercent) {
+    // Arduino constants
+    const Z_STEP_DELAY_MIN = 50  // microseconds (fastest) - reduced for higher speed
+    const Z_STEP_DELAY_MAX = 800 // microseconds (slowest) - reduced from 2000 for faster movement
+    // Steps per mm is now calculated: (200 × 16) / 2.0 = 1600 steps/mm (for 2mm pitch, 16 microstepping)
+    const Z_STEPS_PER_MM = 1600 // Updated to match calculated value from Arduino
+    
+    // Convert percentage to step delay (same formula as Arduino)
+    // Formula: delay = MAX - ((speed - 1) / (100 - 1)) * (MAX - MIN)
+    const stepDelayUs = Z_STEP_DELAY_MAX - ((speedPercent - 1) / 99) * (Z_STEP_DELAY_MAX - Z_STEP_DELAY_MIN)
+    
+    // Calculate speed: Speed (mm/s) = (1,000,000 / stepDelay_us) / stepsPerMm
+    const speedMmPerSecond = (1000000 / stepDelayUs) / Z_STEPS_PER_MM
+    
+    return speedMmPerSecond
+  }
+
+  /**
+   * Update Z-axis speed display in calibration
+   */
+  _updateZAxisSpeedDisplay() {
+    const speedMmPerSecond = this._calculateZAxisSpeedMmPerSecond(this.state.zAxisSpeed)
+    this._updateCalibration('Speed', {
+      value: speedMmPerSecond.toFixed(1), // 1 decimal place for mm/s
+    })
+  }
+
+  /**
    * Set Z-axis movement speed
    * @param {number} speed - Speed percentage (1-100), where 100% = fastest, 1% = slowest
    * @returns {object} Status object
@@ -927,6 +962,9 @@ export default class SolderingHardware extends EventEmitter {
   setZAxisSpeed(speed) {
     const speedValue = Math.max(1, Math.min(100, Number(speed) || 50))
     this.state.zAxisSpeed = speedValue
+    
+    // Update LCD display with calculated speed
+    this._updateZAxisSpeedDisplay()
     
     // If connected to hardware, send speed command to Arduino
     if (this.mode === 'hardware' && this.serialManager && this.connected) {

@@ -151,6 +151,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  user-select: none; /* Prevent text selection during drag */
 }
 
 .video {
@@ -194,6 +195,32 @@
   color: rgba(159, 247, 204, 0.6);
   letter-spacing: 0.1em;
   text-transform: uppercase;
+}
+
+.zoomResetButton {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 6px 12px;
+  background: rgba(18, 55, 41, 0.9);
+  border: 1px solid rgba(115, 255, 238, 0.4);
+  border-radius: 6px;
+  color: #9ff7ff;
+  font-family: 'Share Tech Mono', 'VT323', 'Roboto Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  z-index: 10;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.zoomResetButton:hover {
+  background: rgba(18, 55, 41, 1);
+  border-color: rgba(115, 255, 238, 0.6);
+  transform: scale(1.05);
 }
 
 @media (max-width: 768px) {

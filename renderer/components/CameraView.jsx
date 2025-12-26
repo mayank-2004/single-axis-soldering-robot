@@ -4,11 +4,19 @@ import styles from './CameraView.module.css'
 export default function CameraView({ isActive = true }) {
   const videoRef = useRef(null)
   const streamRef = useRef(null)
+  const videoContainerRef = useRef(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const [error, setError] = useState(null)
   const [availableDevices, setAvailableDevices] = useState([])
   const [selectedDeviceId, setSelectedDeviceId] = useState(null)
   const [facingMode, setFacingMode] = useState('environment') // 'user' or 'environment'
+  
+  // Zoom functionality state
+  const [zoomLevel, setZoomLevel] = useState(1) // 1 = no zoom, >1 = zoomed in
+  const [panX, setPanX] = useState(0) // Pan offset X (pixels)
+  const [panY, setPanY] = useState(0) // Pan offset Y (pixels)
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
 
   // Request camera permission first, then enumerate devices
   const requestPermissionAndEnumerate = useCallback(async () => {
@@ -190,6 +198,103 @@ export default function CameraView({ isActive = true }) {
     }, 'image/png')
   }, [isStreaming])
 
+  // Handle double-click to zoom
+  const handleDoubleClick = useCallback((e) => {
+    if (!videoRef.current || !videoContainerRef.current || !isStreaming) return
+
+    const container = videoContainerRef.current
+    
+    // Get container bounds
+    const containerRect = container.getBoundingClientRect()
+    const containerWidth = containerRect.width
+    const containerHeight = containerRect.height
+    
+    // Get click position relative to container
+    const clickX = e.clientX - containerRect.left
+    const clickY = e.clientY - containerRect.top
+    
+    // If already zoomed, reset zoom
+    if (zoomLevel > 1) {
+      setZoomLevel(1)
+      setPanX(0)
+      setPanY(0)
+      return
+    }
+    
+    // Set zoom level (2x zoom)
+    const newZoomLevel = 2
+    setZoomLevel(newZoomLevel)
+    
+    // Calculate pan to center the clicked point
+    // The clicked point should become the center of the zoomed view
+    // Formula: pan = (center - click) * (zoom - 1)
+    const centerX = containerWidth / 2
+    const centerY = containerHeight / 2
+    const offsetX = (centerX - clickX) * (newZoomLevel - 1)
+    const offsetY = (centerY - clickY) * (newZoomLevel - 1)
+    
+    setPanX(offsetX)
+    setPanY(offsetY)
+  }, [isStreaming, zoomLevel])
+
+  // Handle mouse down for dragging
+  const handleMouseDown = useCallback((e) => {
+    if (zoomLevel <= 1) return // Only allow dragging when zoomed
+    setIsDragging(true)
+    setDragStart({
+      x: e.clientX - panX,
+      y: e.clientY - panY
+    })
+    e.preventDefault()
+  }, [zoomLevel, panX, panY])
+
+  // Handle mouse move for dragging
+  const handleMouseMove = useCallback((e) => {
+    if (!isDragging || zoomLevel <= 1) return
+    
+    const newPanX = e.clientX - dragStart.x
+    const newPanY = e.clientY - dragStart.y
+    
+    // Constrain panning to keep video within bounds
+    if (!videoContainerRef.current || !videoRef.current) return
+    
+    const container = videoContainerRef.current
+    const containerRect = container.getBoundingClientRect()
+    const containerWidth = containerRect.width
+    const containerHeight = containerRect.height
+    
+    // Calculate max pan based on zoom level
+    const maxPanX = (containerWidth * (zoomLevel - 1)) / 2
+    const maxPanY = (containerHeight * (zoomLevel - 1)) / 2
+    
+    setPanX(Math.max(-maxPanX, Math.min(maxPanX, newPanX)))
+    setPanY(Math.max(-maxPanY, Math.min(maxPanY, newPanY)))
+  }, [isDragging, zoomLevel, dragStart])
+
+  // Handle mouse up to stop dragging
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false)
+  }, [])
+
+  // Reset zoom
+  const handleResetZoom = useCallback(() => {
+    setZoomLevel(1)
+    setPanX(0)
+    setPanY(0)
+  }, [])
+
+  // Add global mouse event listeners for dragging
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', handleMouseMove)
+      window.addEventListener('mouseup', handleMouseUp)
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove)
+        window.removeEventListener('mouseup', handleMouseUp)
+      }
+    }
+  }, [isDragging, handleMouseMove, handleMouseUp])
+
   return (
     <article className={styles.cameraCard} aria-label="Camera view">
       <header className={styles.cameraHeader}>
@@ -242,10 +347,21 @@ export default function CameraView({ isActive = true }) {
           </div>
         )}
 
-        <div className={styles.videoContainer}>
+        <div 
+          ref={videoContainerRef}
+          className={styles.videoContainer}
+          onDoubleClick={handleDoubleClick}
+          onMouseDown={handleMouseDown}
+          style={{ cursor: zoomLevel > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
+        >
           <video
             ref={videoRef}
             className={styles.video}
+            style={{
+              transform: `scale(${zoomLevel}) translate(${panX / zoomLevel}px, ${panY / zoomLevel}px)`,
+              transformOrigin: 'center center',
+              transition: isDragging ? 'none' : 'transform 0.3s ease-out',
+            }}
             autoPlay
             playsInline
             muted
@@ -256,6 +372,17 @@ export default function CameraView({ isActive = true }) {
               <span className={styles.placeholderIcon}>📹</span>
               <span className={styles.placeholderText}>Camera feed will appear here</span>
             </div>
+          )}
+          {zoomLevel > 1 && (
+            <button
+              type="button"
+              className={styles.zoomResetButton}
+              onClick={handleResetZoom}
+              aria-label="Reset zoom"
+              title="Reset zoom (or double-click)"
+            >
+              🔍 {zoomLevel.toFixed(1)}×
+            </button>
           )}
         </div>
 

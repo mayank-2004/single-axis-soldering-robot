@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, useRef, useEffect } from 'react'
 import { useTheme } from '../contexts/ThemeContext'
 import styles from './LcdDisplay.module.css'
 
@@ -47,7 +47,39 @@ export default function LcdDisplay({
   const isWireEmpty = wirePercentage !== null && wirePercentage <= 0
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [panelWidth, setPanelWidth] = useState(960) // Default width
+  const wrapperRef = useRef(null)
   const { theme, toggleTheme, isLight } = useTheme()
+
+  // Measure container width and update panel width
+  useEffect(() => {
+    const updatePanelWidth = () => {
+      if (wrapperRef.current) {
+        const containerWidth = wrapperRef.current.offsetWidth
+        setPanelWidth(containerWidth)
+      }
+    }
+
+    // Initial measurement
+    updatePanelWidth()
+
+    // Update on window resize
+    window.addEventListener('resize', updatePanelWidth)
+    
+    // Use ResizeObserver for more accurate container size tracking
+    let resizeObserver
+    if (wrapperRef.current && window.ResizeObserver) {
+      resizeObserver = new ResizeObserver(updatePanelWidth)
+      resizeObserver.observe(wrapperRef.current)
+    }
+
+    return () => {
+      window.removeEventListener('resize', updatePanelWidth)
+      if (resizeObserver) {
+        resizeObserver.disconnect()
+      }
+    }
+  }, [])
 
   const handleSettingsClick = () => {
     setIsSettingsOpen(!isSettingsOpen)
@@ -57,7 +89,7 @@ export default function LcdDisplay({
   }
 
   return (
-    <div className={styles.lcdWrapper} role="group" aria-label="Robot calibration display">
+    <div ref={wrapperRef} className={styles.lcdWrapper} role="group" aria-label="Robot calibration display">
       <p className={styles.subtitle}>
         Track axis calibration, solder flow, and thermal data from the virtual LCD
         that mirrors your hardware display.
@@ -185,6 +217,7 @@ export default function LcdDisplay({
         role="dialog"
         aria-label="Settings panel"
         aria-hidden={!isSettingsOpen}
+        style={{ width: `${panelWidth}px` }}
       >
         <div className={styles.lcdSettingsPanelHeader}>
           <h3 className={styles.lcdSettingsPanelTitle}>Settings</h3>

@@ -74,15 +74,31 @@ const int LIMIT_SWITCH_Z_MAX_PIN = 3;
 // Position system: Home is at 0.00mm (Z_MAX limit switch at top)
 const float Z_MAX_POSITION = 60.0f;  // mm - Maximum travel distance from home (downward) - NOT USED (limit switches control movement)
 const float Z_HOME_POSITION = 0.0f;  // mm - Home position (at Z_MAX limit switch)
-// Formula: (Motor steps per revolution × Microstepping) / (Lead screw pitch in mm per revolution)
-float zStepsPerMm = 204.1f;  // Changed to float for precision, and made variable for calibration
+
+// Lead screw configuration (measured)
+const float LEAD_SCREW_PITCH_MM = 2.0f;  // Lead screw pitch: 2mm per revolution (measured)
+
+// Stepper motor configuration (DM542 driver)
+const int MOTOR_STEPS_PER_REVOLUTION = 200;  // Standard 1.8° stepper motor = 200 steps/rev (360° / 1.8°)
+
+// DM542 Microstepping configuration
+// Set this to match your DM542 DIP switch settings (SW5-SW8)
+// Common settings: 1, 2, 4, 8, 16, 32, 64, 128, 256, etc.
+// Check your DM542 DIP switch configuration and set accordingly
+// Default: 16 microsteps (3200 steps/rev) - adjust based on your DIP switch settings
+const int MICROSTEPPING = 16;  // Change this to match your DM542 DIP switch setting
+
+// Calculate steps per millimeter automatically
+// Formula: Steps per mm = (Motor steps per revolution × Microstepping) / Lead screw pitch
+// Example: (200 × 16) / 2.0 = 3200 / 2.0 = 1600 steps/mm
+float zStepsPerMm = (static_cast<float>(MOTOR_STEPS_PER_REVOLUTION) * static_cast<float>(MICROSTEPPING)) / LEAD_SCREW_PITCH_MM;
 const unsigned int Z_STEP_DELAY_US = 100; // Default pulse width for stepper (microseconds)
-const unsigned int Z_STEP_DELAY_MIN = 100; // Minimum delay (fastest speed) - adjust based on your stepper motor
-const unsigned int Z_STEP_DELAY_MAX = 2000; // Maximum delay (slowest speed)
+const unsigned int Z_STEP_DELAY_MIN = 50;  // Minimum delay (fastest speed) - reduced for higher speed capability
+const unsigned int Z_STEP_DELAY_MAX = 800;  // Maximum delay (slowest speed) - reduced from 2000 for faster movement
 
 // Current movement speed (delay in microseconds)
 // Lower value = faster movement, Higher value = slower movement
-unsigned int currentZStepDelay = Z_STEP_DELAY_US; // Default speed
+unsigned int currentZStepDelay = Z_STEP_DELAY_MIN; // Default speed set to fastest (50μs) for higher speed
 
 // Tone-based stepper control configuration (optimized from testing-25.ino)
 // Tone duration for each step pulse (milliseconds)
@@ -138,6 +154,25 @@ void executeSavedMovement();
 
 void setup() {
   Serial.begin(BAUD_RATE);
+  
+  // Print configuration on startup
+  Serial.println("[SETUP] Z-Axis Configuration:");
+  Serial.print("[SETUP]   Lead screw pitch: ");
+  Serial.print(LEAD_SCREW_PITCH_MM, 1);
+  Serial.println(" mm");
+  Serial.print("[SETUP]   Motor steps per revolution: ");
+  Serial.println(MOTOR_STEPS_PER_REVOLUTION);
+  Serial.print("[SETUP]   Microstepping: ");
+  Serial.println(MICROSTEPPING);
+  Serial.print("[SETUP]   Calculated steps per mm: ");
+  Serial.print(zStepsPerMm, 3);
+  Serial.print(" (Formula: (");
+  Serial.print(MOTOR_STEPS_PER_REVOLUTION);
+  Serial.print(" × ");
+  Serial.print(MICROSTEPPING);
+  Serial.print(") / ");
+  Serial.print(LEAD_SCREW_PITCH_MM, 1);
+  Serial.println(")");
   
   // Z-axis stepper motor pins
   pinMode(STEPPER_Z_STEP_PIN, OUTPUT);
@@ -256,6 +291,13 @@ void sendMachineState() {
   JsonObject pos = doc.createNestedObject("pos");
   pos["z"] = zPosition;
   pos["moving"] = isMoving;
+  
+  // Configuration data (for app to display/verify)
+  JsonObject config = doc.createNestedObject("config");
+  config["leadScrewPitch"] = LEAD_SCREW_PITCH_MM;
+  config["motorStepsPerRev"] = MOTOR_STEPS_PER_REVOLUTION;
+  config["microstepping"] = MICROSTEPPING;
+  config["stepsPerMm"] = zStepsPerMm;
   
   // Limit switch status (for app warnings)
   JsonObject limits = doc.createNestedObject("limits");
@@ -505,9 +547,14 @@ void processCommands() {
         }
         else if (cmd == "calibrate" || cmd == "setstepspermm") {
           // Calibrate Z-axis steps per millimeter
-          // Usage: {"command":"calibrate","stepsPerMm":204.5}
-          // OR: {"command":"calibrate","commanded":5.0,"actual":4.89} - auto-calculates correction
+          // Usage options:
+          // 1. {"command":"calibrate","stepsPerMm":1600.0} - Direct value
+          // 2. {"command":"calibrate","commanded":5.0,"actual":4.89} - Auto-calculate correction
+          // 3. {"command":"calibrate","microstepping":16} - Recalculate from microstepping
+          // 4. {"command":"calibrate","leadScrewPitch":2.0,"microstepping":16} - Recalculate from both
+          
           if (cmdDoc.containsKey("stepsPerMm")) {
+            // Direct steps per mm value
             float newStepsPerMm = cmdDoc["stepsPerMm"] | zStepsPerMm;
             if (newStepsPerMm > 0 && newStepsPerMm < 10000) {
               zStepsPerMm = newStepsPerMm;
@@ -515,6 +562,42 @@ void processCommands() {
               Serial.println(zStepsPerMm, 3);
             } else {
               Serial.println("[CMD] ERROR: Invalid steps per mm value (must be > 0 and < 10000)");
+            }
+          } else if (cmdDoc.containsKey("leadScrewPitch") && cmdDoc.containsKey("microstepping")) {
+            // Recalculate from lead screw pitch and microstepping
+            float newPitch = cmdDoc["leadScrewPitch"] | LEAD_SCREW_PITCH_MM;
+            int newMicrostepping = cmdDoc["microstepping"] | MICROSTEPPING;
+            if (newPitch > 0 && newMicrostepping > 0) {
+              zStepsPerMm = (static_cast<float>(MOTOR_STEPS_PER_REVOLUTION) * static_cast<float>(newMicrostepping)) / newPitch;
+              Serial.print("[CMD] Recalculated steps per mm: ");
+              Serial.print("(");
+              Serial.print(MOTOR_STEPS_PER_REVOLUTION);
+              Serial.print(" × ");
+              Serial.print(newMicrostepping);
+              Serial.print(") / ");
+              Serial.print(newPitch, 1);
+              Serial.print(" = ");
+              Serial.println(zStepsPerMm, 3);
+            } else {
+              Serial.println("[CMD] ERROR: Lead screw pitch and microstepping must be positive");
+            }
+          } else if (cmdDoc.containsKey("microstepping")) {
+            // Recalculate using current lead screw pitch and new microstepping
+            int newMicrostepping = cmdDoc["microstepping"] | MICROSTEPPING;
+            if (newMicrostepping > 0) {
+              zStepsPerMm = (static_cast<float>(MOTOR_STEPS_PER_REVOLUTION) * static_cast<float>(newMicrostepping)) / LEAD_SCREW_PITCH_MM;
+              Serial.print("[CMD] Recalculated steps per mm with microstepping ");
+              Serial.print(newMicrostepping);
+              Serial.print(": (");
+              Serial.print(MOTOR_STEPS_PER_REVOLUTION);
+              Serial.print(" × ");
+              Serial.print(newMicrostepping);
+              Serial.print(") / ");
+              Serial.print(LEAD_SCREW_PITCH_MM, 1);
+              Serial.print(" = ");
+              Serial.println(zStepsPerMm, 3);
+            } else {
+              Serial.println("[CMD] ERROR: Microstepping must be positive");
             }
           } else if (cmdDoc.containsKey("commanded") && cmdDoc.containsKey("actual")) {
             // Auto-calibrate based on commanded vs actual movement
@@ -533,13 +616,25 @@ void processCommands() {
               Serial.print(", New steps per mm: ");
               Serial.println(zStepsPerMm, 3);
             } else {
-              Serial.println("[CMD] ERROR: Invalid commanded/actual values (must be > 0)");
+              Serial.println("[CMD] ERROR: Commanded and actual must be positive numbers");
             }
           } else {
-            Serial.println("[CMD] Usage: {\"command\":\"calibrate\",\"stepsPerMm\":204.5}");
-            Serial.println("[CMD]   OR: {\"command\":\"calibrate\",\"commanded\":5.0,\"actual\":4.89}");
-            Serial.print("[CMD] Current steps per mm: ");
+            // Show current configuration and usage
+            Serial.println("[CMD] Current configuration:");
+            Serial.print("[CMD]   Lead screw pitch: ");
+            Serial.print(LEAD_SCREW_PITCH_MM, 1);
+            Serial.println(" mm");
+            Serial.print("[CMD]   Motor steps/rev: ");
+            Serial.println(MOTOR_STEPS_PER_REVOLUTION);
+            Serial.print("[CMD]   Microstepping: ");
+            Serial.println(MICROSTEPPING);
+            Serial.print("[CMD]   Calculated steps per mm: ");
             Serial.println(zStepsPerMm, 3);
+            Serial.println("[CMD] Usage options:");
+            Serial.println("[CMD]   1. {\"command\":\"calibrate\",\"stepsPerMm\":1600.0}");
+            Serial.println("[CMD]   2. {\"command\":\"calibrate\",\"commanded\":5.0,\"actual\":4.89}");
+            Serial.println("[CMD]   3. {\"command\":\"calibrate\",\"microstepping\":16}");
+            Serial.println("[CMD]   4. {\"command\":\"calibrate\",\"leadScrewPitch\":2.0,\"microstepping\":16}");
           }
         }
         else {

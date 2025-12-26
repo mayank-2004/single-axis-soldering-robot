@@ -560,7 +560,8 @@
   position: absolute;
   top: 16px;
   right: 0;
-  width: 960px;
+  /* width is set dynamically via inline style based on container width */
+  min-width: 320px; /* Minimum width to match lcdBezel min-width */
   height: calc(100% - 30px);
   background: linear-gradient(145deg, #1f2225, #363b42);
   border-left: 2px solid rgba(115, 255, 238, 0.3);
