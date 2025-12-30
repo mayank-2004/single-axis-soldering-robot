@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import styles from './ManualMovementControl.module.css'
 
 const stepSizes = [
@@ -21,11 +21,12 @@ export default function ManualMovementControl({
   limitSwitchAlert = false,
   isSerialConnected = false,
   isReceivingArduinoData = false,
+  zAxisSpeed = 95,
+  onSpeedChange,
 }) {
-  const [customStepSize, setCustomStepSize] = React.useState(stepSize?.toString() || '1.0')
-  const [useCustomStepSize, setUseCustomStepSize] = React.useState(false)
-  // Track if user manually switched to custom mode (prevents auto-switching back)
-  const [userSelectedCustomMode, setUserSelectedCustomMode] = React.useState(false)
+  const [customStepSize, setCustomStepSize] = useState(stepSize?.toString() || '1.0')
+  const [useCustomStepSize, setUseCustomStepSize] = useState(false)
+  const [userSelectedCustomMode, setUserSelectedCustomMode] = useState(false)
 
   useEffect(() => {
     if (stepSize !== undefined) {
@@ -168,6 +169,70 @@ export default function ManualMovementControl({
               })() : '000.00'}
             </span>
             <span className={styles.positionUnit}>mm</span>
+          </div>
+        </div>
+
+        {/* Speed Control */}
+        <div className={styles.controlRow}>
+          <label htmlFor="z-axis-speed" className={styles.controlLabel}>
+            Movement Speed
+            {zAxisSpeed > 100 && (
+              <span style={{ marginLeft: '8px', color: '#fbbf24', fontSize: '10px', fontWeight: 'bold' }}>
+                ⚡ TURBO
+              </span>
+            )}
+          </label>
+          <div className={styles.controlFieldGroup}>
+            <input
+              id="z-axis-speed-slider"
+              name="z-axis-speed-slider"
+              type="range"
+              min="1"
+              max="200"
+              step="1"
+              className={styles.controlSlider}
+              value={zAxisSpeed}
+              onChange={(e) => {
+                const value = Number.parseInt(e.target.value, 10)
+                if (onSpeedChange) {
+                  onSpeedChange(value)
+                }
+              }}
+              disabled={isMoving || !isSerialConnected}
+              title={`Z-axis movement speed: ${zAxisSpeed}% ${zAxisSpeed > 100 ? '(Turbo Mode)' : zAxisSpeed === 100 ? '(Fastest Normal)' : zAxisSpeed === 1 ? '(Slowest)' : ''}`}
+            />
+            <input
+              id="z-axis-speed"
+              name="z-axis-speed"
+              type="number"
+              min="1"
+              max="200"
+              step="1"
+              className={styles.controlInput}
+              value={zAxisSpeed}
+              onChange={(e) => {
+                const value = Number.parseInt(e.target.value, 10)
+                if (!Number.isNaN(value) && value >= 1 && value <= 200) {
+                  if (onSpeedChange) {
+                    onSpeedChange(value)
+                  }
+                }
+              }}
+              onBlur={(e) => {
+                const value = Number.parseInt(e.target.value, 10)
+                if (Number.isNaN(value) || value < 1) {
+                  if (onSpeedChange) {
+                    onSpeedChange(1)
+                  }
+                } else if (value > 200) {
+                  if (onSpeedChange) {
+                    onSpeedChange(200)
+                  }
+                }
+              }}
+              disabled={isMoving || !isSerialConnected}
+            />
+            <span className={styles.controlUnit}>%</span>
           </div>
         </div>
 

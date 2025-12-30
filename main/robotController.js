@@ -168,6 +168,58 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
   })
 
   // Jig calibration handlers
+  registerIpcListener('axis:speed:set', (event, payload = {}) => {
+    console.log('[robotController] axis:speed:set received, payload:', payload)
+    try {
+      if (!hardware || typeof hardware.setZAxisSpeed !== 'function') {
+        console.error('[robotController] Hardware not initialized or setZAxisSpeed method not available')
+        const errorResult = { error: 'Hardware not initialized' }
+        event.sender.send('axis:speed:ack', errorResult)
+        return
+      }
+      const result = hardware.setZAxisSpeed(payload.speed)
+      console.log('[robotController] setZAxisSpeed returned:', result)
+      if (!result || typeof result !== 'object') {
+        console.error('[robotController] setZAxisSpeed returned invalid result:', result)
+        const errorResult = { error: 'Invalid response from hardware' }
+        event.sender.send('axis:speed:ack', errorResult)
+        return
+      }
+      console.log('[robotController] Sending success result:', result)
+      event.sender.send('axis:speed:ack', result)
+    } catch (error) {
+      console.error('[robotController] Error in axis:speed:set:', error)
+      const errorResult = { error: error.message || 'Failed to set speed' }
+      event.sender.send('axis:speed:ack', errorResult)
+    }
+  })
+
+  registerIpcListener('axis:speed:request', (event) => {
+    try {
+      if (!hardware || typeof hardware.getZAxisSpeed !== 'function') {
+        console.error('[robotController] Hardware not initialized or getZAxisSpeed method not available')
+        event.sender.send('axis:speed:status', {
+          speed: 95,
+          status: 'default',
+          error: 'Hardware not initialized',
+        })
+        return
+      }
+      const speed = hardware.getZAxisSpeed()
+      event.sender.send('axis:speed:status', {
+        speed,
+        status: 'ok',
+      })
+    } catch (error) {
+      console.error('[robotController] Error in axis:speed:request:', error)
+      event.sender.send('axis:speed:status', {
+        speed: 95,
+        status: 'error',
+        error: error.message || 'Failed to get speed',
+      })
+    }
+  })
+
   registerIpcListener('jig:height:set', (event, payload = {}) => {
     console.log('[robotController] jig:height:set received, payload:', payload)
     try {
@@ -187,8 +239,14 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
         event.sender.send('jig:height:ack', errorResult)
         return
       }
-      console.log('[robotController] Sending success result:', result)
-      event.sender.send('jig:height:ack', result)
+      // Add bed height and safe travel space to response
+      const enhancedResult = {
+        ...result,
+        bedHeight: hardware.getBedHeight ? hardware.getBedHeight() : 280.0,
+        safeTravelSpace: hardware.getSafeTravelSpace ? hardware.getSafeTravelSpace() : null,
+      }
+      console.log('[robotController] Sending success result:', enhancedResult)
+      event.sender.send('jig:height:ack', enhancedResult)
     } catch (error) {
       console.error('[robotController] Error in jig:height:set:', error)
       const errorResult = { error: error.message || 'Failed to set jig height' }
@@ -232,6 +290,8 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
         console.error('[robotController] Hardware not initialized or getJigHeight method not available')
         event.sender.send('jig:height:status', {
           jigHeight: null,
+          bedHeight: hardware.getBedHeight ? hardware.getBedHeight() : 280.0,
+          safeTravelSpace: null,
           status: 'not_calibrated',
           error: 'Hardware not initialized',
         })
@@ -240,12 +300,16 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
       const jigHeight = hardware.getJigHeight()
       event.sender.send('jig:height:status', {
         jigHeight,
+        bedHeight: hardware.getBedHeight ? hardware.getBedHeight() : 280.0,
+        safeTravelSpace: hardware.getSafeTravelSpace ? hardware.getSafeTravelSpace() : null,
         status: jigHeight !== null ? 'calibrated' : 'not_calibrated',
       })
     } catch (error) {
       console.error('[robotController] Error in jig:height:request:', error)
       event.sender.send('jig:height:status', {
         jigHeight: null,
+        bedHeight: hardware.getBedHeight ? hardware.getBedHeight() : 280.0,
+        safeTravelSpace: null,
         status: 'not_calibrated',
         error: error.message || 'Failed to get jig height',
       })
@@ -383,6 +447,21 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
     sendAirJetPressureUpdate(event.sender)
   })
 
+  registerIpcListener('sequence:duration:set', (event, payload = {}) => {
+    try {
+      if (!hardware || typeof hardware.setThermalMassDuration !== 'function') {
+        console.error('[robotController] Hardware not initialized or setThermalMassDuration method not available')
+        event.sender.send('sequence:duration:ack', { error: 'Hardware not initialized' })
+        return
+      }
+      const result = hardware.setThermalMassDuration(payload.duration)
+      event.sender.send('sequence:duration:ack', result)
+    } catch (error) {
+      console.error('[robotController] Error in sequence:duration:set:', error)
+      event.sender.send('sequence:duration:ack', { error: error.message || 'Failed to set duration' })
+    }
+  })
+
   registerIpcListener('airJetPressure:duration:set', (event, payload = {}) => {
     const result = hardware.setAirJetPressureDuration(payload.duration)
     if (result.error) {
@@ -508,14 +587,14 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
   registerIpcListener('axis:jog', async (event, payload = {}) => {
     console.log('[robotController] Received axis:jog command:', payload)
     try {
-      const { axis, direction, stepSize } = payload
-      const result = await hardware.jog(axis, direction, stepSize)
+    const { axis, direction, stepSize } = payload
+    const result = await hardware.jog(axis, direction, stepSize)
       console.log('[robotController] Jog result:', result)
       
       // Ensure result is always an object
       const response = result || { status: 'Command sent', position: hardware.getPosition() }
       event.sender.send('axis:jog:ack', response)
-      sendPositionUpdate(event.sender)
+    sendPositionUpdate(event.sender)
     } catch (error) {
       console.error('[robotController] Error handling jog command:', error)
       event.sender.send('axis:jog:ack', { error: error.message })

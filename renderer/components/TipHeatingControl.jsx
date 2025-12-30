@@ -9,9 +9,6 @@ export default function TipHeatingControl({
   onToggleHeater,
   heaterStatus,
   currentTemperature,
-  padCategory,
-  compensatedTemperature,
-  baseTemperature,
 }) {
   return (
     <article className={styles.controlCard} aria-label="Tip heating control">
@@ -66,28 +63,6 @@ export default function TipHeatingControl({
           <span className={styles.controlLabel}>Current temperature</span>
           <span className={styles.controlValue}>{currentTemperature ?? '--'}</span>
         </div>
-
-        {/* Thermal Mass Compensation Suggestion */}
-        {padCategory && compensatedTemperature !== null && (
-          <div className={styles.thermalSuggestion}>
-            <div className={styles.thermalSuggestionHeader}>
-              <span className={styles.thermalSuggestionLabel}>Suggested Temperature</span>
-              <span className={`${styles.padCategoryBadge} ${styles[`padCategory${padCategory.charAt(0).toUpperCase() + padCategory.slice(1)}`]}`}>
-                {padCategory.toUpperCase()} Pad
-              </span>
-            </div>
-            <div className={styles.thermalSuggestionDetails}>
-              <div className={styles.thermalSuggestionRow}>
-                <span className={styles.thermalSuggestionText}>Base:</span>
-                <span className={styles.thermalSuggestionValue}>{baseTemperature}°C</span>
-              </div>
-              <div className={styles.thermalSuggestionRow}>
-                <span className={styles.thermalSuggestionText}>Recommended:</span>
-                <span className={styles.thermalSuggestionValueHighlight}>{compensatedTemperature}°C</span>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
       {heaterStatus ? <p className={styles.controlStatus}>{heaterStatus}</p> : null}
     </article>

@@ -80,6 +80,8 @@ export default function HomePage() {
   const [heightStatus, setHeightStatus] = useState('')
   const [jigHeight, setJigHeight] = useState(null)
   const [jigCalibrationStatus, setJigCalibrationStatus] = useState('')
+  const [bedHeight, setBedHeight] = useState(280.0) // Total height from home to bed surface
+  const [safeTravelSpace, setSafeTravelSpace] = useState(null) // Calculated safe travel space
   const [tipTarget, setTipTarget] = useState('345')
   const [isHeaterEnabled, setIsHeaterEnabled] = useState(false)
   const [heaterStatus, setHeaterStatus] = useState('')
@@ -148,6 +150,7 @@ export default function HomePage() {
   const [limitSwitchAlert, setLimitSwitchAlert] = useState(false)
   // const [limitSwitchMessage, setLimitSwitchMessage] = useState('Upper limit switch reached - can\'t go upward')
   const [stepSize, setStepSize] = useState(1.0)
+  const [zAxisSpeed, setZAxisSpeed] = useState(95) // Default speed: 95%
   const [padShape, setPadShape] = useState('')
   const [padDimensions, setPadDimensions] = useState({
     side: '',
@@ -163,11 +166,13 @@ export default function HomePage() {
   const [wireUsed, setWireUsed] = useState(null)
   const [stepsMoved, setStepsMoved] = useState(null)
   const [isCalculatingMetrics, setIsCalculatingMetrics] = useState(false)
-
+  
   // Thermal mass compensation state
   const [padCategory, setPadCategory] = useState(null) // 'small', 'medium', 'large'
-  const [compensatedTemperature, setCompensatedTemperature] = useState(null)
-  const baseTemperature = 345 // Base temperature in °C
+  const [compensatedDuration, setCompensatedDuration] = useState(null) // Duration in milliseconds
+  const baseTemperature = 290 // Base temperature in °C (constant)
+  const maxTemperature = 350 // Maximum temperature in °C
+  const baseDuration = 1000 // Base duration in milliseconds (1 second)
 
   // Serial port connection state
   const [serialPorts, setSerialPorts] = useState([])
@@ -200,13 +205,13 @@ export default function HomePage() {
   const wireLength = wireStatus?.length
   const isWireLow = wirePercentage <= 10
   const isWireEmpty = wirePercentage <= 0
-
+  
   // Get flux remaining from calibration
   const fluxRemaining = useMemo(() => {
     const fluxEntry = calibration.find((entry) => entry.label === 'Flux Remaining')
     if (!fluxEntry) return null
-    const numeric = typeof fluxEntry.value === 'number'
-      ? fluxEntry.value
+    const numeric = typeof fluxEntry.value === 'number' 
+      ? fluxEntry.value 
       : parseFloat(String(fluxEntry.value).replace(/[^0-9.]/g, ''))
     return Number.isFinite(numeric) ? numeric : null
   }, [calibration])
@@ -227,7 +232,7 @@ export default function HomePage() {
             if (entry.label === 'Z Axis') {
               return entry
             }
-
+            
             const update = payload[entry.label]
             if (update === undefined || update === null) {
               return entry
@@ -621,27 +626,11 @@ export default function HomePage() {
         if (payload.jigHeight !== undefined) {
           setJigHeight(payload.jigHeight)
         }
-        // Clear status after 3 seconds
-        setTimeout(() => {
-          setJigCalibrationStatus('')
-        }, 3000)
-      }
-    }
-
-    const handleJigCalibrateAck = (payload) => {
-      console.log('[home.jsx] handleJigCalibrateAck received:', payload)
-      if (!payload || typeof payload !== 'object') {
-        console.warn('[home.jsx] handleJigCalibrateAck: Invalid payload received', payload)
-        setJigCalibrationStatus('Error: Invalid response from server')
-        return
-      }
-      console.log('[home.jsx] handleJigCalibrateAck processing payload:', payload)
-      if (payload.error) {
-        setJigCalibrationStatus(`Error: ${payload.error}`)
-      } else {
-        setJigCalibrationStatus(payload.status || 'Jig calibrated successfully')
-        if (payload.jigHeight !== undefined) {
-          setJigHeight(payload.jigHeight)
+        if (payload.bedHeight !== undefined) {
+          setBedHeight(payload.bedHeight)
+        }
+        if (payload.safeTravelSpace !== undefined && payload.safeTravelSpace !== null) {
+          setSafeTravelSpace(payload.safeTravelSpace)
         }
         // Clear status after 3 seconds
         setTimeout(() => {
@@ -658,49 +647,100 @@ export default function HomePage() {
       if (payload.jigHeight !== null && payload.jigHeight !== undefined) {
         setJigHeight(payload.jigHeight)
       }
+      if (payload.bedHeight !== undefined) {
+        setBedHeight(payload.bedHeight)
+      }
+      if (payload.safeTravelSpace !== undefined && payload.safeTravelSpace !== null) {
+        setSafeTravelSpace(payload.safeTravelSpace)
+      }
     }
 
     window.ipc.on?.('jig:height:ack', handleJigHeightAck)
-    window.ipc.on?.('jig:calibrate:ack', handleJigCalibrateAck)
     window.ipc.on?.('jig:height:status', handleJigHeightStatus)
 
+    // Listen for speed control responses
+    const handleSpeedAck = (payload) => {
+      console.log('[home.jsx] handleSpeedAck received:', payload)
+      if (!payload || typeof payload !== 'object') {
+        console.warn('[home.jsx] handleSpeedAck: Invalid payload received', payload)
+        return
+      }
+      if (payload.error) {
+        console.error('[home.jsx] Speed set error:', payload.error)
+      } else {
+        console.log('[home.jsx] Speed set successfully:', payload.status)
+        // Speed is already updated in local state, no need to update again
+      }
+    }
+
+    const handleSpeedStatus = (payload) => {
+      if (!payload || typeof payload !== 'object') {
+        console.warn('[home.jsx] handleSpeedStatus: Invalid payload received', payload)
+        return
+      }
+      if (payload.speed !== null && payload.speed !== undefined) {
+        setZAxisSpeed(payload.speed)
+      }
+    }
+
+    window.ipc.on?.('axis:speed:ack', handleSpeedAck)
+    window.ipc.on?.('axis:speed:status', handleSpeedStatus)
+
     // Listen for limit switch status from Arduino hardware
+    // This handler shows warnings when limit switches are triggered during movement
     const handleLimitSwitchUpdate = (payload) => {
       console.log('[home.jsx] handleLimitSwitchUpdate received:', payload)
-      if (payload) {
-        const upperTriggered = Boolean(payload.upper)
-        const lowerTriggered = Boolean(payload.lower)
+      if (!payload || typeof payload !== 'object') {
+        return
+      }
 
-        console.log('[home.jsx] Limit switch status - Upper:', upperTriggered, 'Lower:', lowerTriggered)
+      const upperTriggered = Boolean(payload.upper)
+      const lowerTriggered = Boolean(payload.lower)
+        
+      console.log('[home.jsx] Limit switch status - Upper:', upperTriggered, 'Lower:', lowerTriggered)
 
-        // Show alert if either limit switch is triggered
-        if (upperTriggered) {
-          console.log('[home.jsx] Setting upper limit switch alert')
-          setLimitSwitchAlert(true)
-          setManualMovementStatus('Upper limit switch reached - can\'t go upward')
-          // Auto-hide alert after 5 seconds (increased for visibility)
-          setTimeout(() => {
-            console.log('[home.jsx] Auto-hiding upper limit alert')
+      // Clear any existing timeout
+      if (window.limitSwitchTimeout) {
+        clearTimeout(window.limitSwitchTimeout)
+        window.limitSwitchTimeout = null
+      }
+
+      // Show alert if either limit switch is triggered
+      if (upperTriggered) {
+        console.log('[home.jsx] Setting upper limit switch alert')
+        setLimitSwitchAlert(true)
+        setManualMovementStatus('Upper limit switch reached - can\'t go upward')
+        // Auto-hide alert after 5 seconds
+        window.limitSwitchTimeout = setTimeout(() => {
+          console.log('[home.jsx] Auto-hiding upper limit alert')
+          setLimitSwitchAlert(false)
+          setManualMovementStatus('')
+          window.limitSwitchTimeout = null
+        }, 5000)
+      } else if (lowerTriggered) {
+        console.log('[home.jsx] Setting lower limit switch alert')
+        setLimitSwitchAlert(true)
+        setManualMovementStatus('Lower limit switch reached - can\'t go downward')
+        // Auto-hide alert after 5 seconds
+        window.limitSwitchTimeout = setTimeout(() => {
+          console.log('[home.jsx] Auto-hiding lower limit alert')
+          setLimitSwitchAlert(false)
+          setManualMovementStatus('')
+          window.limitSwitchTimeout = null
+        }, 5000)
+      } else {
+        // Both switches released - clear alert after a short delay to avoid flickering
+        if (limitSwitchAlert) {
+          window.limitSwitchTimeout = setTimeout(() => {
+            console.log('[home.jsx] Clearing limit switch alert - switches released')
             setLimitSwitchAlert(false)
             setManualMovementStatus('')
-          }, 5000)
-        } else if (lowerTriggered) {
-          console.log('[home.jsx] Setting lower limit switch alert')
-          setLimitSwitchAlert(true)
-          setManualMovementStatus('Lower limit switch reached - can\'t go downward')
-          // Auto-hide alert after 5 seconds (increased for visibility)
-          setTimeout(() => {
-            console.log('[home.jsx] Auto-hiding lower limit alert')
-            setLimitSwitchAlert(false)
-            setManualMovementStatus('')
-          }, 5000)
-        } else {
-          // Both switches released - only clear alert if not moving AND alert was already showing
-          // Don't clear immediately - let the timeout handle it
-          console.log('[home.jsx] Both switches released, but keeping alert if it exists')
+            window.limitSwitchTimeout = null
+          }, 1000)
         }
       }
     }
+    // Register listener BEFORE sending any commands to ensure we catch events
     window.ipc.on?.('limitSwitch:update', handleLimitSwitchUpdate)
 
     window.ipc.send?.('tip:status:request')
@@ -713,6 +753,7 @@ export default function HomePage() {
     window.ipc.send?.('airBreeze:state:request')
     window.ipc.send?.('airJetPressure:state:request')
     window.ipc.send?.('jig:height:request')
+    window.ipc.send?.('axis:speed:request')
 
     return () => {
       window.ipc.off?.('component:height:ack', handleHeightAck)
@@ -730,8 +771,9 @@ export default function HomePage() {
       window.ipc.off?.('arduino:data:received', handleArduinoDataReceived)
       window.ipc.off?.('limitSwitch:update', handleLimitSwitchUpdate)
       window.ipc.off?.('jig:height:ack', handleJigHeightAck)
-      window.ipc.off?.('jig:calibrate:ack', handleJigCalibrateAck)
       window.ipc.off?.('jig:height:status', handleJigHeightStatus)
+      window.ipc.off?.('axis:speed:ack', handleSpeedAck)
+      window.ipc.off?.('axis:speed:status', handleSpeedStatus)
     }
   }, [])
 
@@ -745,22 +787,16 @@ export default function HomePage() {
       if (!payload || typeof payload !== 'object') {
         return
       }
-
-      // DON'T track position updates as Arduino data - only track actual arduino:data:received events
-      // Position can come from simulation or other sources
-
-      // Single-axis machine: Only Z position is updated (X and Y removed - PCB moved manually)
-      // Ensure Z position doesn't exceed 0.00mm (home position)
       setCurrentPosition((current) => {
         let newZ = typeof payload.z === 'number' && Number.isFinite(payload.z)
           ? payload.z
           : current.z
-
+        
         // Clamp Z to maximum of 0.00mm (home position)
         if (newZ > 0) {
           newZ = 0.0
         }
-
+        
         return {
           z: newZ,
           isMoving:
@@ -806,12 +842,12 @@ export default function HomePage() {
             const sign = isNegative ? '-' : ''
             return `${sign}${integer}.${decimal}`
           }
-
+          
           const HOME_POSITION = 0.0 // Home is at 0.00mm (top limit switch) - FIXED VALUE
           const homeFormatted = formatPosition(HOME_POSITION) // Home is always 0.00mm - never changes
           const currentFormatted = formatPosition(currentPosition.z) // Current position - updates dynamically (can be negative)
           const formattedValue = `${homeFormatted} → ${currentFormatted}`
-
+          
           return {
             ...entry,
             value: formattedValue,
@@ -1050,25 +1086,29 @@ export default function HomePage() {
   // Jig calibration handlers
   const handleJigHeightChange = useCallback((height) => {
     setJigHeight(height)
-  }, [])
+    // Safe travel space = bed height - jig height (total safe range from home to jig surface)
+    if (height !== null && height !== undefined && height >= 0 && height < bedHeight) {
+      setSafeTravelSpace(bedHeight - height) // Safe travel = space from home to jig surface
+    } else {
+      setSafeTravelSpace(null)
+    }
+  }, [bedHeight])
 
   const handleJigCalibrate = useCallback((method) => {
     if (typeof window === 'undefined' || !window.ipc?.send) {
-      setJigCalibrationStatus('IPC unavailable; cannot calibrate jig.')
+      setJigCalibrationStatus('IPC unavailable; cannot set jig height.')
       return
     }
 
-    if (method === 'auto') {
-      // Auto-calibrate from current position
-      console.log('[home.jsx] Sending jig:calibrate command')
-      setJigCalibrationStatus('Calibrating from current position...')
-      window.ipc.send('jig:calibrate', {
-        timestamp: Date.now(),
-      })
-    } else if (method === 'manual') {
+    // Only manual method is supported now
+    if (method === 'manual') {
       // Manual calibration - set the entered height
       if (jigHeight === null || jigHeight === undefined || jigHeight < 0) {
         setJigCalibrationStatus('Please enter a valid jig height.')
+        return
+      }
+      if (jigHeight > bedHeight) {
+        setJigCalibrationStatus(`Jig height cannot exceed bed height (${bedHeight.toFixed(0)}mm).`)
         return
       }
       console.log('[home.jsx] Sending jig:height:set command with height:', jigHeight)
@@ -1079,7 +1119,7 @@ export default function HomePage() {
         timestamp: Date.now(),
       })
     }
-  }, [jigHeight])
+  }, [jigHeight, bedHeight])
 
   const handleTipTargetChange = useCallback((event) => {
     setTipTarget(event.target.value)
@@ -1111,26 +1151,28 @@ export default function HomePage() {
     })
   }, [tipTarget])
 
-  // Auto-apply compensated temperature when it's calculated
-  const handleApplyCompensatedTemperature = useCallback(() => {
-    if (compensatedTemperature === null) {
-      setHeaterStatus('No compensated temperature available. Calculate pad metrics first.')
+  // Auto-apply compensated duration when it's calculated
+  const handleApplyCompensatedDuration = useCallback(() => { 
+    if (compensatedDuration === null) {
+      setHeaterStatus('No compensated duration available. Calculate pad metrics first.')
       return
     }
 
+    // Store the compensated duration for use in soldering sequences
+    // The duration will be applied during the lowerZ/dwell stage
     if (typeof window === 'undefined' || !window.ipc?.send) {
-      setHeaterStatus('IPC unavailable; cannot update target.')
+      setHeaterStatus('IPC unavailable; cannot store duration.')
       return
     }
 
-    setTipTarget(String(compensatedTemperature))
-    setHeaterStatus(`Applying compensated temperature: ${compensatedTemperature}°C...`)
-    window.ipc.send('tip:target:set', {
-      target: compensatedTemperature,
-      unit: '°C',
+    // Send duration to backend for sequence use
+    window.ipc.send('sequence:duration:set', {
+      duration: compensatedDuration,
       timestamp: Date.now(),
     })
-  }, [compensatedTemperature])
+    
+    setHeaterStatus(`Compensated duration set to ${compensatedDuration}ms (${(compensatedDuration / 1000).toFixed(1)}s) for thermal mass compensation.`)
+  }, [compensatedDuration])
 
   const handleToggleHeater = useCallback(() => {
     if (typeof window === 'undefined' || !window.ipc?.send) {
@@ -1588,7 +1630,7 @@ export default function HomePage() {
       }
 
       console.log('[ManualMovement] Sending jog command:', { axis, direction, stepSize: stepSizeValue })
-
+      
       // Set up acknowledgment listener BEFORE sending command to avoid race condition
       const handleAck = (event, result) => {
         console.log('[ManualMovement] Received axis:jog:ack:', result)
@@ -1629,7 +1671,7 @@ export default function HomePage() {
     }
 
     console.log('[ManualMovement] Sending home command')
-
+    
     // Listen for acknowledgment
     const handleAck = (event, result) => {
       if (result.error) {
@@ -1646,6 +1688,25 @@ export default function HomePage() {
     })
   }, [])
 
+  const handleSpeedChange = useCallback((speed) => {
+    if (typeof window === 'undefined' || !window.ipc?.send) {
+      console.warn('[home.jsx] IPC unavailable; cannot set speed')
+      return
+    }
+
+    const speedValue = Math.max(1, Math.min(200, Number(speed) || 95))
+    console.log('[home.jsx] Setting Z-axis speed to:', speedValue, speedValue > 100 ? '(Turbo Mode)' : '')
+    
+    // Update local state immediately for responsive UI
+    setZAxisSpeed(speedValue)
+    
+    // Send to backend
+    window.ipc.send('axis:speed:set', {
+      speed: speedValue,
+      timestamp: Date.now(),
+    })
+  }, [])
+
   const handleSave = useCallback(() => {
     if (typeof window === 'undefined' || !window.ipc?.send) {
       console.error('[ManualMovement] IPC unavailable; cannot send save command.')
@@ -1653,7 +1714,7 @@ export default function HomePage() {
     }
 
     console.log('[ManualMovement] Sending save command')
-
+    
     // Listen for acknowledgment
     const handleAck = (event, result) => {
       if (result.error) {
@@ -1704,7 +1765,7 @@ export default function HomePage() {
     setWireUsed(null)
     setStepsMoved(null)
     setPadCategory(null)
-    setCompensatedTemperature(null)
+    setCompensatedDuration(null)
   }, [])
 
   const handleSolderHeightChange = useCallback((value) => {
@@ -1715,12 +1776,12 @@ export default function HomePage() {
     setStepsMoved(null)
   }, [])
 
-  // Thermal mass compensation calculation
+  // Thermal mass compensation calculation (duration-based)
   const calculateThermalMassCompensation = useCallback((padArea) => {
     if (!padArea || padArea <= 0) {
       return {
         category: null,
-        compensatedTemp: null,
+        compensatedDuration: null,
         compensation: 0,
       }
     }
@@ -1735,22 +1796,23 @@ export default function HomePage() {
       category = 'large'
     }
 
-    // Compensation factor: 2.0°C per √mm² (non-linear scaling)
-    const compensationFactor = 2.0
+    // Duration compensation factor: 100ms per √mm² (non-linear scaling)
+    // Larger pads need more time for heat to transfer
+    const compensationFactor = 100 // milliseconds per √mm²
     const compensation = Math.sqrt(padArea) * compensationFactor
 
-    // Calculate compensated temperature
-    const compensatedTemp = baseTemperature + compensation
+    // Calculate compensated duration
+    const compensatedDurationMs = baseDuration + compensation
 
-    // Clamp to safe range (280°C - 400°C)
-    const clampedTemp = Math.max(280, Math.min(400, Math.round(compensatedTemp)))
+    // Clamp to reasonable range (1000ms - 5000ms = 1-5 seconds)
+    const clampedDuration = Math.max(1000, Math.min(5000, Math.round(compensatedDurationMs)))
 
     return {
       category,
-      compensatedTemp: clampedTemp,
-      compensation: Math.round(compensation * 10) / 10, // Round to 1 decimal
+      compensatedDuration: clampedDuration,
+      compensation: Math.round(compensation), // Round to nearest millisecond
     }
-  }, [baseTemperature])
+  }, [baseDuration])
 
   const calculatePadMetrics = useCallback(() => {
     setIsCalculatingMetrics(true)
@@ -1766,6 +1828,8 @@ export default function HomePage() {
           const side = Number.parseFloat(padDimensions.side)
           if (!Number.isFinite(side) || side <= 0) {
             setPadArea(null)
+            setPadCategory(null)
+            setCompensatedDuration(null)
             setWireUsed(null)
             setStepsMoved(null)
             setIsCalculatingMetrics(false)
@@ -1781,6 +1845,8 @@ export default function HomePage() {
           const width = Number.parseFloat(padDimensions.width)
           if (!Number.isFinite(length) || !Number.isFinite(width) || length <= 0 || width <= 0) {
             setPadArea(null)
+            setPadCategory(null)
+            setCompensatedDuration(null)
             setWireUsed(null)
             setStepsMoved(null)
             setIsCalculatingMetrics(false)
@@ -1811,6 +1877,8 @@ export default function HomePage() {
           if (!Number.isFinite(outerRadius) || !Number.isFinite(innerRadius) ||
             outerRadius <= 0 || innerRadius <= 0 || outerRadius <= innerRadius) {
             setPadArea(null)
+            setPadCategory(null)
+            setCompensatedDuration(null)
             setWireUsed(null)
             setStepsMoved(null)
             setIsCalculatingMetrics(false)
@@ -1832,15 +1900,16 @@ export default function HomePage() {
 
       setPadArea(calculatedArea)
 
-      // Calculate thermal mass compensation
+      // Calculate thermal mass compensation (duration-based)
       const thermalCompensation = calculateThermalMassCompensation(calculatedArea)
       setPadCategory(thermalCompensation.category)
-      setCompensatedTemperature(thermalCompensation.compensatedTemp)
+      setCompensatedDuration(thermalCompensation.compensatedDuration)
 
       // Calculate pad volume: Area × Solder Height
       const heightNumeric = Number.parseFloat(solderHeight)
       if (!Number.isFinite(heightNumeric) || heightNumeric <= 0) {
         setPadVolume(null)
+        // Keep padCategory and compensatedDuration (already calculated from area)
         setWireUsed(null)
         setStepsMoved(null)
         setIsCalculatingMetrics(false)
@@ -1913,7 +1982,7 @@ export default function HomePage() {
         <header className={styles.pageHeader}>
           <div className={styles.pageHeaderContent}>
             <div>
-              <h1 className={styles.heading}>Single Axis Soldering Robot Console</h1>
+          <h1 className={styles.heading}>Single Axis Soldering Robot Console</h1>
               <p className={styles.subtitle}>
                 Track axis calibration, solder flow, and thermal data from the virtual LCD
                 that mirrors your hardware display.
@@ -1943,17 +2012,17 @@ export default function HomePage() {
         {/* Conditionally render components based on activeComponent */}
         {activeComponent === 'serial-port' && (
           <SerialPortConnection
-            isConnected={isSerialConnected}
-            isConnecting={isSerialConnecting}
-            currentPort={currentSerialPort}
-            availablePorts={serialPorts}
-            onRefreshPorts={handleRefreshPorts}
-            onConnect={handleSerialConnect}
-            onDisconnect={handleSerialDisconnect}
-            connectionError={serialConnectionError}
-            isReceivingData={isReceivingArduinoData}
-            lastDataReceived={lastArduinoDataTime}
-            dataCount={arduinoDataCount}
+          isConnected={isSerialConnected}
+          isConnecting={isSerialConnecting}
+          currentPort={currentSerialPort}
+          availablePorts={serialPorts}
+          onRefreshPorts={handleRefreshPorts}
+          onConnect={handleSerialConnect}
+          onDisconnect={handleSerialDisconnect}
+          connectionError={serialConnectionError}
+          isReceivingData={isReceivingArduinoData}
+          lastDataReceived={lastArduinoDataTime}
+          dataCount={arduinoDataCount}
           />
         )}
 
@@ -1974,7 +2043,8 @@ export default function HomePage() {
               onJigHeightChange={handleJigHeightChange}
               onCalibrate={handleJigCalibrate}
               statusMessage={jigCalibrationStatus}
-              currentZPosition={currentPosition.z}
+              bedHeight={bedHeight}
+              safeTravelSpace={safeTravelSpace}
             />
           </section>
         )}
@@ -1982,18 +2052,20 @@ export default function HomePage() {
         {activeComponent === 'manual-movement' && (
           <section className={styles.solderingControls} aria-label="Soldering iron controls">
             <ManualMovementControl
-              currentPosition={currentPosition}
-              stepSize={stepSize}
-              onStepSizeChange={setStepSize}
-              onJog={handleJog}
-              onHome={handleHome}
-              onSave={handleSave}
-              isMoving={currentPosition.isMoving}
-              statusMessage={manualMovementStatus}
-              limitSwitchAlert={limitSwitchAlert}
-              // limitSwitchMessage={limitSwitchMessage}
-              isSerialConnected={isSerialConnected}
-              isReceivingArduinoData={isReceivingArduinoData}
+            currentPosition={currentPosition}
+            stepSize={stepSize}
+            onStepSizeChange={setStepSize}
+            onJog={handleJog}
+            onHome={handleHome}
+            onSave={handleSave}
+            isMoving={currentPosition.isMoving}
+            statusMessage={manualMovementStatus}
+            limitSwitchAlert={limitSwitchAlert}
+            // limitSwitchMessage={limitSwitchMessage}
+            isSerialConnected={isSerialConnected}
+            isReceivingArduinoData={isReceivingArduinoData}
+              zAxisSpeed={zAxisSpeed}
+              onSpeedChange={handleSpeedChange}
             />
           </section>
         )}
@@ -2001,16 +2073,13 @@ export default function HomePage() {
         {activeComponent === 'tip-heating' && (
           <section className={styles.solderingControls} aria-label="Soldering iron controls">
             <TipHeatingControl
-              tipTarget={tipTarget}
-              onTipTargetChange={handleTipTargetChange}
-              onApplyTipTarget={handleApplyTipTarget}
-              isHeaterEnabled={isHeaterEnabled}
-              onToggleHeater={handleToggleHeater}
-              heaterStatus={heaterStatus}
-              currentTemperature={currentTipTemperature ?? calibration.find((entry) => entry.label === 'Tip Temp')?.value}
-              padCategory={padCategory}
-              compensatedTemperature={compensatedTemperature}
-              baseTemperature={baseTemperature}
+            tipTarget={tipTarget}
+            onTipTargetChange={handleTipTargetChange}
+            onApplyTipTarget={handleApplyTipTarget}
+            isHeaterEnabled={isHeaterEnabled}
+            onToggleHeater={handleToggleHeater}
+            heaterStatus={heaterStatus}
+            currentTemperature={currentTipTemperature ?? calibration.find((entry) => entry.label === 'Tip Temp')?.value}
             />
           </section>
         )}
@@ -2027,13 +2096,15 @@ export default function HomePage() {
               stepsMoved={stepsMoved}
               volumePerMm={volumePerMm}
               padCategory={padCategory}
-              compensatedTemperature={compensatedTemperature}
+              compensatedDuration={compensatedDuration}
               baseTemperature={baseTemperature}
+              maxTemperature={maxTemperature}
+              baseDuration={baseDuration}
               onShapeChange={handlePadShapeChange}
               onDimensionChange={handlePadDimensionChange}
               onSolderHeightChange={handleSolderHeightChange}
               onCalculate={calculatePadMetrics}
-              onApplyCompensatedTemperature={handleApplyCompensatedTemperature}
+              onApplyCompensatedDuration={handleApplyCompensatedDuration}
               isCalculating={isCalculatingMetrics}
             />
           </section>
@@ -2042,13 +2113,13 @@ export default function HomePage() {
         {activeComponent === 'wire-feed' && (
           <section className={styles.solderingControls} aria-label="Soldering iron controls">
             <WireFeedControl
-              calculatedLength={wireUsed}
-              wireDiameter={wireDiameter}
-              volumePerMm={volumePerMm}
-              status={wireFeedStatus}
-              message={wireFeedMessage}
-              onWireDiameterChange={handleWireDiameterChange}
-              onStart={handleWireFeedStart}
+            calculatedLength={wireUsed}
+            wireDiameter={wireDiameter}
+            volumePerMm={volumePerMm}
+            status={wireFeedStatus}
+            message={wireFeedMessage}
+            onWireDiameterChange={handleWireDiameterChange}
+            onStart={handleWireFeedStart}
             />
           </section>
         )}
@@ -2056,12 +2127,12 @@ export default function HomePage() {
         {activeComponent === 'spool-wire' && (
           <section className={styles.solderingControls} aria-label="Soldering iron controls">
             <SpoolWireControl
-              spoolState={spoolState}
-              onSpoolConfigChange={() => { }}
-              onSpoolConfigSubmit={handleSpoolConfigSubmit}
-              onResetSpool={handleResetSpool}
-              onTareSpool={handleTareSpool}
-              statusMessage={spoolStatusMessage}
+            spoolState={spoolState}
+            onSpoolConfigChange={() => { }}
+            onSpoolConfigSubmit={handleSpoolConfigSubmit}
+            onResetSpool={handleResetSpool}
+            onTareSpool={handleTareSpool}
+            statusMessage={spoolStatusMessage}
             />
           </section>
         )}
@@ -2069,13 +2140,13 @@ export default function HomePage() {
         {activeComponent === 'fume-extractor' && (
           <section className={styles.solderingControls} aria-label="Soldering iron controls">
             <FumeExtractorControl
-              enabled={fumeExtractor.enabled}
-              speed={fumeExtractor.speed}
-              autoMode={fumeExtractor.autoMode}
-              onToggle={toggleFumeExtractor}
-              onSpeedChange={handleFumeExtractorSpeedChange}
-              onAutoModeToggle={toggleFumeExtractorAutoMode}
-              statusMessage={fumeExtractorStatusMessage}
+            enabled={fumeExtractor.enabled}
+            speed={fumeExtractor.speed}
+            autoMode={fumeExtractor.autoMode}
+            onToggle={toggleFumeExtractor}
+            onSpeedChange={handleFumeExtractorSpeedChange}
+            onAutoModeToggle={toggleFumeExtractorAutoMode}
+            statusMessage={fumeExtractorStatusMessage}
             />
           </section>
         )}
@@ -2083,17 +2154,17 @@ export default function HomePage() {
         {activeComponent === 'flux-mist' && (
           <section className={styles.solderingControls} aria-label="Soldering iron controls">
             <FluxMistControl
-              isDispensing={fluxMist.isDispensing}
-              duration={fluxMist.duration}
-              flowRate={fluxMist.flowRate}
-              autoMode={fluxMist.autoMode}
-              onDispense={handleFluxMistDispense}
-              onDurationChange={handleFluxMistDurationChange}
-              onFlowRateChange={handleFluxMistFlowRateChange}
-              onAutoModeToggle={toggleFluxMistAutoMode}
-              statusMessage={fluxMistStatusMessage}
-              lastDispensed={fluxMist.lastDispensed}
-              fluxRemaining={fluxRemaining}
+            isDispensing={fluxMist.isDispensing}
+            duration={fluxMist.duration}
+            flowRate={fluxMist.flowRate}
+            autoMode={fluxMist.autoMode}
+            onDispense={handleFluxMistDispense}
+            onDurationChange={handleFluxMistDurationChange}
+            onFlowRateChange={handleFluxMistFlowRateChange}
+            onAutoModeToggle={toggleFluxMistAutoMode}
+            statusMessage={fluxMistStatusMessage}
+            lastDispensed={fluxMist.lastDispensed}
+            fluxRemaining={fluxRemaining}
             />
           </section>
         )}
@@ -2101,30 +2172,30 @@ export default function HomePage() {
         {activeComponent === 'air-control' && (
           <section className={styles.solderingControls} aria-label="Soldering iron controls">
             <AirControl
-              airBreezeEnabled={airBreeze.enabled}
-              airBreezeActive={airBreeze.isActive}
-              airBreezeDuration={airBreeze.duration}
-              airBreezeIntensity={airBreeze.intensity}
-              airBreezeAutoMode={airBreeze.autoMode}
-              onAirBreezeToggle={toggleAirBreeze}
-              onAirBreezeActivate={handleAirBreezeActivate}
-              onAirBreezeDurationChange={handleAirBreezeDurationChange}
-              onAirBreezeIntensityChange={handleAirBreezeIntensityChange}
-              onAirBreezeAutoModeToggle={toggleAirBreezeAutoMode}
-              airBreezeLastActivated={airBreeze.lastActivated}
-              airBreezeStatusMessage={airBreezeStatusMessage}
-              airJetEnabled={airJetPressure.enabled}
-              airJetActive={airJetPressure.isActive}
-              airJetDuration={airJetPressure.duration}
-              airJetPressure={airJetPressure.pressure}
-              airJetAutoMode={airJetPressure.autoMode}
-              onAirJetToggle={toggleAirJetPressure}
-              onAirJetActivate={handleAirJetPressureActivate}
-              onAirJetDurationChange={handleAirJetPressureDurationChange}
-              onAirJetPressureChange={handleAirJetPressurePressureChange}
-              onAirJetAutoModeToggle={toggleAirJetPressureAutoMode}
-              airJetLastActivated={airJetPressure.lastActivated}
-              airJetStatusMessage={airJetPressureStatusMessage}
+            airBreezeEnabled={airBreeze.enabled}
+            airBreezeActive={airBreeze.isActive}
+            airBreezeDuration={airBreeze.duration}
+            airBreezeIntensity={airBreeze.intensity}
+            airBreezeAutoMode={airBreeze.autoMode}
+            onAirBreezeToggle={toggleAirBreeze}
+            onAirBreezeActivate={handleAirBreezeActivate}
+            onAirBreezeDurationChange={handleAirBreezeDurationChange}
+            onAirBreezeIntensityChange={handleAirBreezeIntensityChange}
+            onAirBreezeAutoModeToggle={toggleAirBreezeAutoMode}
+            airBreezeLastActivated={airBreeze.lastActivated}
+            airBreezeStatusMessage={airBreezeStatusMessage}
+            airJetEnabled={airJetPressure.enabled}
+            airJetActive={airJetPressure.isActive}
+            airJetDuration={airJetPressure.duration}
+            airJetPressure={airJetPressure.pressure}
+            airJetAutoMode={airJetPressure.autoMode}
+            onAirJetToggle={toggleAirJetPressure}
+            onAirJetActivate={handleAirJetPressureActivate}
+            onAirJetDurationChange={handleAirJetPressureDurationChange}
+            onAirJetPressureChange={handleAirJetPressurePressureChange}
+            onAirJetAutoModeToggle={toggleAirJetPressureAutoMode}
+            airJetLastActivated={airJetPressure.lastActivated}
+            airJetStatusMessage={airJetPressureStatusMessage}
             />
           </section>
         )}
@@ -2132,17 +2203,17 @@ export default function HomePage() {
         {activeComponent === 'sequence-monitor' && (
           <section className={styles.solderingControls} aria-label="Soldering iron controls">
             <SequenceMonitor
-              sequenceState={sequenceState}
-              onStart={handleSequenceStart}
-              onStop={handleSequenceStop}
-              onPause={handleSequencePause}
-              onResume={handleSequenceResume}
-              padPositions={[
-                {
-                  // Single-axis machine: Only Z-axis (X and Y removed)
-                  z: Number.parseFloat(solderHeight || 0),
-                }
-              ]}
+            sequenceState={sequenceState}
+            onStart={handleSequenceStart}
+            onStop={handleSequenceStop}
+            onPause={handleSequencePause}
+            onResume={handleSequenceResume}
+            padPositions={[
+              {
+                // Single-axis machine: Only Z-axis (X and Y removed)
+                z: Number.parseFloat(solderHeight || 0),
+              }
+            ]}
             />
           </section>
         )}

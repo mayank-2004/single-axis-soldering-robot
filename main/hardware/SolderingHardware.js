@@ -58,13 +58,16 @@ export default class SolderingHardware extends EventEmitter {
       this._setupSerialEventHandlers()
     }
 
+    // Machine physical dimensions
+    this.BED_HEIGHT_MM = 280.0 // Total height from home (upper limit) to bed surface (lower limit)
+
     this.state = {
       componentHeightMm: null,
-      jigHeightMm: null, // Jig reference height from home position (0.00mm) to jig surface
+      jigHeightMm: null, // Jig height: distance from bed surface to jig surface (jig thickness, in mm)
       calibration: initialCalibration.map((entry) => ({ ...entry })),
       // Z-axis movement speed (1-100%, where 100% = fastest, 1% = slowest)
       // This controls the delay between stepper motor steps
-      zAxisSpeed: options.zAxisSpeed || 95, // Increased default from 90% to 95% for faster movement
+      zAxisSpeed: options.zAxisSpeed || 95, // 95% for faster movement
       fans: { machine: false, tip: false },
       fumeExtractor: {
         enabled: false,
@@ -155,6 +158,7 @@ export default class SolderingHardware extends EventEmitter {
         error: null,
         totalWireLengthUsed: 0, // Total wire length used for complete PCB cycle
         wireLengthPerPad: [], // Array to track wire length used per pad
+        thermalMassDuration: 1000, // Thermal mass compensation duration in milliseconds (default: 1 second)
       },
       position: {
         z: 0.0,  // Single-axis machine: only Z-axis position - starts at home (0.00mm)
@@ -310,10 +314,14 @@ export default class SolderingHardware extends EventEmitter {
   }
 
   /**
-   * Set jig reference height
-   * @param {number} height - Height from home position (0.00mm) to jig surface in mm
+   * Set jig height (thickness of the jig from bed surface to jig surface)
+   * @param {number} height - Height from bed surface to jig surface (where PCB sits) in mm
    * @param {string} unit - Unit of measurement (default: 'mm')
    * @returns {Object} Result object with status or error
+   * 
+   * Note: Jig is a tool/plate placed on the bed surface. Jig height is the thickness of the jig
+   * (distance from bed surface to jig surface where PCB sits).
+   * Jig surface position from home = bedHeight - jigHeight
    */
   setJigHeight(height, unit = 'mm') {
     const numeric = Number.parseFloat(height)
@@ -323,38 +331,57 @@ export default class SolderingHardware extends EventEmitter {
       }
     }
 
+    // Validate jig height doesn't exceed bed height (jig thickness can't be more than bed height)
+    if (numeric > this.BED_HEIGHT_MM) {
+      return {
+        error: `Jig height (${numeric.toFixed(2)}mm) cannot exceed bed height (${this.BED_HEIGHT_MM}mm).`,
+      }
+    }
+
     this.state.jigHeightMm = numeric
-    console.log(`[SolderingHardware] Jig height set to ${numeric.toFixed(2)} ${unit}`)
+    const jigSurfaceFromHome = this.BED_HEIGHT_MM - numeric
+    const safeTravel = this.getSafeTravelSpace()
+    console.log(`[SolderingHardware] Jig height (thickness) set to ${numeric.toFixed(2)} ${unit}, jig surface at ${jigSurfaceFromHome.toFixed(2)}mm from home, safe travel space (home to jig): ${safeTravel?.toFixed(2) || 0}mm`)
     return {
-      status: `Jig height set to ${numeric.toFixed(2)} ${unit}`,
+      status: `Jig height set to ${numeric.toFixed(2)} ${unit}. Jig surface at ${jigSurfaceFromHome.toFixed(2)}mm from home. Safe travel space: ${safeTravel?.toFixed(2) || 0}mm`,
       jigHeight: numeric,
+      bedHeight: this.BED_HEIGHT_MM,
+      jigSurfaceFromHome: jigSurfaceFromHome,
+      safeTravelSpace: safeTravel,
     }
   }
 
   /**
-   * Calibrate jig height from current Z position
-   * Uses the current Z position as the jig reference height
-   * @returns {Object} Result object with status or error
+   * Get safe travel space (total safe range from home to jig surface)
+   * This is the space available for the head to move safely from home position down to jig surface
+   * @returns {number|null} Safe travel space in mm or null if jig height not set
    */
-  calibrateJigFromPosition() {
-    const currentZ = this.state.position.z
-    
-    if (currentZ === null || currentZ === undefined) {
-      return {
-        error: 'Current Z position is not available. Please ensure machine is connected and homed.',
-      }
+  getSafeTravelSpace() {
+    if (this.state.jigHeightMm === null || this.state.jigHeightMm === undefined) {
+      return null
     }
+    // Safe travel space = bed height - jig height (space from home to jig surface)
+    return this.BED_HEIGHT_MM - this.state.jigHeightMm
+  }
 
-    // Use absolute value since Z can be negative (below home)
-    const jigHeight = Math.abs(currentZ)
-    
-    this.state.jigHeightMm = jigHeight
-    console.log(`[SolderingHardware] Jig calibrated from current position: ${jigHeight.toFixed(2)} mm`)
-    return {
-      status: `Jig height calibrated to ${jigHeight.toFixed(2)} mm from current position`,
-      jigHeight: jigHeight,
-      currentZ: currentZ,
+  /**
+   * Get jig surface position from home
+   * @returns {number|null} Jig surface position in mm from home or null if jig height not set
+   */
+  getJigSurfaceFromHome() {
+    if (this.state.jigHeightMm === null || this.state.jigHeightMm === undefined) {
+      return null
     }
+    // Jig surface = bed surface - jig height
+    return this.BED_HEIGHT_MM - this.state.jigHeightMm
+  }
+
+  /**
+   * Get bed height constant
+   * @returns {number} Bed height in mm (280mm) - distance from home to bed surface where jig is placed
+   */
+  getBedHeight() {
+    return this.BED_HEIGHT_MM
   }
 
   /**
@@ -769,7 +796,7 @@ export default class SolderingHardware extends EventEmitter {
         const commandedDistance = step
         
         // Send JSON command to Arduino: {"command":"jog","axis":"z","distance":1.0,"speed":50}
-        // Speed: 1-100% (100% = fastest, 1% = slowest)
+        // Speed: 1-200% (1-100% = normal range, 101-200% = turbo mode)
         await this._sendArduinoJsonCommand({
           command: 'jog',
           axis: axis.toLowerCase(),
@@ -931,8 +958,8 @@ export default class SolderingHardware extends EventEmitter {
     // Arduino constants
     const Z_STEP_DELAY_MIN = 50  // microseconds (fastest) - reduced for higher speed
     const Z_STEP_DELAY_MAX = 800 // microseconds (slowest) - reduced from 2000 for faster movement
-    // Steps per mm is now calculated: (200 × 16) / 2.0 = 1600 steps/mm (for 2mm pitch, 16 microstepping)
-    const Z_STEPS_PER_MM = 1600 // Updated to match calculated value from Arduino
+    // Steps per mm is now calculated: (200 × 16) / 1.0 = 3200 steps/mm (for 1mm pitch, 16 microstepping)
+    const Z_STEPS_PER_MM = 3200 // Updated to match calculated value from Arduino
     
     // Convert percentage to step delay (same formula as Arduino)
     // Formula: delay = MAX - ((speed - 1) / (100 - 1)) * (MAX - MIN)
@@ -960,7 +987,7 @@ export default class SolderingHardware extends EventEmitter {
    * @returns {object} Status object
    */
   setZAxisSpeed(speed) {
-    const speedValue = Math.max(1, Math.min(100, Number(speed) || 50))
+    const speedValue = Math.max(1, Math.min(200, Number(speed) || 50))
     this.state.zAxisSpeed = speedValue
     
     // Update LCD display with calculated speed
@@ -976,7 +1003,27 @@ export default class SolderingHardware extends EventEmitter {
       })
     }
     
-    return { status: `Z-axis speed set to ${speedValue}%` }
+    const speedLabel = speedValue > 100 ? `Turbo Mode (${speedValue}%)` : `${speedValue}%`
+    return { status: `Z-axis speed set to ${speedLabel}` }
+  }
+
+  /**
+   * Get Z-axis movement speed
+   * @returns {number} Speed percentage (1-100)
+   */
+  getZAxisSpeed() {
+    return this.state.zAxisSpeed
+  }
+
+  /**
+   * Set thermal mass compensation duration
+   * @param {number} duration - Duration in milliseconds (1000-5000ms)
+   * @returns {object} Status object
+   */
+  setThermalMassDuration(duration) {
+    const durationValue = Math.max(1000, Math.min(5000, Number(duration) || 1000))
+    this.state.sequence.thermalMassDuration = durationValue
+    return { status: `Thermal mass duration set to ${durationValue}ms (${(durationValue / 1000).toFixed(1)}s)` }
   }
 
   /**
@@ -1970,15 +2017,16 @@ export default class SolderingHardware extends EventEmitter {
 
   async _executeStageAction(action, padPosition, stageIndex) {
     const { x, y, z } = padPosition
-    // Calculate safe height: jig height + component height + 2mm clearance
-    // If jig height is not set, fall back to component height + 2mm, or default 5mm
+    // Jig surface = bedHeight - jigHeight (jig height is thickness from bed to jig surface)
     let safeZ = 5 // Default safe height
     if (this.state.jigHeightMm !== null && this.state.jigHeightMm !== undefined) {
-      // Jig height is set - use it as base
+      // Jig height is set - calculate jig surface position from home
+      const jigSurfaceFromHome = this.BED_HEIGHT_MM - this.state.jigHeightMm
       const componentHeight = this.state.componentHeightMm || 0
-      safeZ = this.state.jigHeightMm + componentHeight + 2 // Jig + component + clearance
+      // safeZ = jigSurfaceFromHome + componentHeight + 2 // Jig surface + component + clearance
+      safeZ = jigSurfaceFromHome + componentHeight // Jig surface + component
     } else if (this.state.componentHeightMm !== null && this.state.componentHeightMm !== undefined) {
-      // Fallback to component height only (legacy behavior)
+      // Fallback to component height only
       safeZ = this.state.componentHeightMm + 2
     }
 
@@ -1994,6 +2042,12 @@ export default class SolderingHardware extends EventEmitter {
         if (this.state.fluxMist.autoMode && !this.state.fluxMist.isDispensing) {
           await this.dispenseFluxMist()
         }
+        
+        // Thermal mass compensation: Wait for heat to transfer to pad
+        // Larger pads need more time for the tip to heat the pad surface
+        const dwellDuration = this.state.sequence.thermalMassDuration || 1000
+        console.log(`[Sequence] Thermal mass compensation: Waiting ${dwellDuration}ms for heat transfer...`)
+        await new Promise((resolve) => setTimeout(resolve, dwellDuration))
         break
 
       case 'dispense':

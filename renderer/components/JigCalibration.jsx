@@ -7,7 +7,8 @@ export default function JigCalibration({
   onCalibrate,
   statusMessage,
   isCalibrating = false,
-  currentZPosition = null,
+  bedHeight = 280.0, // Total height from home to bed surface
+  safeTravelSpace = null, // Calculated safe travel space
 }) {
   return (
     <article className={styles.controlCard} aria-label="Jig calibration controls">
@@ -20,14 +21,44 @@ export default function JigCalibration({
         {/* Explanation */}
         <div className={styles.infoSection}>
           <p className={styles.infoText}>
-            Jig calibration sets a reference height for your PCB jig. This ensures the soldering head
-            maintains safe clearance above the jig and prevents crashes during sequences.
+            Jig calibration sets the thickness of your PCB jig. The <strong>bed surface</strong> (where the jig is placed) 
+            is <strong>{bedHeight.toFixed(0)}mm</strong> from the home position (upper limit switch). 
+            The <strong>jig</strong> is a tool/plate that sits on the bed, and the <strong>jig surface</strong> (where the PCB sits) 
+            is on top of the jig. Set the <strong>jig height</strong> (thickness from bed surface to jig surface), 
+            and the safe travel space ({safeTravelSpace !== null ? safeTravelSpace.toFixed(2) : '---'}mm) from home to jig surface 
+            will be available for safe head movement.
           </p>
+        </div>
+
+        {/* Height Information Display */}
+        <div className={styles.heightInfoSection}>
+          <div className={styles.heightInfoRow}>
+            <span className={styles.heightInfoLabel}>Bed Surface (from home):</span>
+            <span className={styles.heightInfoValue}>{bedHeight.toFixed(2)} mm</span>
+          </div>
+          {jigHeight !== null && jigHeight !== undefined && (
+            <>
+              <div className={styles.heightInfoRow}>
+                <span className={styles.heightInfoLabel}>Jig Height (thickness):</span>
+                <span className={styles.heightInfoValue}>{jigHeight.toFixed(2)} mm</span>
+              </div>
+              <div className={styles.heightInfoRow}>
+                <span className={styles.heightInfoLabel}>Jig Surface (from home):</span>
+                <span className={styles.heightInfoValue}>{(bedHeight - jigHeight).toFixed(2)} mm</span>
+              </div>
+              {safeTravelSpace !== null && (
+                <div className={styles.heightInfoRow}>
+                  <span className={styles.heightInfoLabel}>Safe Travel Space:</span>
+                  <span className={styles.heightInfoValue}>{safeTravelSpace.toFixed(2)} mm</span>
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         {/* Current Jig Height Display */}
         <div className={styles.currentHeightSection}>
-          <label className={styles.currentHeightLabel}>Current Jig Height:</label>
+          <label className={styles.currentHeightLabel}>Current Jig Height (thickness):</label>
           <div className={styles.currentHeightValue}>
             <span className={styles.heightNumber}>
               {jigHeight !== null && jigHeight !== undefined ? jigHeight.toFixed(2) : '--'}
@@ -39,7 +70,7 @@ export default function JigCalibration({
         {/* Manual Input Method */}
         <div className={styles.inputSection}>
           <label htmlFor="jig-height-input" className={styles.inputLabel}>
-            Set Jig Height Manually
+            Set Jig Height (Thickness) Manually
           </label>
           <div className={styles.inputGroup}>
             <input
@@ -47,6 +78,7 @@ export default function JigCalibration({
               name="jig-height-input"
               type="number"
               min="0"
+              max={bedHeight}
               step="0.01"
               inputMode="decimal"
               className={styles.heightInput}
@@ -56,7 +88,7 @@ export default function JigCalibration({
                 const numeric = value === '' ? null : Number.parseFloat(value)
                 onJigHeightChange(numeric)
               }}
-              placeholder="e.g. 10.5"
+              placeholder={`e.g. 10.5 (thickness, max: ${bedHeight.toFixed(0)}mm)`}
               disabled={isCalibrating}
             />
             <span className={styles.inputUnit}>mm</span>
@@ -71,36 +103,12 @@ export default function JigCalibration({
             </button>
           </div>
           <p className={styles.inputHint}>
-            Measure the height from the jig surface to the home position (0.00mm) and enter it here.
+            Enter the <strong>jig height</strong> (thickness from bed surface to jig surface where the PCB sits). 
+            The bed surface is at {bedHeight.toFixed(0)}mm from home, so jig height must be less than {bedHeight.toFixed(0)}mm. 
+            The jig surface will be at {jigHeight !== null && jigHeight !== undefined ? (bedHeight - jigHeight).toFixed(2) : '---'}mm from home. 
+            The safe travel space ({safeTravelSpace !== null ? safeTravelSpace.toFixed(2) : '---'}mm) from home to jig surface 
+            will be available for safe head movement.
           </p>
-        </div>
-
-        {/* Auto-Calibration Method */}
-        <div className={styles.calibrationSection}>
-          <label className={styles.calibrationLabel}>Auto-Calibrate from Current Position</label>
-          <div className={styles.calibrationInfo}>
-            <p className={styles.calibrationHint}>
-              Position the head at the jig surface, then click "Calibrate from Current Position".
-              The current Z position will be used as the jig height reference.
-            </p>
-            {currentZPosition !== null && currentZPosition !== undefined && (
-              <div className={styles.positionInfo}>
-                <span className={styles.positionLabel}>Current Z Position:</span>
-                <span className={styles.positionValue}>
-                  {currentZPosition.toFixed(2)} mm
-                </span>
-              </div>
-            )}
-          </div>
-          <button
-            type="button"
-            className={styles.calibrateButton}
-            onClick={() => onCalibrate('auto')}
-            disabled={isCalibrating || currentZPosition === null}
-            title="Use current Z position as jig height reference"
-          >
-            {isCalibrating ? 'Calibrating...' : 'Calibrate from Current Position'}
-          </button>
         </div>
 
         {/* Status Message */}
@@ -114,8 +122,11 @@ export default function JigCalibration({
         <div className={styles.safetyNote}>
           <span className={styles.safetyIcon}>⚠️</span>
           <p className={styles.safetyText}>
-            <strong>Safety:</strong> The safe retraction height is calculated as: Jig Height + Component Height + 2mm clearance.
-            Ensure jig height is accurate to prevent crashes.
+            <strong>Safety:</strong> The head will only move between the limit switches (upper limit at home, lower limit at bed level). 
+            If a limit switch is triggered during movement, a warning will appear in the UI. 
+            The safe retraction height is calculated as: (Bed Height - Jig Height) + Component Height + 2mm clearance, 
+            which equals Jig Surface Position + Component Height + 2mm clearance.
+            Ensure jig height (thickness) is accurate and does not exceed {bedHeight.toFixed(0)}mm.
           </p>
         </div>
       </div>

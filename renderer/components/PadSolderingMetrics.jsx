@@ -11,13 +11,15 @@ export default function PadSolderingMetrics({
   stepsMoved,
   volumePerMm,
   padCategory,
-  compensatedTemperature,
+  compensatedDuration,
   baseTemperature,
+  maxTemperature,
+  baseDuration,
   onShapeChange,
   onDimensionChange,
   onSolderHeightChange,
   onCalculate,
-  onApplyCompensatedTemperature,
+  onApplyCompensatedDuration,
   isCalculating,
 }) {
   const renderShapeInputs = () => {
@@ -309,7 +311,7 @@ export default function PadSolderingMetrics({
         )}
 
         {/* Thermal Mass Compensation Display */}
-        {padCategory && compensatedTemperature !== null && (
+        {padCategory && compensatedDuration !== null && (
           <div className={styles.thermalCompensationContainer}>
             <div className={styles.thermalHeader}>
               <span className={styles.thermalTitle}>Thermal Mass Compensation</span>
@@ -319,27 +321,31 @@ export default function PadSolderingMetrics({
             </div>
             <div className={styles.thermalDetails}>
               <div className={styles.thermalRow}>
-                <span className={styles.thermalLabel}>Base Temperature:</span>
-                <span className={styles.thermalValue}>{baseTemperature}°C</span>
+                <span className={styles.thermalLabel}>Temperature:</span>
+                <span className={styles.thermalValue}>{baseTemperature}°C (Constant)</span>
               </div>
               <div className={styles.thermalRow}>
-                <span className={styles.thermalLabel}>Compensated Temperature:</span>
-                <span className={styles.thermalValueHighlight}>{compensatedTemperature}°C</span>
+                <span className={styles.thermalLabel}>Base Duration:</span>
+                <span className={styles.thermalValue}>{baseDuration}ms ({(baseDuration / 1000).toFixed(1)}s)</span>
+              </div>
+              <div className={styles.thermalRow}>
+                <span className={styles.thermalLabel}>Compensated Duration:</span>
+                <span className={styles.thermalValueHighlight}>{compensatedDuration}ms ({(compensatedDuration / 1000).toFixed(1)}s)</span>
               </div>
               <div className={styles.thermalRow}>
                 <span className={styles.thermalLabel}>Compensation:</span>
                 <span className={styles.thermalValue}>
-                  +{compensatedTemperature - baseTemperature}°C
+                  +{compensatedDuration - baseDuration}ms (+{((compensatedDuration - baseDuration) / 1000).toFixed(1)}s)
                 </span>
               </div>
             </div>
-            {onApplyCompensatedTemperature && (
+            {onApplyCompensatedDuration && (
               <button
                 type="button"
                 className={styles.applyTemperatureButton}
-                onClick={onApplyCompensatedTemperature}
+                onClick={onApplyCompensatedDuration}
               >
-                Apply {compensatedTemperature}°C to Tip
+                Apply {compensatedDuration}ms Duration
               </button>
             )}
           </div>

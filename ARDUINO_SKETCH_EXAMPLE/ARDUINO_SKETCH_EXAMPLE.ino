@@ -10,26 +10,16 @@ float zPosition = 0.0;  // Z-axis position in mm - starts at home
 bool isMoving = false;
 
 float targetTemperature = 345.0;
-// float currentTemperature = 25.0;  // Sensor reading variable - commented out
-// Placeholder for simulation mode (since sensor reading is disabled)+6
 float currentTemperature = 25.0;  // Default value for simulation
 bool heaterEnabled = false;
 
 String wireFeedStatus = "idle";
 float wireFeedRate = 8.0;
-// bool wireBreakDetected = false;  // Sensor reading variable - commented out
-// Placeholder for simulation mode (since sensor reading is disabled)
 bool wireBreakDetected = false;  // Default value for simulation
 
-// float spoolWeight = 500.0;  // Sensor reading variable (load cell) - commented out
-// Placeholder for simulation mode (since sensor reading is disabled)
 float spoolWeight = 500.0;  // Default value for simulation
-// float wireLength = 10000.0;  // Calculated from sensor reading - commented out
-// Placeholder for simulation mode (since sensor reading is disabled)
 float wireLength = 10000.0;  // Default value for simulation
 float wireDiameter = 0.5;
-// float remainingPercentage = 100.0;  // Calculated from sensor reading - commented out
-// Placeholder for simulation mode (since sensor reading is disabled)
 float remainingPercentage = 100.0;  // Default value for simulation
 bool isWireFeeding = false;
 
@@ -76,29 +66,26 @@ const float Z_MAX_POSITION = 60.0f;  // mm - Maximum travel distance from home (
 const float Z_HOME_POSITION = 0.0f;  // mm - Home position (at Z_MAX limit switch)
 
 // Lead screw configuration (measured)
-const float LEAD_SCREW_PITCH_MM = 2.0f;  // Lead screw pitch: 2mm per revolution (measured)
+const float LEAD_SCREW_PITCH_MM = 1.0f;  // Lead screw pitch: 1mm per revolution (measured)
 
 // Stepper motor configuration (DM542 driver)
 const int MOTOR_STEPS_PER_REVOLUTION = 200;  // Standard 1.8° stepper motor = 200 steps/rev (360° / 1.8°)
 
 // DM542 Microstepping configuration
-// Set this to match your DM542 DIP switch settings (SW5-SW8)
-// Common settings: 1, 2, 4, 8, 16, 32, 64, 128, 256, etc.
-// Check your DM542 DIP switch configuration and set accordingly
-// Default: 16 microsteps (3200 steps/rev) - adjust based on your DIP switch settings
 const int MICROSTEPPING = 16;  // Change this to match your DM542 DIP switch setting
 
 // Calculate steps per millimeter automatically
 // Formula: Steps per mm = (Motor steps per revolution × Microstepping) / Lead screw pitch
-// Example: (200 × 16) / 2.0 = 3200 / 2.0 = 1600 steps/mm
+// Example: (200 × 16) / 1.0 = 3200 / 1.0 = 3200 steps/mm
 float zStepsPerMm = (static_cast<float>(MOTOR_STEPS_PER_REVOLUTION) * static_cast<float>(MICROSTEPPING)) / LEAD_SCREW_PITCH_MM;
 const unsigned int Z_STEP_DELAY_US = 100; // Default pulse width for stepper (microseconds)
-const unsigned int Z_STEP_DELAY_MIN = 50;  // Minimum delay (fastest speed) - reduced for higher speed capability
+const unsigned int Z_STEP_DELAY_MIN = 30;  // Minimum delay (fastest speed) - reduced to 30μs for ultra-fast movement
 const unsigned int Z_STEP_DELAY_MAX = 800;  // Maximum delay (slowest speed) - reduced from 2000 for faster movement
+const unsigned int Z_STEP_DELAY_TURBO_MIN = 20;  // Turbo mode minimum delay (ultra-fast) - use with caution
 
 // Current movement speed (delay in microseconds)
 // Lower value = faster movement, Higher value = slower movement
-unsigned int currentZStepDelay = Z_STEP_DELAY_MIN; // Default speed set to fastest (50μs) for higher speed
+unsigned int currentZStepDelay = Z_STEP_DELAY_MIN; // Default speed set to fastest (30μs) for higher speed
 
 // Tone-based stepper control configuration (optimized from testing-25.ino)
 // Tone duration for each step pulse (milliseconds)
@@ -478,12 +465,17 @@ void processCommands() {
           if (cmdDoc.containsKey("speed")) {
             float speedValue = cmdDoc["speed"] | 0;
             if (speedValue > 0 && speedValue <= 100) {
-              // Interpret as percentage (1-100%)
-              // Map to delay range: 100% = Z_STEP_DELAY_MIN (fastest), 1% = Z_STEP_DELAY_MAX (slowest)
-              // Formula: delay = MAX - ((speed - 1) / (100 - 1)) * (MAX - MIN)
+              // Normal range: 1-100% maps to Z_STEP_DELAY_MAX (800μs) to Z_STEP_DELAY_MIN (30μs)
               speedDelay = Z_STEP_DELAY_MAX - static_cast<unsigned int>(((speedValue - 1.0f) / 99.0f) * (Z_STEP_DELAY_MAX - Z_STEP_DELAY_MIN));
-            } else if (speedValue > 100) {
+            } else if (speedValue > 100 && speedValue <= 200) {
+              // Turbo range: 101-200% maps to Z_STEP_DELAY_MIN (30μs) to Z_STEP_DELAY_TURBO_MIN (20μs)
+              speedDelay = Z_STEP_DELAY_MIN - static_cast<unsigned int>(((speedValue - 101.0f) / 99.0f) * (Z_STEP_DELAY_MIN - Z_STEP_DELAY_TURBO_MIN));
+              if (speedDelay < Z_STEP_DELAY_TURBO_MIN) speedDelay = Z_STEP_DELAY_TURBO_MIN;
+            } else if (speedValue > 200) {
+              // Direct delay value in microseconds (for advanced users)
               speedDelay = static_cast<unsigned int>(speedValue);
+              if (speedDelay < Z_STEP_DELAY_TURBO_MIN) speedDelay = Z_STEP_DELAY_TURBO_MIN;
+              if (speedDelay > Z_STEP_DELAY_MAX) speedDelay = Z_STEP_DELAY_MAX;
             }
           }
           
@@ -634,7 +626,7 @@ void processCommands() {
             Serial.println("[CMD]   1. {\"command\":\"calibrate\",\"stepsPerMm\":1600.0}");
             Serial.println("[CMD]   2. {\"command\":\"calibrate\",\"commanded\":5.0,\"actual\":4.89}");
             Serial.println("[CMD]   3. {\"command\":\"calibrate\",\"microstepping\":16}");
-            Serial.println("[CMD]   4. {\"command\":\"calibrate\",\"leadScrewPitch\":2.0,\"microstepping\":16}");
+            Serial.println("[CMD]   4. {\"command\":\"calibrate\",\"leadScrewPitch\":1.0,\"microstepping\":16}");
           }
         }
         else {
@@ -686,7 +678,8 @@ void applyZMovement(long steps, bool moveUp, unsigned int stepDelayUs = 0) {
 
   // Use provided delay or default
   unsigned int delay = (stepDelayUs > 0) ? stepDelayUs : currentZStepDelay;
-  if (delay < Z_STEP_DELAY_MIN) delay = Z_STEP_DELAY_MIN;
+  // Allow delays below Z_STEP_DELAY_MIN for turbo mode (but not below Z_STEP_DELAY_TURBO_MIN)
+  if (delay < Z_STEP_DELAY_TURBO_MIN) delay = Z_STEP_DELAY_TURBO_MIN;
   if (delay > Z_STEP_DELAY_MAX) delay = Z_STEP_DELAY_MAX;
 
   long stepsCompleted = 0;
@@ -710,7 +703,7 @@ void applyZMovement(long steps, bool moveUp, unsigned int stepDelayUs = 0) {
     pulseZStep(delay);
     stepsCompleted++;
   }
-  
+
   // If limit switch was hit, stop movement immediately
   if (limitHit) {
     isMoving = false;  // Stop movement flag immediately
@@ -775,13 +768,13 @@ void moveZAxisByDistance(float distanceMm, unsigned int stepDelayUs) {
   float actualDistance = target - zPosition;
   // For downward movement, use ceilf to ensure at least the commanded distance
   // For upward movement, use roundf for normal rounding
-  float stepsFloat = fabsf(actualDistance * zStepsPerMm);
-  long stepsToMove;
-  if (actualDistance < 0) { // Downward movement
-    stepsToMove = static_cast<long>(ceilf(stepsFloat)); // Round up to ensure at least commanded distance
-  } else { // Upward movement
-    stepsToMove = static_cast<long>(roundf(stepsFloat)); // Round to nearest for upward
-  }
+   float stepsFloat = fabsf(actualDistance * zStepsPerMm);
+   long stepsToMove;
+   if (actualDistance < 0) { // Downward movement
+     stepsToMove = static_cast<long>(ceilf(stepsFloat)); // Round up to ensure at least commanded distance
+   } else { // Upward movement
+     stepsToMove = static_cast<long>(roundf(stepsFloat)); // Round to nearest for upward
+   }
 
   if (stepsToMove == 0) {
     zPosition = target;
@@ -790,7 +783,8 @@ void moveZAxisByDistance(float distanceMm, unsigned int stepDelayUs) {
 
   // Use provided delay, or clamp to valid range if using global delay
   unsigned int delay = (stepDelayUs > 0) ? stepDelayUs : currentZStepDelay;
-  if (delay < Z_STEP_DELAY_MIN) delay = Z_STEP_DELAY_MIN;
+  // Allow delays below Z_STEP_DELAY_MIN for turbo mode (but not below Z_STEP_DELAY_TURBO_MIN)
+  if (delay < Z_STEP_DELAY_TURBO_MIN) delay = Z_STEP_DELAY_TURBO_MIN;
   if (delay > Z_STEP_DELAY_MAX) delay = Z_STEP_DELAY_MAX;
 
   isMoving = true;
@@ -825,7 +819,8 @@ void moveZAxisTo(float targetMm, unsigned int stepDelayUs) {
 void homeZAxis(unsigned int stepDelayUs) {
   // Use provided delay, or clamp to valid range if using global delay
   unsigned int delay = (stepDelayUs > 0) ? stepDelayUs : currentZStepDelay;
-  if (delay < Z_STEP_DELAY_MIN) delay = Z_STEP_DELAY_MIN;
+  // Allow delays below Z_STEP_DELAY_MIN for turbo mode (but not below Z_STEP_DELAY_TURBO_MIN)
+  if (delay < Z_STEP_DELAY_TURBO_MIN) delay = Z_STEP_DELAY_TURBO_MIN;
   if (delay > Z_STEP_DELAY_MAX) delay = Z_STEP_DELAY_MAX;
 
   // Check if already at home position
@@ -837,7 +832,7 @@ void homeZAxis(unsigned int stepDelayUs) {
   }
 
   Serial.println("[Home] Starting homing sequence - moving upward until limit switch triggers...");
-  
+
   isMoving = true;
   digitalWrite(STEPPER_Z_DIR_PIN, HIGH); // Move towards home (upward, towards Z_MAX limit switch)
 
