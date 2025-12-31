@@ -9,7 +9,7 @@ const unsigned long UPDATE_INTERVAL = 500; // Send data every 100ms
 float zPosition = 0.0;  // Z-axis position in mm - starts at home
 bool isMoving = false;
 
-float targetTemperature = 345.0;
+float targetTemperature = 290.0;
 float currentTemperature = 25.0;  // Default value for simulation
 bool heaterEnabled = false;
 

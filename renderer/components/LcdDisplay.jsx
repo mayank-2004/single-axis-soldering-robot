@@ -6,9 +6,10 @@ const fallbackReadings = [
   { label: 'Z Axis', value: '000.00 → 000.00', unit: 'mm', icon: '↕' },
   { label: 'Wire Remaining', value: '100', unit: '%', length: '14.3 m', icon: '⚡' },
   { label: 'Flux Remaining', value: '82', unit: '%', icon: '💧' },
-  { label: 'Tip Temp', value: '345', unit: '°C', icon: '🌡️' },
+  { label: 'Tip Temp', value: '290', unit: '°C', icon: '🌡️' },
   { label: 'Feed Rate', value: '8.0', unit: 'mm/s', icon: '⏩' },
   { label: 'Speed', value: '210', unit: 'mm/s', icon: '⚡' },
+  { label: 'Thermal Duration', value: '--', unit: 'ms', icon: '⏱️' },
 ]
 
 export default function LcdDisplay({

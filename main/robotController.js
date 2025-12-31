@@ -1,4 +1,5 @@
 import SolderingHardware from './hardware/SolderingHardware'
+import PadConfigDatabase from './padConfigDatabase'
 
 export function setupRobotController({ ipcMain, getWebContents, options = {} }) {
   const serialConfig = options.serialConfig || {
@@ -10,6 +11,8 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
     mode: 'hardware', // Always use hardware mode so serial manager exists
     serialConfig,
   })
+  
+  const padConfigDb = new PadConfigDatabase()
   const ipcListeners = []
   const hardwareListeners = []
 
@@ -462,6 +465,32 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
     }
   })
 
+  registerIpcListener('sequence:duration:request', (event) => {
+    try {
+      if (!hardware || typeof hardware.getThermalMassDuration !== 'function') {
+        console.error('[robotController] Hardware not initialized or getThermalMassDuration method not available')
+        event.sender.send('sequence:duration:status', {
+          duration: 1000,
+          status: 'default',
+          error: 'Hardware not initialized',
+        })
+        return
+      }
+      const duration = hardware.getThermalMassDuration()
+      event.sender.send('sequence:duration:status', {
+        duration,
+        status: 'ok',
+      })
+    } catch (error) {
+      console.error('[robotController] Error in sequence:duration:request:', error)
+      event.sender.send('sequence:duration:status', {
+        duration: 1000,
+        status: 'error',
+        error: error.message || 'Failed to get duration',
+      })
+    }
+  })
+
   registerIpcListener('airJetPressure:duration:set', (event, payload = {}) => {
     const result = hardware.setAirJetPressureDuration(payload.duration)
     if (result.error) {
@@ -649,6 +678,25 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
     event.sender.send('serial:status:response', status)
   })
 
+  // Pad configuration database handlers
+  registerIpcListener('pad-config:save', async (event, config) => {
+    try {
+      await padConfigDb.save(config)
+      event.sender.send('pad-config:saved', { success: true })
+    } catch (error) {
+      event.sender.send('pad-config:saved', { error: error.message })
+    }
+  })
+
+  registerIpcListener('pad-config:load', async (event) => {
+    try {
+      const configs = await padConfigDb.loadAll()
+      event.sender.send('pad-config:loaded', configs)
+    } catch (error) {
+      event.sender.send('pad-config:loaded', [])
+    }
+  })
+
   // Listen for hardware errors
   registerHardwareListener('error', ({ type, error }) => {
     sendToRenderer('serial:error', { type, error })
@@ -759,6 +807,7 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
         hardware.off(event, handler)
       })
       hardware.disconnect()
+      padConfigDb.close()
     },
   }
 }

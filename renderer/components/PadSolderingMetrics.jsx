@@ -20,6 +20,7 @@ export default function PadSolderingMetrics({
   onSolderHeightChange,
   onCalculate,
   onApplyCompensatedDuration,
+  onSaveConfiguration,
   isCalculating,
 }) {
   const renderShapeInputs = () => {
@@ -260,7 +261,7 @@ export default function PadSolderingMetrics({
           </div>
         )}
 
-        {/* Calculate Button */}
+        {/* Calculate and Save Buttons */}
         <div className={styles.controlRow}>
           <button
             type="button"
@@ -270,6 +271,15 @@ export default function PadSolderingMetrics({
           >
             {isCalculating ? 'Calculating...' : 'Calculate Metrics'}
           </button>
+          {(padArea !== null && compensatedDuration !== null) && (
+            <button
+              type="button"
+              className={styles.saveConfigButton}
+              onClick={onSaveConfiguration}
+            >
+              Save Configuration
+            </button>
+          )}
         </div>
 
         {/* Results Display */}

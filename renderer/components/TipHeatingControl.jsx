@@ -9,6 +9,7 @@ export default function TipHeatingControl({
   onToggleHeater,
   heaterStatus,
   currentTemperature,
+  thermalMassDuration,
 }) {
   return (
     <article className={styles.controlCard} aria-label="Tip heating control">
@@ -63,6 +64,14 @@ export default function TipHeatingControl({
           <span className={styles.controlLabel}>Current temperature</span>
           <span className={styles.controlValue}>{currentTemperature ?? '--'}</span>
         </div>
+        {thermalMassDuration !== null && thermalMassDuration !== undefined && (
+          <div className={styles.controlRow}>
+            <span className={styles.controlLabel}>Thermal Mass Duration</span>
+            <span className={styles.controlValue}>
+              {thermalMassDuration}ms ({(thermalMassDuration / 1000).toFixed(1)}s)
+            </span>
+          </div>
+        )}
       </div>
       {heaterStatus ? <p className={styles.controlStatus}>{heaterStatus}</p> : null}
     </article>

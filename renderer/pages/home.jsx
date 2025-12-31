@@ -22,9 +22,10 @@ const initialCalibration = [
   { label: 'Z Axis', value: '000.00 → 000.00', unit: 'mm', icon: '↕' },
   { label: 'Wire Remaining', value: '100', unit: '%', length: '14.3 m', icon: '⚡' },
   { label: 'Flux Remaining', value: '82', unit: '%', icon: '💧' },
-  { label: 'Tip Temp', value: '345', unit: '°C', icon: '🌡️' },
+  { label: 'Tip Temp', value: '290', unit: '°C', icon: '🌡️' },
   { label: 'Feed Rate', value: '8.0', unit: 'mm/s', icon: '⏩' },
   { label: 'Speed', value: '210', unit: 'mm/s', icon: '⚡' },
+  { label: 'Compensated Duration', value: '--', unit: 'ms', icon: '⏱️' },
 ]
 
 const initialFanState = {
@@ -82,7 +83,7 @@ export default function HomePage() {
   const [jigCalibrationStatus, setJigCalibrationStatus] = useState('')
   const [bedHeight, setBedHeight] = useState(280.0) // Total height from home to bed surface
   const [safeTravelSpace, setSafeTravelSpace] = useState(null) // Calculated safe travel space
-  const [tipTarget, setTipTarget] = useState('345')
+  const [tipTarget, setTipTarget] = useState('290')
   const [isHeaterEnabled, setIsHeaterEnabled] = useState(false)
   const [heaterStatus, setHeaterStatus] = useState('')
   const [currentTipTemperature, setCurrentTipTemperature] = useState(null)
@@ -170,9 +171,13 @@ export default function HomePage() {
   // Thermal mass compensation state
   const [padCategory, setPadCategory] = useState(null) // 'small', 'medium', 'large'
   const [compensatedDuration, setCompensatedDuration] = useState(null) // Duration in milliseconds
+  const [thermalMassDuration, setThermalMassDuration] = useState(null) // Applied thermal mass duration (from backend)
   const baseTemperature = 290 // Base temperature in °C (constant)
   const maxTemperature = 350 // Maximum temperature in °C
   const baseDuration = 1000 // Base duration in milliseconds (1 second)
+
+  // Pad configurations storage
+  const [savedPadConfigurations, setSavedPadConfigurations] = useState([])
 
   // Serial port connection state
   const [serialPorts, setSerialPorts] = useState([])
@@ -188,6 +193,24 @@ export default function HomePage() {
 
   // Navigation state - track which component is currently active
   const [activeComponent, setActiveComponent] = useState('serial-port')
+
+  // Load saved configurations from database on startup
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.ipc) {
+      return undefined
+    }
+
+    const handleConfigsLoaded = (configs) => {
+      setSavedPadConfigurations(configs || [])
+    }
+
+    window.ipc.on?.('pad-config:loaded', handleConfigsLoaded)
+    window.ipc.send?.('pad-config:load')
+
+    return () => {
+      window.ipc.off?.('pad-config:loaded', handleConfigsLoaded)
+    }
+  }, [])
 
   // G-CODE COMMAND HISTORY COMMENTED OUT
   // G-code command history
@@ -586,6 +609,26 @@ export default function HomePage() {
       }))
     }
 
+    const handleSequenceComplete = (payload) => {
+      if (payload?.nextPadDuration) {
+        setCalibration((prev) =>
+          prev.map((entry) =>
+            entry.label === 'Compensated Duration'
+              ? { ...entry, value: payload.nextPadDuration.toString() }
+              : entry
+          )
+        )
+      } else {
+        setCalibration((prev) =>
+          prev.map((entry) =>
+            entry.label === 'Compensated Duration'
+              ? { ...entry, value: '--' }
+              : entry
+          )
+        )
+      }
+    }
+
     // Listen for ACTUAL Arduino JSON data reception (not simulation/mock data)
     const handleArduinoDataReceived = (payload) => {
       if (isSerialConnected && payload?.timestamp) {
@@ -601,6 +644,7 @@ export default function HomePage() {
     window.ipc.on?.('wire:break', handleWireBreak)
     window.ipc.on?.('spool:update', handleSpoolUpdate)
     window.ipc.on?.('sequence:update', handleSequenceUpdate)
+    window.ipc.on?.('sequence:pad:complete', handleSequenceComplete)
     window.ipc.on?.('fan:update', handleFanState)
     window.ipc.on?.('fumeExtractor:update', handleFumeExtractorState)
     window.ipc.on?.('fluxMist:update', handleFluxMistState)
@@ -686,6 +730,45 @@ export default function HomePage() {
     window.ipc.on?.('axis:speed:ack', handleSpeedAck)
     window.ipc.on?.('axis:speed:status', handleSpeedStatus)
 
+    // Listen for thermal mass duration responses
+    const handleDurationAck = (payload) => {
+      console.log('[home.jsx] handleDurationAck received:', payload)
+      if (!payload || typeof payload !== 'object') {
+        console.warn('[home.jsx] handleDurationAck: Invalid payload received', payload)
+        return
+      }
+      if (payload.error) {
+        console.error('[home.jsx] Duration set error:', payload.error)
+      } else {
+        console.log('[home.jsx] Duration set successfully:', payload.status)
+        // Duration is already updated in LCD, no need to update again
+      }
+    }
+
+    const handleDurationStatus = (payload) => {
+      if (!payload || typeof payload !== 'object') {
+        console.warn('[home.jsx] handleDurationStatus: Invalid payload received', payload)
+        return
+      }
+      if (payload.duration !== null && payload.duration !== undefined) {
+        setThermalMassDuration(payload.duration)
+        // Also update LCD display
+        setCalibration((prev) =>
+          prev.map((entry) =>
+            entry.label === 'Thermal Duration'
+              ? {
+                  ...entry,
+                  value: payload.duration.toString(),
+                }
+              : entry
+          )
+        )
+      }
+    }
+
+    window.ipc.on?.('sequence:duration:ack', handleDurationAck)
+    window.ipc.on?.('sequence:duration:status', handleDurationStatus)
+
     // Listen for limit switch status from Arduino hardware
     // This handler shows warnings when limit switches are triggered during movement
     const handleLimitSwitchUpdate = (payload) => {
@@ -763,6 +846,7 @@ export default function HomePage() {
       window.ipc.off?.('wire:break', handleWireBreak)
       window.ipc.off?.('spool:update', handleSpoolUpdate)
       window.ipc.off?.('sequence:update', handleSequenceUpdate)
+      window.ipc.off?.('sequence:pad:complete', handleSequenceComplete)
       window.ipc.off?.('fan:update', handleFanState)
       window.ipc.off?.('fumeExtractor:update', handleFumeExtractorState)
       window.ipc.off?.('fluxMist:update', handleFluxMistState)
@@ -774,6 +858,8 @@ export default function HomePage() {
       window.ipc.off?.('jig:height:status', handleJigHeightStatus)
       window.ipc.off?.('axis:speed:ack', handleSpeedAck)
       window.ipc.off?.('axis:speed:status', handleSpeedStatus)
+      window.ipc.off?.('sequence:duration:ack', handleDurationAck)
+      window.ipc.off?.('sequence:duration:status', handleDurationStatus)
     }
   }, [])
 
@@ -1171,7 +1257,25 @@ export default function HomePage() {
       timestamp: Date.now(),
     })
     
+    // Update LCD display to show applied duration
+    setCalibration((prev) =>
+      prev.map((entry) =>
+        entry.label === 'Thermal Duration'
+          ? {
+              ...entry,
+              value: compensatedDuration.toString(),
+            }
+          : entry
+      )
+    )
+    
+    // Update thermalMassDuration state for TipHeatingControl display
+    setThermalMassDuration(compensatedDuration)
+    
     setHeaterStatus(`Compensated duration set to ${compensatedDuration}ms (${(compensatedDuration / 1000).toFixed(1)}s) for thermal mass compensation.`)
+    
+    // Navigate to tip heating component to display the compensated duration
+    setActiveComponent('tip-heating')
   }, [compensatedDuration])
 
   const handleToggleHeater = useCallback(() => {
@@ -1751,7 +1855,18 @@ export default function HomePage() {
     setWireUsed(null)
     setStepsMoved(null)
     setPadCategory(null)
-    setCompensatedTemperature(null)
+    setCompensatedDuration(null)
+    // Reset LCD display compensated duration
+    setCalibration((prev) =>
+      prev.map((entry) =>
+        entry.label === 'Compensated Duration'
+          ? {
+              ...entry,
+              value: '--',
+            }
+          : entry
+      )
+    )
   }, [])
 
   const handlePadDimensionChange = useCallback((dimension, value) => {
@@ -1766,6 +1881,17 @@ export default function HomePage() {
     setStepsMoved(null)
     setPadCategory(null)
     setCompensatedDuration(null)
+    // Reset LCD display compensated duration
+    setCalibration((prev) =>
+      prev.map((entry) =>
+        entry.label === 'Compensated Duration'
+          ? {
+              ...entry,
+              value: '--',
+            }
+          : entry
+      )
+    )
   }, [])
 
   const handleSolderHeightChange = useCallback((value) => {
@@ -1814,6 +1940,34 @@ export default function HomePage() {
     }
   }, [baseDuration])
 
+  const handleSaveConfiguration = useCallback(() => {
+    if (!padShape || !padArea || !compensatedDuration) {
+      return
+    }
+
+    const config = {
+      id: Date.now(),
+      name: `${padShape.charAt(0).toUpperCase() + padShape.slice(1)} - ${padArea.toFixed(2)}mm²`,
+      shape: padShape,
+      dimensions: { ...padDimensions },
+      solderHeight,
+      area: padArea,
+      volume: padVolume,
+      wireUsed,
+      stepsMoved,
+      category: padCategory,
+      compensatedDuration,
+      createdAt: new Date().toISOString()
+    }
+
+    // Save to database via IPC
+    if (typeof window !== 'undefined' && window.ipc?.send) {
+      window.ipc.send('pad-config:save', config)
+    }
+
+    setSavedPadConfigurations(prev => [...prev, config])
+  }, [padShape, padDimensions, solderHeight, padArea, padVolume, wireUsed, stepsMoved, padCategory, compensatedDuration])
+
   const calculatePadMetrics = useCallback(() => {
     setIsCalculatingMetrics(true)
 
@@ -1832,6 +1986,14 @@ export default function HomePage() {
             setCompensatedDuration(null)
             setWireUsed(null)
             setStepsMoved(null)
+            // Reset LCD display compensated duration
+            setCalibration((prev) =>
+              prev.map((entry) =>
+                entry.label === 'Compensated Duration'
+                  ? { ...entry, value: '--' }
+                  : entry
+              )
+            )
             setIsCalculatingMetrics(false)
             return
           }
@@ -1861,8 +2023,18 @@ export default function HomePage() {
           const radius = Number.parseFloat(padDimensions.radius)
           if (!Number.isFinite(radius) || radius <= 0) {
             setPadArea(null)
+            setPadCategory(null)
+            setCompensatedDuration(null)
             setWireUsed(null)
             setStepsMoved(null)
+            // Reset LCD display compensated duration
+            setCalibration((prev) =>
+              prev.map((entry) =>
+                entry.label === 'Compensated Duration'
+                  ? { ...entry, value: '--' }
+                  : entry
+              )
+            )
             setIsCalculatingMetrics(false)
             return
           }
@@ -1892,8 +2064,18 @@ export default function HomePage() {
 
         default:
           setPadArea(null)
+          setPadCategory(null)
+          setCompensatedDuration(null)
           setWireUsed(null)
           setStepsMoved(null)
+          // Reset LCD display compensated duration
+          setCalibration((prev) =>
+            prev.map((entry) =>
+              entry.label === 'Compensated Duration'
+                ? { ...entry, value: '--' }
+                : entry
+            )
+          )
           setIsCalculatingMetrics(false)
           return
       }
@@ -1904,6 +2086,20 @@ export default function HomePage() {
       const thermalCompensation = calculateThermalMassCompensation(calculatedArea)
       setPadCategory(thermalCompensation.category)
       setCompensatedDuration(thermalCompensation.compensatedDuration)
+      
+      // Update LCD display with compensated duration (visible for every pad shape)
+      if (thermalCompensation.compensatedDuration !== null) {
+        setCalibration((prev) =>
+          prev.map((entry) =>
+            entry.label === 'Compensated Duration'
+              ? {
+                  ...entry,
+                  value: thermalCompensation.compensatedDuration.toString(),
+                }
+              : entry
+          )
+        )
+      }
 
       // Calculate pad volume: Area × Solder Height
       const heightNumeric = Number.parseFloat(solderHeight)
@@ -2061,11 +2257,10 @@ export default function HomePage() {
             isMoving={currentPosition.isMoving}
             statusMessage={manualMovementStatus}
             limitSwitchAlert={limitSwitchAlert}
-            // limitSwitchMessage={limitSwitchMessage}
             isSerialConnected={isSerialConnected}
             isReceivingArduinoData={isReceivingArduinoData}
-              zAxisSpeed={zAxisSpeed}
-              onSpeedChange={handleSpeedChange}
+            zAxisSpeed={zAxisSpeed}
+            onSpeedChange={handleSpeedChange}
             />
           </section>
         )}
@@ -2080,6 +2275,7 @@ export default function HomePage() {
             onToggleHeater={handleToggleHeater}
             heaterStatus={heaterStatus}
             currentTemperature={currentTipTemperature ?? calibration.find((entry) => entry.label === 'Tip Temp')?.value}
+            thermalMassDuration={thermalMassDuration}
             />
           </section>
         )}
@@ -2095,9 +2291,9 @@ export default function HomePage() {
               wireUsed={wireUsed}
               stepsMoved={stepsMoved}
               volumePerMm={volumePerMm}
-              padCategory={padCategory}
+            padCategory={padCategory}
               compensatedDuration={compensatedDuration}
-              baseTemperature={baseTemperature}
+            baseTemperature={baseTemperature}
               maxTemperature={maxTemperature}
               baseDuration={baseDuration}
               onShapeChange={handlePadShapeChange}
@@ -2105,6 +2301,7 @@ export default function HomePage() {
               onSolderHeightChange={handleSolderHeightChange}
               onCalculate={calculatePadMetrics}
               onApplyCompensatedDuration={handleApplyCompensatedDuration}
+              onSaveConfiguration={handleSaveConfiguration}
               isCalculating={isCalculatingMetrics}
             />
           </section>

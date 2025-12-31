@@ -13,10 +13,11 @@ const initialCalibration = [
   { label: 'Z Axis', value: '000.00 → 000.00', unit: 'mm' },
   { label: 'Wire Remaining', value: 100, unit: '%', length: '14.3 m' },
   { label: 'Flux Remaining', value: 82, unit: '%' },
-  { label: 'Tip Temp', value: 345, unit: '°C' },
+  { label: 'Tip Temp', value: 290, unit: '°C' },
   { label: 'Feed Rate', value: '8.0', unit: 'mm/s' },
   { label: 'Flow Rate', value: '1.0', unit: 'mm³/s' },
   { label: 'Speed', value: '210', unit: 'mm/s' },
+  { label: 'Thermal Duration', value: '--', unit: 'ms' },
 ]
 
 const ambientTipTemp = 45
@@ -104,9 +105,9 @@ export default class SolderingHardware extends EventEmitter {
         lastActivated: null,
       },
       tip: {
-        target: 345,
+        target: 290,
         heaterEnabled: false,
-        current: 310,
+        current: 290,
         statusMessage: 'Heater disabled',
       },
       wireFeed: {
@@ -1023,7 +1024,21 @@ export default class SolderingHardware extends EventEmitter {
   setThermalMassDuration(duration) {
     const durationValue = Math.max(1000, Math.min(5000, Number(duration) || 1000))
     this.state.sequence.thermalMassDuration = durationValue
+    
+    // Update LCD display with thermal mass duration
+    this._updateCalibration('Thermal Duration', {
+      value: durationValue.toString(),
+    })
+    
     return { status: `Thermal mass duration set to ${durationValue}ms (${(durationValue / 1000).toFixed(1)}s)` }
+  }
+
+  /**
+   * Get thermal mass compensation duration
+   * @returns {number} Duration in milliseconds
+   */
+  getThermalMassDuration() {
+    return this.state.sequence.thermalMassDuration || 1000
   }
 
   /**
@@ -1565,7 +1580,7 @@ export default class SolderingHardware extends EventEmitter {
 
     if (this.mode === 'hardware' && this.serialManager) {
       try {
-        // Send JSON command: {"command":"temp","target":345}
+        // Send JSON command: {"command":"temp","target":290}
         await this._sendArduinoJsonCommand({
           command: 'temp',
           target: numeric
