@@ -11,7 +11,7 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
     mode: 'hardware', // Always use hardware mode so serial manager exists
     serialConfig,
   })
-  
+
   const padConfigDb = new PadConfigDatabase()
   const ipcListeners = []
   const hardwareListeners = []
