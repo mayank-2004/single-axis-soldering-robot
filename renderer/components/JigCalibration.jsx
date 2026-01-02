@@ -102,13 +102,6 @@ export default function JigCalibration({
               Set Height
             </button>
           </div>
-          <p className={styles.inputHint}>
-            Enter the <strong>jig height</strong> (thickness from bed surface to jig surface where the PCB sits). 
-            The bed surface is at {bedHeight.toFixed(0)}mm from home, so jig height must be less than {bedHeight.toFixed(0)}mm. 
-            The jig surface will be at {jigHeight !== null && jigHeight !== undefined ? (bedHeight - jigHeight).toFixed(2) : '---'}mm from home. 
-            The safe travel space ({safeTravelSpace !== null ? safeTravelSpace.toFixed(2) : '---'}mm) from home to jig surface 
-            will be available for safe head movement.
-          </p>
         </div>
 
         {/* Status Message */}
@@ -117,18 +110,6 @@ export default function JigCalibration({
             {statusMessage}
           </div>
         )}
-
-        {/* Safety Note */}
-        <div className={styles.safetyNote}>
-          <span className={styles.safetyIcon}>⚠️</span>
-          <p className={styles.safetyText}>
-            <strong>Safety:</strong> The head will only move between the limit switches (upper limit at home, lower limit at bed level). 
-            If a limit switch is triggered during movement, a warning will appear in the UI. 
-            The safe retraction height is calculated as: (Bed Height - Jig Height) + Component Height + 2mm clearance, 
-            which equals Jig Surface Position + Component Height + 2mm clearance.
-            Ensure jig height (thickness) is accurate and does not exceed {bedHeight.toFixed(0)}mm.
-          </p>
-        </div>
       </div>
     </article>
   )

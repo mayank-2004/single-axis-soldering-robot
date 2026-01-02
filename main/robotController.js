@@ -1,4 +1,4 @@
-import SolderingHardware from './hardware/SolderingHardware'
+import SolderingHardware from './hardware/SolderingHardwareRefactored'
 import PadConfigDatabase from './padConfigDatabase'
 
 export function setupRobotController({ ipcMain, getWebContents, options = {} }) {
