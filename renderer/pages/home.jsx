@@ -151,7 +151,7 @@ export default function HomePage() {
   const [limitSwitchAlert, setLimitSwitchAlert] = useState(false)
   // const [limitSwitchMessage, setLimitSwitchMessage] = useState('Upper limit switch reached - can\'t go upward')
   const [stepSize, setStepSize] = useState(1.0)
-  const [zAxisSpeed, setZAxisSpeed] = useState(95) // Default speed: 95%
+  const [zAxisSpeed, setZAxisSpeed] = useState(150) // Default speed: 150% (Turbo mode for faster movement)
   const [padShape, setPadShape] = useState('')
   const [padDimensions, setPadDimensions] = useState({
     side: '',
@@ -752,10 +752,10 @@ export default function HomePage() {
       }
       if (payload.duration !== null && payload.duration !== undefined) {
         setThermalMassDuration(payload.duration)
-        // Also update LCD display
+        // Update LCD display - use 'Compensated Duration' instead of 'Thermal Duration'
         setCalibration((prev) =>
           prev.map((entry) =>
-            entry.label === 'Thermal Duration'
+            entry.label === 'Compensated Duration'
               ? {
                 ...entry,
                 value: payload.duration.toString(),
@@ -1260,7 +1260,7 @@ export default function HomePage() {
     // Update LCD display to show applied duration
     setCalibration((prev) =>
       prev.map((entry) =>
-        entry.label === 'Thermal Duration'
+        entry.label === 'Compensated Duration'
           ? {
             ...entry,
             value: compensatedDuration.toString(),
