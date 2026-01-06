@@ -11,7 +11,7 @@ export default class MovementController extends EventEmitter {
     
     this.state = {
       position: { z: 0.0, isMoving: false },
-      zAxisSpeed: 120,
+      zAxisSpeed: 100,
       componentHeightMm: null,
       jigHeightMm: null
     }

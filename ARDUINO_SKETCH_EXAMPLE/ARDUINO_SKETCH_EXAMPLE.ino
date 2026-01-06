@@ -75,9 +75,10 @@ const int MOTOR_STEPS_PER_REVOLUTION = 200;  // Standard 1.8° stepper motor = 2
 const int MICROSTEPPING = 16;  // Change this to match your DM542 DIP switch setting
 
 // Calculate steps per millimeter automatically
-// Formula: Steps per mm = (Motor steps per revolution × Microstepping) / Lead screw pitch
-// Example: (200 × 16) / 1.0 = 3200 / 1.0 = 3200 steps/mm
-float zStepsPerMm = (static_cast<float>(MOTOR_STEPS_PER_REVOLUTION) * static_cast<float>(MICROSTEPPING)) / LEAD_SCREW_PITCH_MM;
+// Formula: Steps per mm = ((Motor steps per revolution × Microstepping) / Lead screw pitch) / Correction
+// We divide by 16.0 because the driver is behaving as Full Step (1 microstep) despite the 1/16 DIP settings.
+// This ensures 1mm command = 1mm physical movement.
+float zStepsPerMm = ((static_cast<float>(MOTOR_STEPS_PER_REVOLUTION) * static_cast<float>(MICROSTEPPING)) / LEAD_SCREW_PITCH_MM) / 16.0f;
 const unsigned int Z_STEP_DELAY_US = 100; // Default pulse width for stepper (microseconds)
 const unsigned int Z_STEP_DELAY_MIN = 30;  // Minimum delay (fastest speed) - reduced to 30μs for ultra-fast movement
 const unsigned int Z_STEP_DELAY_MAX = 800;  // Maximum delay (slowest speed) - reduced from 2000 for faster movement
@@ -87,12 +88,8 @@ const unsigned int Z_STEP_DELAY_TURBO_MIN = 20;  // Turbo mode minimum delay (ul
 // Lower value = faster movement, Higher value = slower movement
 unsigned int currentZStepDelay = Z_STEP_DELAY_MIN; // Default speed set to fastest (30μs) for higher speed
 
-// Tone-based stepper control configuration (optimized from testing-25.ino)
-// Tone duration for each step pulse (milliseconds)
-const unsigned int TONE_PULSE_DURATION_MS = 2;  // Duration of tone pulse (like testing-25.ino)
-// Tone frequency limits (Arduino tone() supports 31-65535 Hz)
-const unsigned long TONE_FREQ_MIN = 31;      // Minimum frequency (slowest)
-const unsigned long TONE_FREQ_MAX = 65535;   // Maximum frequency (fastest)
+// Standard stepper pulse configuration
+const unsigned int PULSE_WIDTH_US = 5; // Minimum pulse width for DM542 driver
 
 // Wire Feed stepper configuration
 const int WIRE_FEED_STEP_PIN = 9;
@@ -643,28 +640,28 @@ void processCommands() {
 // Z-axis motion helper functions
 
 bool isLimitSwitchTriggered(int pin) {
-  // Limit switches use INPUT_PULLUP, so LOW = triggered
+  // Both switches seem to be behaving as Active Low.
+  // Safe State (Open) = Internal Pullup = HIGH
+  // Triggered State (Closed) = Connects to GND = LOW
   return digitalRead(pin) == LOW;
 }
 
-// Optimized stepper pulse function using tone() (like testing-25.ino)
-// tone() uses hardware PWM for more efficient stepper control
+// Standard digital pulse function
 void pulseZStep(unsigned int stepDelayUs = 0) {
-  unsigned int delay = (stepDelayUs > 0) ? stepDelayUs : currentZStepDelay;
+  unsigned int delayUs = (stepDelayUs > 0) ? stepDelayUs : currentZStepDelay;
   
-  // Convert delay (microseconds) to frequency (Hz) for tone()
-  // Formula: frequency = 1,000,000 / (delay * 2)
-  // The *2 accounts for both HIGH and LOW phases of the pulse
-  unsigned long frequency = 1000000UL / (static_cast<unsigned long>(delay) * 2UL);
+  // Standard stepper pulse
+  digitalWrite(STEPPER_Z_STEP_PIN, HIGH);
+  delayMicroseconds(PULSE_WIDTH_US); // Minimum pulse width
+  digitalWrite(STEPPER_Z_STEP_PIN, LOW);
   
-  // Clamp frequency to valid range for Arduino tone() function
-  if (frequency < TONE_FREQ_MIN) frequency = TONE_FREQ_MIN;
-  if (frequency > TONE_FREQ_MAX) frequency = TONE_FREQ_MAX;
-  
-  // Use tone() for hardware-accelerated PWM (more efficient than manual HIGH/LOW)
-  tone(STEPPER_Z_STEP_PIN, frequency);
-  delay(TONE_PULSE_DURATION_MS);  // Duration of pulse (like testing-25.ino uses delay(2))
-  noTone(STEPPER_Z_STEP_PIN);
+  // The delay determines the speed. 
+  // We subtract the pulse width to maintain accurate timing, though negligible at low speeds.
+  if (delayUs > PULSE_WIDTH_US) {
+    delayMicroseconds(delayUs - PULSE_WIDTH_US);
+  } else {
+    delayMicroseconds(1); // Safety minimum
+  }
 }
 
 void applyZMovement(long steps, bool moveUp, unsigned int stepDelayUs = 0) {
@@ -880,19 +877,17 @@ void homeZAxis(unsigned int stepDelayUs) {
 // Wire feed helper functions
 // ----------------------------------
 
-// Optimized wire feed step function using tone() for consistency
+// Standard wire feed step function
 void pulseWireFeedStep() {
-  // Convert delay to frequency for tone()
-  unsigned long frequency = 1000000UL / (static_cast<unsigned long>(WIRE_FEED_STEP_DELAY_US) * 2UL);
+  digitalWrite(WIRE_FEED_STEP_PIN, HIGH);
+  delayMicroseconds(PULSE_WIDTH_US);
+  digitalWrite(WIRE_FEED_STEP_PIN, LOW);
   
-  // Clamp frequency to valid range
-  if (frequency < TONE_FREQ_MIN) frequency = TONE_FREQ_MIN;
-  if (frequency > TONE_FREQ_MAX) frequency = TONE_FREQ_MAX;
-  
-  // Use tone() for hardware-accelerated PWM
-  tone(WIRE_FEED_STEP_PIN, frequency);
-  delay(TONE_PULSE_DURATION_MS);
-  noTone(WIRE_FEED_STEP_PIN);
+  if (WIRE_FEED_STEP_DELAY_US > PULSE_WIDTH_US) {
+    delayMicroseconds(WIRE_FEED_STEP_DELAY_US - PULSE_WIDTH_US);
+  } else {
+    delayMicroseconds(1);
+  }
 }
 
 void feedWireByLength(float lengthMm) {

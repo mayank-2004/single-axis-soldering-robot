@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useMemo, useEffect } from 'react'
+import React, { useCallback, useState, useMemo, useEffect, useRef } from 'react'
 import Head from 'next/head'
 import LcdDisplay from '../components/LcdDisplay'
 // import ComponentHeightControl from '../components/ComponentHeightControl'
@@ -151,7 +151,7 @@ export default function HomePage() {
   const [limitSwitchAlert, setLimitSwitchAlert] = useState(false)
   // const [limitSwitchMessage, setLimitSwitchMessage] = useState('Upper limit switch reached - can\'t go upward')
   const [stepSize, setStepSize] = useState(1.0)
-  const [zAxisSpeed, setZAxisSpeed] = useState(150) // Default speed: 150% (Turbo mode for faster movement)
+  const [zAxisSpeed, setZAxisSpeed] = useState(100) // Default speed: 100% (Normal mode for slower movement)
   const [padShape, setPadShape] = useState('')
   const [padDimensions, setPadDimensions] = useState({
     side: '',
@@ -193,6 +193,9 @@ export default function HomePage() {
 
   // Navigation state - track which component is currently active
   const [activeComponent, setActiveComponent] = useState('serial-port')
+  // Track previous limit switch states to detect rising edges
+  const lastUpperLimitRef = useRef(false)
+  const lastLowerLimitRef = useRef(false)
 
   // Load saved configurations from database on startup
   useEffect(() => {
@@ -782,28 +785,50 @@ export default function HomePage() {
 
       console.log('[home.jsx] Limit switch status - Upper:', upperTriggered, 'Lower:', lowerTriggered)
 
-      // Clear any existing timeout
-      if (window.limitSwitchTimeout) {
-        clearTimeout(window.limitSwitchTimeout)
-        window.limitSwitchTimeout = null
-      }
+      // Upper Limit Logic
+      if (upperTriggered && !lastUpperLimitRef.current) {
+        // Rising edge: Trigger alert
+        console.log('[home.jsx] Upper limit triggered (Rising Edge) - Starting timeout')
 
-      // Show alert if either limit switch is triggered
-      if (upperTriggered) {
-        console.log('[home.jsx] Setting upper limit switch alert')
+        // Clear any existing timeout
+        if (window.limitSwitchTimeout) {
+          clearTimeout(window.limitSwitchTimeout)
+        }
+
         setLimitSwitchAlert(true)
         setManualMovementStatus('Upper limit switch reached - can\'t go upward')
-        // Auto-hide alert after 5 seconds
+
+        // Auto-hide alert after 3 seconds
         window.limitSwitchTimeout = setTimeout(() => {
           console.log('[home.jsx] Auto-hiding upper limit alert')
           setLimitSwitchAlert(false)
           setManualMovementStatus('')
           window.limitSwitchTimeout = null
-        }, 5000)
-      } else if (lowerTriggered) {
-        console.log('[home.jsx] Setting lower limit switch alert')
+        }, 3000)
+      } else if (!upperTriggered && lastUpperLimitRef.current) {
+        // Falling edge: Switch released
+        console.log('[home.jsx] Upper limit released')
+        // Optional: Clear alert immediately on release?
+        // For now, we let the timeout run to ensure user sees it, or cleared by next trigger.
+        if (!lowerTriggered && window.limitSwitchTimeout) {
+          // If we wanted to clear immediately on release, we would do it here.
+          // Leaving it to timeout as requested ("show warning for only 5 seconds after trigger")
+        }
+      }
+
+      // Lower Limit Logic
+      if (lowerTriggered && !lastLowerLimitRef.current) {
+        // Rising edge: Trigger alert
+        console.log('[home.jsx] Lower limit triggered (Rising Edge) - Starting timeout')
+
+        // Clear any existing timeout
+        if (window.limitSwitchTimeout) {
+          clearTimeout(window.limitSwitchTimeout)
+        }
+
         setLimitSwitchAlert(true)
         setManualMovementStatus('Lower limit switch reached - can\'t go downward')
+
         // Auto-hide alert after 5 seconds
         window.limitSwitchTimeout = setTimeout(() => {
           console.log('[home.jsx] Auto-hiding lower limit alert')
@@ -811,18 +836,13 @@ export default function HomePage() {
           setManualMovementStatus('')
           window.limitSwitchTimeout = null
         }, 5000)
-      } else {
-        // Both switches released - clear alert after a short delay to avoid flickering
-        if (limitSwitchAlert) {
-          window.limitSwitchTimeout = setTimeout(() => {
-            console.log('[home.jsx] Clearing limit switch alert - switches released')
-            setLimitSwitchAlert(false)
-            setManualMovementStatus('')
-            window.limitSwitchTimeout = null
-          }, 1000)
-        }
       }
+
+      // Update refs
+      lastUpperLimitRef.current = upperTriggered
+      lastLowerLimitRef.current = lowerTriggered
     }
+
     // Register listener BEFORE sending any commands to ensure we catch events
     window.ipc.on?.('limitSwitch:update', handleLimitSwitchUpdate)
 
@@ -993,14 +1013,15 @@ export default function HomePage() {
 
         // Auto-homing: When app starts and connects to Arduino, automatically home the head
         // Wait a bit for Arduino to initialize, then send home command
-        setTimeout(() => {
-          console.log('[SerialConnection] Auto-homing head on connection...')
-          if (typeof window !== 'undefined' && window.ipc?.send) {
-            window.ipc.send('axis:home', {
-              timestamp: Date.now(),
-            })
-          }
-        }, 1500)  // Wait 1.5 seconds for Arduino to be ready
+        // Auto-homing removed for safety - user must explicitly click Home
+        // setTimeout(() => {
+        //   console.log('[SerialConnection] Auto-homing head on connection...')
+        //   if (typeof window !== 'undefined' && window.ipc?.send) {
+        //     window.ipc.send('axis:home', {
+        //       timestamp: Date.now(),
+        //     })
+        //   }
+        // }, 1500)
       }
     }
 
@@ -2301,7 +2322,7 @@ export default function HomePage() {
               onSolderHeightChange={handleSolderHeightChange}
               onCalculate={calculatePadMetrics}
               onApplyCompensatedDuration={handleApplyCompensatedDuration}
-              onSaveConfiguration={handleSaveConfiguration} 
+              onSaveConfiguration={handleSaveConfiguration}
               isCalculating={isCalculatingMetrics}
             />
           </section>
