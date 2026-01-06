@@ -26,9 +26,9 @@ export default class SolderingHardware extends EventEmitter {
     this.serialManager = null
     this.commandProtocol = null
     this.serialConfig = options.serialConfig || {}
-    
+
     this.calibration = initialCalibration.map((entry) => ({ ...entry }))
-    
+
     this._initializeControllers()
     this._setupEventForwarding()
     this._initializeHardwareMode()
@@ -88,18 +88,18 @@ export default class SolderingHardware extends EventEmitter {
 
   async connect(portPath = null, config = {}) {
     console.log('[SolderingHardware] connect() called:', { portPath, config, mode: this.mode, hasSerialManager: !!this.serialManager })
-    
-    const isActuallyConnected = this.mode === 'hardware' && 
-                                this.serialManager && 
-                                this.serialManager.isConnected &&
-                                this.serialManager.port &&
-                                this.serialManager.port.isOpen
-    
+
+    const isActuallyConnected = this.mode === 'hardware' &&
+      this.serialManager &&
+      this.serialManager.isConnected &&
+      this.serialManager.port &&
+      this.serialManager.port.isOpen
+
     if (this.connected && isActuallyConnected) {
       console.log('[SolderingHardware] Already connected, returning early')
       return { status: 'Already connected' }
     }
-    
+
     if (this.connected && !isActuallyConnected) {
       console.log('[SolderingHardware] Connection state mismatch detected - resetting connection state')
       this.connected = false
@@ -129,7 +129,7 @@ export default class SolderingHardware extends EventEmitter {
         const mergedConfig = { ...this.serialConfig, ...config }
         console.log('[SolderingHardware] Attempting to connect serial port:', { portPath, mergedConfig })
         const result = await this.serialManager.connect(portPath, mergedConfig)
-        
+
         if (result.error) {
           console.error('[SolderingHardware] Serial connection failed:', result.error)
           return result
@@ -226,8 +226,8 @@ export default class SolderingHardware extends EventEmitter {
   }
 
   getJigSurfaceFromHome() {
-    return this.movementController.state.jigHeightMm !== null ? 
-           this.movementController.BED_HEIGHT_MM - this.movementController.state.jigHeightMm : null
+    return this.movementController.state.jigHeightMm !== null ?
+      this.movementController.BED_HEIGHT_MM - this.movementController.state.jigHeightMm : null
   }
 
   getBedHeight() {
@@ -368,7 +368,7 @@ export default class SolderingHardware extends EventEmitter {
   // Simulation methods
   _startSimulationLoops() {
     this._stopSimulationLoops()
-    
+
     this._registerInterval(() => {
       this.auxiliaryController.simulateFlux()
     }, 7000)

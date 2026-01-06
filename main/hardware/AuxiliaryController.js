@@ -6,7 +6,7 @@ export default class AuxiliaryController extends EventEmitter {
   constructor(serialManager) {
     super()
     this.serialManager = serialManager
-    
+
     this.state = {
       fans: { machine: false, tip: false },
       fumeExtractor: {
@@ -61,7 +61,7 @@ export default class AuxiliaryController extends EventEmitter {
 
   setFumeExtractorEnabled(enabled) {
     this.state.fumeExtractor.enabled = Boolean(enabled)
-    
+
     if (this.serialManager?.isConnected) {
       try {
         this._sendCommand({
@@ -73,7 +73,7 @@ export default class AuxiliaryController extends EventEmitter {
         console.error('[AuxiliaryController] Error controlling fume extractor:', error)
       }
     }
-    
+
     this.emit('fumeExtractor', this.getFumeExtractorState())
     return { status: this.getFumeExtractorState() }
   }
@@ -85,7 +85,7 @@ export default class AuxiliaryController extends EventEmitter {
     }
 
     this.state.fumeExtractor.speed = Math.round(speedNumeric)
-    
+
     if (this.state.fumeExtractor.enabled && this.serialManager?.isConnected) {
       try {
         this._sendCommand({
@@ -97,7 +97,7 @@ export default class AuxiliaryController extends EventEmitter {
         console.error('[AuxiliaryController] Error setting fume extractor speed:', error)
       }
     }
-    
+
     this.emit('fumeExtractor', this.getFumeExtractorState())
     return { status: this.getFumeExtractorState() }
   }
@@ -148,17 +148,17 @@ export default class AuxiliaryController extends EventEmitter {
           duration: durationNumeric,
           flowRate: flowRateNumeric
         })
-        
+
         await new Promise(resolve => setTimeout(resolve, durationNumeric))
-        
+
         this.state.flux.remainingMl = Math.max(0, this.state.flux.remainingMl - fluxConsumption)
         this.state.flux.percentage = Math.max(0, (this.state.flux.remainingMl / maxFluxMl) * 100)
         this.emit('flux', this.getFluxState())
-        
+
         this.state.fluxMist.isDispensing = false
         this.state.fluxMist.lastDispensed = Date.now()
         this.emit('fluxMist', this.getFluxMistState())
-        
+
         return { status: `Flux mist dispensed for ${durationNumeric}ms at ${flowRateNumeric}% flow rate` }
       } catch (error) {
         this.state.fluxMist.isDispensing = false
@@ -171,11 +171,11 @@ export default class AuxiliaryController extends EventEmitter {
           this.state.flux.remainingMl = Math.max(0, this.state.flux.remainingMl - fluxConsumption)
           this.state.flux.percentage = Math.max(0, (this.state.flux.remainingMl / maxFluxMl) * 100)
           this.emit('flux', this.getFluxState())
-          
+
           this.state.fluxMist.isDispensing = false
           this.state.fluxMist.lastDispensed = Date.now()
           this.emit('fluxMist', this.getFluxMistState())
-          
+
           resolve({ status: `Flux mist dispensed for ${durationNumeric}ms at ${flowRateNumeric}% flow rate` })
         }, durationNumeric)
       })
@@ -236,13 +236,13 @@ export default class AuxiliaryController extends EventEmitter {
           duration: durationNumeric,
           intensity: intensityNumeric
         })
-        
+
         await new Promise(resolve => setTimeout(resolve, durationNumeric))
-        
+
         this.state.airBreeze.isActive = false
         this.state.airBreeze.lastActivated = Date.now()
         this.emit('airBreeze', this.getAirBreezeState())
-        
+
         return { status: `Air breeze activated for ${durationNumeric}ms at ${intensityNumeric}% intensity` }
       } catch (error) {
         this.state.airBreeze.isActive = false
@@ -255,7 +255,7 @@ export default class AuxiliaryController extends EventEmitter {
           this.state.airBreeze.isActive = false
           this.state.airBreeze.lastActivated = Date.now()
           this.emit('airBreeze', this.getAirBreezeState())
-          
+
           resolve({ status: `Air breeze activated for ${durationNumeric}ms at ${intensityNumeric}% intensity` })
         }, durationNumeric)
       })
@@ -307,13 +307,13 @@ export default class AuxiliaryController extends EventEmitter {
           duration: durationNumeric,
           pressure: pressureNumeric
         })
-        
+
         await new Promise(resolve => setTimeout(resolve, durationNumeric))
-        
+
         this.state.airJetPressure.isActive = false
         this.state.airJetPressure.lastActivated = Date.now()
         this.emit('airJetPressure', this.getAirJetPressureState())
-        
+
         return { status: `Air jet pressure activated for ${durationNumeric}ms at ${pressureNumeric}% pressure` }
       } catch (error) {
         this.state.airJetPressure.isActive = false
@@ -326,7 +326,7 @@ export default class AuxiliaryController extends EventEmitter {
           this.state.airJetPressure.isActive = false
           this.state.airJetPressure.lastActivated = Date.now()
           this.emit('airJetPressure', this.getAirJetPressureState())
-          
+
           resolve({ status: `Air jet pressure activated for ${durationNumeric}ms at ${pressureNumeric}% pressure` })
         }, durationNumeric)
       })
