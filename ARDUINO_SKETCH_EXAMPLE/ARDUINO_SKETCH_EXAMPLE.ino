@@ -61,6 +61,17 @@ const int STEPPER_Z_DIR_PIN = 46;
 const int LIMIT_SWITCH_Z_MIN_PIN = 2;
 const int LIMIT_SWITCH_Z_MAX_PIN = 3;
 
+// --- HARDWARE PIN DEFINITIONS (PLEASE CONFIGURE THESE) ---
+// Set these to the actual pin numbers connected to your MOSFETs/Relays
+const int HEATER_PIN = -1;          // e.g., 5
+const int FAN_MACHINE_PIN = -1;     // e.g., 6
+const int FAN_TIP_PIN = -1;         // e.g., 7
+const int FUME_EXTRACTOR_PIN = -1;  // e.g., 10
+const int FLUX_MIST_PIN = -1;       // e.g., 11
+const int AIR_BREEZE_PIN = -1;      // e.g., 12
+const int AIR_JET_PIN = -1;         // e.g., 4
+// ---------------------------------------------------------
+
 // Position system: Home is at 0.00mm (Z_MAX limit switch at top)
 const float Z_MAX_POSITION = 60.0f;  // mm - Maximum travel distance from home (downward) - NOT USED (limit switches control movement)
 const float Z_HOME_POSITION = 0.0f;  // mm - Home position (at Z_MAX limit switch)
@@ -158,6 +169,15 @@ void setup() {
   Serial.print(LEAD_SCREW_PITCH_MM, 1);
   Serial.println(")");
   
+  // Initialize Hardware Pins
+  if (HEATER_PIN != -1) pinMode(HEATER_PIN, OUTPUT);
+  if (FAN_MACHINE_PIN != -1) pinMode(FAN_MACHINE_PIN, OUTPUT);
+  if (FAN_TIP_PIN != -1) pinMode(FAN_TIP_PIN, OUTPUT);
+  if (FUME_EXTRACTOR_PIN != -1) pinMode(FUME_EXTRACTOR_PIN, OUTPUT);
+  if (FLUX_MIST_PIN != -1) pinMode(FLUX_MIST_PIN, OUTPUT);
+  if (AIR_BREEZE_PIN != -1) pinMode(AIR_BREEZE_PIN, OUTPUT);
+  if (AIR_JET_PIN != -1) pinMode(AIR_JET_PIN, OUTPUT);
+
   // Z-axis stepper motor pins
   pinMode(STEPPER_Z_STEP_PIN, OUTPUT);
   pinMode(STEPPER_Z_DIR_PIN, OUTPUT);
@@ -401,13 +421,13 @@ void processCommands() {
           targetTemperature = cmdDoc["target"] | targetTemperature;
           Serial.print("[CMD] Set target temperature: ");
           Serial.println(targetTemperature);
-          // TODO: Update heater target temperature
         }
         else if (cmd == "heater") {
           heaterEnabled = cmdDoc["enable"] | heaterEnabled;
           Serial.print("[CMD] Heater ");
           Serial.println(heaterEnabled ? "ENABLED" : "DISABLED");
-          // TODO: Enable/disable heater
+          // Simple ON/OFF control
+          if (HEATER_PIN != -1) digitalWrite(HEATER_PIN, heaterEnabled ? HIGH : LOW);
         }
         else if (cmd == "feed" || cmd == "wirefeed") {
           float length = cmdDoc["length"] | 0;
@@ -423,19 +443,34 @@ void processCommands() {
         else if (cmd == "fan") {
           fanMachine = cmdDoc["machine"] | fanMachine;
           fanTip = cmdDoc["tip"] | fanTip;
-          // TODO: Control fans
+          if (FAN_MACHINE_PIN != -1) digitalWrite(FAN_MACHINE_PIN, fanMachine ? HIGH : LOW);
+          if (FAN_TIP_PIN != -1) digitalWrite(FAN_TIP_PIN, fanTip ? HIGH : LOW);
         }
         else if (cmd == "fume") {
           fumeExtractorEnabled = cmdDoc["enabled"] | fumeExtractorEnabled;
           fumeExtractorSpeed = cmdDoc["speed"] | fumeExtractorSpeed;
-          // TODO: Control fume extractor
+          // For now, simple ON/OFF. PWM requires analogWrite if supported
+          if (FUME_EXTRACTOR_PIN != -1) digitalWrite(FUME_EXTRACTOR_PIN, fumeExtractorEnabled ? HIGH : LOW);
         }
         else if (cmd == "fluxmist") {
           fluxMistEnabled = cmdDoc["enabled"] | fluxMistEnabled;
           fluxMistFlowRate = cmdDoc["flowRate"] | fluxMistFlowRate;
           if (cmdDoc["dispense"]) {
             fluxMistDispensing = true;
-            // TODO: Start flux mist dispensing
+            if (FLUX_MIST_PIN != -1) {
+                digitalWrite(FLUX_MIST_PIN, HIGH);
+                // Pulse duration handling should ideally be non-blocking
+                // For now, we assume the command handles duration or we toggle off later
+                // BUT the JS calls 'dispense' with a duration. 
+                // The current JS implementation sends 'dispense: true' and waits, then presumably sends 'dispense: false'?
+                // Actually, JS waits for duration then assumes it's done. 
+                // The correct way is for Arduino to turn it on, wait, turn off.
+                // Since this is inside processCommands (loop), blocking here is bad but likely expected by current architecture.
+                float duration = cmdDoc["duration"] | 500;
+                delay(duration); 
+                digitalWrite(FLUX_MIST_PIN, LOW);
+                fluxMistDispensing = false;
+            }
           }
         }
         else if (cmd == "airbreeze") {
@@ -443,7 +478,16 @@ void processCommands() {
           airBreezeIntensity = cmdDoc["intensity"] | airBreezeIntensity;
           if (cmdDoc["activate"]) {
             airBreezeActive = true;
-            // TODO: Activate air breeze
+             if (AIR_BREEZE_PIN != -1) {
+                digitalWrite(AIR_BREEZE_PIN, HIGH);
+                float duration = cmdDoc["duration"] | 2000;
+                delay(duration);
+                digitalWrite(AIR_BREEZE_PIN, LOW);
+                airBreezeActive = false;
+             }
+          } else {
+             // If just enabled/disabled without "activate" (toggle switch)
+             if (AIR_BREEZE_PIN != -1) digitalWrite(AIR_BREEZE_PIN, airBreezeEnabled ? HIGH : LOW);
           }
         }
         else if (cmd == "airjet") {
@@ -451,7 +495,15 @@ void processCommands() {
           airJetPressure = cmdDoc["pressure"] | airJetPressure;
           if (cmdDoc["activate"]) {
             airJetActive = true;
-            // TODO: Activate air jet
+            if (AIR_JET_PIN != -1) {
+                digitalWrite(AIR_JET_PIN, HIGH);
+                float duration = cmdDoc["duration"] | 200;
+                delay(duration);
+                digitalWrite(AIR_JET_PIN, LOW);
+                airJetActive = false;
+             }
+          } else {
+             if (AIR_JET_PIN != -1) digitalWrite(AIR_JET_PIN, airJetEnabled ? HIGH : LOW);
           }
         }
         else if (cmd == "jog") {

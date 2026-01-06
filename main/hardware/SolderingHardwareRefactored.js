@@ -301,12 +301,20 @@ export default class SolderingHardware extends EventEmitter {
     return this.auxiliaryController.getAirBreezeState()
   }
 
+  setAirBreezeEnabled(enabled) {
+    return this.auxiliaryController.setAirBreezeEnabled(enabled)
+  }
+
   async activateAirJetPressure(duration = null, pressure = null) {
     return this.auxiliaryController.activateAirJetPressure(duration, pressure)
   }
 
   getAirJetPressureState() {
     return this.auxiliaryController.getAirJetPressureState()
+  }
+
+  setAirJetPressureEnabled(enabled) {
+    return this.auxiliaryController.setAirJetPressureEnabled(enabled)
   }
 
   // Sequence methods

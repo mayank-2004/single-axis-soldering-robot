@@ -273,6 +273,25 @@ export default class AuxiliaryController extends EventEmitter {
     }
   }
 
+  setAirBreezeEnabled(enabled) {
+    this.state.airBreeze.enabled = Boolean(enabled)
+
+    if (this.serialManager?.isConnected) {
+      try {
+        this._sendCommand({
+          command: 'airbreeze',
+          enabled: Boolean(enabled),
+          intensity: this.state.airBreeze.intensity
+        })
+      } catch (error) {
+        console.error('[AuxiliaryController] Error setting air breeze enabled:', error)
+      }
+    }
+
+    this.emit('airBreeze', this.getAirBreezeState())
+    return { status: this.getAirBreezeState() }
+  }
+
   async activateAirJetPressure(duration = null, pressure = null) {
     const jetDuration = duration !== null ? duration : this.state.airJetPressure.duration
     const jetPressure = pressure !== null ? pressure : this.state.airJetPressure.pressure
@@ -342,6 +361,25 @@ export default class AuxiliaryController extends EventEmitter {
       autoMode: this.state.airJetPressure.autoMode,
       lastActivated: this.state.airJetPressure.lastActivated,
     }
+  }
+
+  setAirJetPressureEnabled(enabled) {
+    this.state.airJetPressure.enabled = Boolean(enabled)
+
+    if (this.serialManager?.isConnected) {
+      try {
+        this._sendCommand({
+          command: 'airjet',
+          enabled: Boolean(enabled),
+          pressure: this.state.airJetPressure.pressure
+        })
+      } catch (error) {
+        console.error('[AuxiliaryController] Error setting air jet pressure enabled:', error)
+      }
+    }
+
+    this.emit('airJetPressure', this.getAirJetPressureState())
+    return { status: this.getAirJetPressureState() }
   }
 
   async _sendCommand(commandObj) {
