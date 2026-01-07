@@ -1079,22 +1079,27 @@ void executeSavedMovement() {
   isExecutingSavedMovement = true;
   isMoving = true;
   
-  Serial.print("Executing saved movement: ");
-  Serial.print(savedMovementDistance);
-  Serial.println(" mm from home");
+  // Check current position relative to home
+  // If we are close to home (within 0.5mm), go to saved position
+  // Otherwise, go back to home
+  float distToHome = abs(zPosition - homePosition);
   
-  // First, return to home position
-  moveZAxisTo(homePosition);
-  
-  // Small delay to ensure we're at home
-  delay(100);
-  
-  // Then, execute the saved movement from home
-  if (savedMovementDistance != 0.0f) {
-    moveZAxisByDistance(savedMovementDistance);
+  if (distToHome < 0.5f) {
+    // Go Down to Saved Position
+    Serial.print("Paddle: Going DOWN to saved position (");
+    Serial.print(savedMovementDistance);
+    Serial.println(" mm)");
+    
+    if (savedMovementDistance != 0.0f) {
+      moveZAxisByDistance(savedMovementDistance);
+    }
+  } else {
+    // Go Up to Home
+    Serial.println("Paddle: Going UP to home position");
+    moveZAxisTo(homePosition);
   }
   
-  Serial.println("Saved movement execution complete");
+  Serial.println("Paddle movement execution complete");
   isExecutingSavedMovement = false;
   isMoving = false;
 }

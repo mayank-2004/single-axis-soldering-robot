@@ -788,54 +788,41 @@ export default function HomePage() {
       // Upper Limit Logic
       if (upperTriggered && !lastUpperLimitRef.current) {
         // Rising edge: Trigger alert
-        console.log('[home.jsx] Upper limit triggered (Rising Edge) - Starting timeout')
+        console.log('[home.jsx] Upper limit triggered (Rising Edge)')
 
-        // Clear any existing timeout
+        // Clear any existing timeout (legacy cleanup)
         if (window.limitSwitchTimeout) {
           clearTimeout(window.limitSwitchTimeout)
+          window.limitSwitchTimeout = null
         }
 
         setLimitSwitchAlert(true)
         setManualMovementStatus('Upper limit switch reached - can\'t go upward')
-
-        // Auto-hide alert after 3 seconds
-        window.limitSwitchTimeout = setTimeout(() => {
-          console.log('[home.jsx] Auto-hiding upper limit alert')
-          setLimitSwitchAlert(false)
-          setManualMovementStatus('')
-          window.limitSwitchTimeout = null
-        }, 3000)
       } else if (!upperTriggered && lastUpperLimitRef.current) {
         // Falling edge: Switch released
         console.log('[home.jsx] Upper limit released')
-        // Optional: Clear alert immediately on release?
-        // For now, we let the timeout run to ensure user sees it, or cleared by next trigger.
-        if (!lowerTriggered && window.limitSwitchTimeout) {
-          // If we wanted to clear immediately on release, we would do it here.
-          // Leaving it to timeout as requested ("show warning for only 5 seconds after trigger")
-        }
+        setLimitSwitchAlert(false)
+        setManualMovementStatus('')
       }
 
       // Lower Limit Logic
       if (lowerTriggered && !lastLowerLimitRef.current) {
         // Rising edge: Trigger alert
-        console.log('[home.jsx] Lower limit triggered (Rising Edge) - Starting timeout')
+        console.log('[home.jsx] Lower limit triggered (Rising Edge)')
 
-        // Clear any existing timeout
+        // Clear any existing timeout (legacy cleanup)
         if (window.limitSwitchTimeout) {
           clearTimeout(window.limitSwitchTimeout)
+          window.limitSwitchTimeout = null
         }
 
         setLimitSwitchAlert(true)
         setManualMovementStatus('Lower limit switch reached - can\'t go downward')
-
-        // Auto-hide alert after 5 seconds
-        window.limitSwitchTimeout = setTimeout(() => {
-          console.log('[home.jsx] Auto-hiding lower limit alert')
-          setLimitSwitchAlert(false)
-          setManualMovementStatus('')
-          window.limitSwitchTimeout = null
-        }, 5000)
+      } else if (!lowerTriggered && lastLowerLimitRef.current) {
+        // Falling edge: Switch released
+        console.log('[home.jsx] Lower limit released')
+        setLimitSwitchAlert(false)
+        setManualMovementStatus('')
       }
 
       // Update refs
@@ -1765,9 +1752,9 @@ export default function HomePage() {
           setLimitSwitchAlert(false)
         } else {
           console.log('[ManualMovement] Jog command acknowledged:', result.status)
-          console.log('[ManualMovement] Note: Limit switch status will come from limitSwitch:update event')
-          // Don't clear status here - limit switch status comes from Arduino JSON updates
-          // The limitSwitch:update event will handle showing/hiding the alert
+          console.log('[ManualMovement] Clearing limit switch alert on manual move')
+          setLimitSwitchAlert(false)
+          setManualMovementStatus('')
         }
         // Clean up listener after receiving acknowledgment
         window.ipc.off?.('axis:jog:ack', handleAck)

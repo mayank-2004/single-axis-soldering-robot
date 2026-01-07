@@ -8,7 +8,7 @@ export default class MovementController extends EventEmitter {
     this.BED_HEIGHT_MM = 280.0
     this._lastMovementCommand = null
     this._isCompensating = false
-    
+
     this.state = {
       position: { z: 0.0, isMoving: false },
       zAxisSpeed: 100,
@@ -29,9 +29,9 @@ export default class MovementController extends EventEmitter {
     const step = direction > 0 ? stepSize : -stepSize
     let newPosition = this.state.position.z + step
     const limitReached = newPosition > 0 && direction > 0
-    
+
     if (newPosition > 0) newPosition = 0.0
-    
+
     this.state.position.isMoving = true
     this.emit('position:update', this.getPosition())
 
@@ -39,16 +39,16 @@ export default class MovementController extends EventEmitter {
       try {
         const previousPosition = this.state.position.z
         await this._sendCommand({ command: 'jog', axis: 'z', distance: step, speed: this.state.zAxisSpeed })
-        
+
         this._lastMovementCommand = { previousPosition, commandedDistance: step, timestamp: Date.now() }
-        
+
         setTimeout(() => {
           this.state.position.isMoving = false
           this.emit('position:update', this.getPosition())
         }, 500)
 
-        return { 
-          status: limitReached ? 'Upper limit switch reached' : 'Movement completed', 
+        return {
+          status: limitReached ? 'Upper limit switch reached' : 'Movement completed',
           position: this.getPosition(),
           limitReached: false
         }
@@ -62,8 +62,8 @@ export default class MovementController extends EventEmitter {
           this.state.position.z = newPosition
           this.state.position.isMoving = false
           this.emit('position:update', this.getPosition())
-          resolve({ 
-            status: limitReached ? 'Upper limit switch reached' : 'Movement completed', 
+          resolve({
+            status: limitReached ? 'Upper limit switch reached' : 'Movement completed',
             position: this.getPosition(),
             limitReached
           })
@@ -99,6 +99,22 @@ export default class MovementController extends EventEmitter {
           resolve({ status: 'Homed to 0.00mm (top limit switch)', position: this.getPosition() })
         }, 500)
       })
+    }
+  }
+
+  async saveMovementSequence() {
+    if (this.serialManager?.isConnected) {
+      try {
+        await this._sendCommand({ command: 'save' })
+        // After saving, immediately home the head as per requirement
+        setTimeout(() => this.home(), 500) // Small delay to ensure save completes
+        return { status: 'Movement saved. Homing head...' }
+      } catch (error) {
+        return { error: error.message }
+      }
+    } else {
+      setTimeout(() => this.home(), 500)
+      return { status: 'Movement saved (simulation). Homing head...' }
     }
   }
 
@@ -171,25 +187,25 @@ export default class MovementController extends EventEmitter {
       const wasMoving = this.state.position.isMoving
       const newZ = updates.position.z ?? this.state.position.z
       const isNowMoving = updates.position.isMoving ?? this.state.position.isMoving
-      
+
       this.state.position.z = newZ
       this.state.position.isMoving = isNowMoving
-      
+
       if (this._lastMovementCommand && wasMoving && !isNowMoving) {
         const actualDistance = newZ - this._lastMovementCommand.previousPosition
         const commandedDistance = this._lastMovementCommand.commandedDistance
         const timeSinceCommand = Date.now() - this._lastMovementCommand.timestamp
-        
+
         if (timeSinceCommand < 3000) {
           const difference = actualDistance - commandedDistance
           const movementStoppedEarly = Math.abs(actualDistance) < Math.abs(commandedDistance) * 0.5
-          
+
           if (!movementStoppedEarly) {
-            const needsCompensation = !this._isCompensating && 
-                                     Math.abs(difference) > 0.01 &&
-                                     ((commandedDistance < 0 && actualDistance > commandedDistance) ||
-                                      (commandedDistance > 0 && actualDistance < commandedDistance))
-            
+            const needsCompensation = !this._isCompensating &&
+              Math.abs(difference) > 0.01 &&
+              ((commandedDistance < 0 && actualDistance > commandedDistance) ||
+                (commandedDistance > 0 && actualDistance < commandedDistance))
+
             if (needsCompensation) {
               const compensationDistance = commandedDistance - actualDistance
               this._isCompensating = true
@@ -199,7 +215,7 @@ export default class MovementController extends EventEmitter {
                 timestamp: Date.now(),
                 isCompensation: true
               }
-              
+
               this._sendCommand({
                 command: 'jog',
                 axis: 'z',
@@ -218,7 +234,7 @@ export default class MovementController extends EventEmitter {
           }
         }
       }
-      
+
       this.emit('position:update', this.getPosition())
     }
   }

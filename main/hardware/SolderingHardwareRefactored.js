@@ -199,6 +199,10 @@ export default class SolderingHardware extends EventEmitter {
     return this.movementController.home()
   }
 
+  async saveMovementSequence() {
+    return this.movementController.saveMovementSequence()
+  }
+
   getPosition() {
     return this.movementController.getPosition()
   }
