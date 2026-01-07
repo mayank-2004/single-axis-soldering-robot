@@ -26,8 +26,7 @@ bool isWireFeeding = false;
 float fluxPercentage = 82.0;
 float fluxMl = 68.0;
 
-bool fanMachine = false;
-bool fanTip = false;
+
 
 bool fumeExtractorEnabled = false;
 float fumeExtractorSpeed = 80.0;
@@ -64,8 +63,7 @@ const int LIMIT_SWITCH_Z_MAX_PIN = 3;
 // --- HARDWARE PIN DEFINITIONS (PLEASE CONFIGURE THESE) ---
 // Set these to the actual pin numbers connected to your MOSFETs/Relays
 const int HEATER_PIN = -1;          // e.g., 5
-const int FAN_MACHINE_PIN = -1;     // e.g., 6
-const int FAN_TIP_PIN = -1;         // e.g., 7
+const int TEMP_SENSOR_PIN = -1;     // e.g., A3 (Analog Pin)
 const int FUME_EXTRACTOR_PIN = -1;  // e.g., 10
 const int FLUX_MIST_PIN = -1;       // e.g., 11
 const int AIR_BREEZE_PIN = -1;      // e.g., 12
@@ -146,10 +144,13 @@ void feedWireByLength(float lengthMm);
 void handleButtonControls();
 void saveMovementSequence();
 void executeSavedMovement();
+void manageHeater();
+float readThermistor(int pin);
+
 
 void setup() {
   Serial.begin(BAUD_RATE);
-  
+
   // Print configuration on startup
   Serial.println("[SETUP] Z-Axis Configuration:");
   Serial.print("[SETUP]   Lead screw pitch: ");
@@ -171,13 +172,12 @@ void setup() {
   
   // Initialize Hardware Pins
   if (HEATER_PIN != -1) pinMode(HEATER_PIN, OUTPUT);
-  if (FAN_MACHINE_PIN != -1) pinMode(FAN_MACHINE_PIN, OUTPUT);
-  if (FAN_TIP_PIN != -1) pinMode(FAN_TIP_PIN, OUTPUT);
+  if (TEMP_SENSOR_PIN != -1) pinMode(TEMP_SENSOR_PIN, INPUT);
   if (FUME_EXTRACTOR_PIN != -1) pinMode(FUME_EXTRACTOR_PIN, OUTPUT);
   if (FLUX_MIST_PIN != -1) pinMode(FLUX_MIST_PIN, OUTPUT);
   if (AIR_BREEZE_PIN != -1) pinMode(AIR_BREEZE_PIN, OUTPUT);
   if (AIR_JET_PIN != -1) pinMode(AIR_JET_PIN, OUTPUT);
-
+  
   // Z-axis stepper motor pins
   pinMode(STEPPER_Z_STEP_PIN, OUTPUT);
   pinMode(STEPPER_Z_DIR_PIN, OUTPUT);
@@ -212,6 +212,9 @@ void setup() {
 void loop() {
   // Handle button controls (up, down, save, paddle)
   handleButtonControls();
+
+  // Manage heater temperature
+  manageHeater();
   
   // Read sensors and update values
   readSensors();
@@ -226,6 +229,14 @@ void loop() {
 }
 
 void readSensors() {  
+  // Always try to read real temperature if pin is defined
+  if (TEMP_SENSOR_PIN != -1) {
+    currentTemperature = readThermistor(TEMP_SENSOR_PIN);
+  } else {
+    // If no pin defined, use simulation behavior below
+    // (This allows testing without hardware changes if pin is -1)
+  }
+
   if (useRealSensors) {
     // If you have an encoder, uncomment the line below and comment out position tracking in movement functions
     // zPosition = readEncoderPosition(Z_ENCODER_PIN);
@@ -235,7 +246,7 @@ void readSensors() {
       zPosition = 0.0;  // Clamp to home position
     }
   } else {
-    // Simulation mode
+    // Simulation mode for other sensors
   static unsigned long lastSensorUpdate = 0;
   if (millis() - lastSensorUpdate > 1000) {
       // Clamp Z position: cannot go above 0.00mm (home), can go negative (downward)
@@ -243,15 +254,18 @@ void readSensors() {
         zPosition = 0.0;  // Clamp to home position
       }
     
-    if (heaterEnabled && currentTemperature < targetTemperature) {
-      currentTemperature += 1.0;  // Heat up at 1°C per second
-      if (currentTemperature > targetTemperature) {
-        currentTemperature = targetTemperature;  // Don't overshoot
-      }
-    } else if (!heaterEnabled && currentTemperature > 25.0) {
-      currentTemperature -= 0.5;  // Cool down at 0.5°C per second
-      if (currentTemperature < 25.0) {
-        currentTemperature = 25.0;  // Room temperature minimum
+    // Only simulate temp if NO PIN is defined
+    if (TEMP_SENSOR_PIN == -1) {
+      if (heaterEnabled && currentTemperature < targetTemperature) {
+        currentTemperature += 1.0;  // Heat up at 1°C per second
+        if (currentTemperature > targetTemperature) {
+          currentTemperature = targetTemperature;  // Don't overshoot
+        }
+      } else if (!heaterEnabled && currentTemperature > 25.0) {
+        currentTemperature -= 0.5;  // Cool down at 0.5°C per second
+        if (currentTemperature < 25.0) {
+          currentTemperature = 25.0;  // Room temperature minimum
+        }
       }
     }
     
@@ -333,10 +347,7 @@ void sendMachineState() {
   flux["percentage"] = fluxPercentage;
   flux["ml"] = fluxMl;
   
-  // Fan states
-  JsonObject fans = doc.createNestedObject("fans");
-  fans["machine"] = fanMachine;
-  fans["tip"] = fanTip;
+
   
   // Fume extractor
   JsonObject fume = doc.createNestedObject("fume");
@@ -440,16 +451,11 @@ void processCommands() {
             isWireFeeding = false;
           }
         }
-        else if (cmd == "fan") {
-          fanMachine = cmdDoc["machine"] | fanMachine;
-          fanTip = cmdDoc["tip"] | fanTip;
-          if (FAN_MACHINE_PIN != -1) digitalWrite(FAN_MACHINE_PIN, fanMachine ? HIGH : LOW);
-          if (FAN_TIP_PIN != -1) digitalWrite(FAN_TIP_PIN, fanTip ? HIGH : LOW);
-        }
+
         else if (cmd == "fume") {
           fumeExtractorEnabled = cmdDoc["enabled"] | fumeExtractorEnabled;
           fumeExtractorSpeed = cmdDoc["speed"] | fumeExtractorSpeed;
-          // For now, simple ON/OFF. PWM requires analogWrite if supported
+          // TODO: Control fume extractor
           if (FUME_EXTRACTOR_PIN != -1) digitalWrite(FUME_EXTRACTOR_PIN, fumeExtractorEnabled ? HIGH : LOW);
         }
         else if (cmd == "fluxmist") {
@@ -457,15 +463,9 @@ void processCommands() {
           fluxMistFlowRate = cmdDoc["flowRate"] | fluxMistFlowRate;
           if (cmdDoc["dispense"]) {
             fluxMistDispensing = true;
+            // TODO: Start flux mist dispensing
             if (FLUX_MIST_PIN != -1) {
                 digitalWrite(FLUX_MIST_PIN, HIGH);
-                // Pulse duration handling should ideally be non-blocking
-                // For now, we assume the command handles duration or we toggle off later
-                // BUT the JS calls 'dispense' with a duration. 
-                // The current JS implementation sends 'dispense: true' and waits, then presumably sends 'dispense: false'?
-                // Actually, JS waits for duration then assumes it's done. 
-                // The correct way is for Arduino to turn it on, wait, turn off.
-                // Since this is inside processCommands (loop), blocking here is bad but likely expected by current architecture.
                 float duration = cmdDoc["duration"] | 500;
                 delay(duration); 
                 digitalWrite(FLUX_MIST_PIN, LOW);
@@ -478,6 +478,7 @@ void processCommands() {
           airBreezeIntensity = cmdDoc["intensity"] | airBreezeIntensity;
           if (cmdDoc["activate"]) {
             airBreezeActive = true;
+            // TODO: Activate air breeze
              if (AIR_BREEZE_PIN != -1) {
                 digitalWrite(AIR_BREEZE_PIN, HIGH);
                 float duration = cmdDoc["duration"] | 2000;
@@ -495,6 +496,7 @@ void processCommands() {
           airJetPressure = cmdDoc["pressure"] | airJetPressure;
           if (cmdDoc["activate"]) {
             airJetActive = true;
+            // TODO: Activate air jet
             if (AIR_JET_PIN != -1) {
                 digitalWrite(AIR_JET_PIN, HIGH);
                 float duration = cmdDoc["duration"] | 200;
@@ -1095,4 +1097,50 @@ void executeSavedMovement() {
   Serial.println("Saved movement execution complete");
   isExecutingSavedMovement = false;
   isMoving = false;
+}
+void manageHeater() {
+  if (HEATER_PIN == -1) return;
+
+  // Simple hysteresis (Bang-Bang) control
+  // Adjust HYSTERESIS value as needed (e.g., 2.0 degrees)
+  const float HYSTERESIS = 2.0;
+
+  if (heaterEnabled) {
+    if (currentTemperature < (targetTemperature - HYSTERESIS)) {
+      digitalWrite(HEATER_PIN, HIGH); // Turn ON
+    } else if (currentTemperature > targetTemperature) {
+      digitalWrite(HEATER_PIN, LOW);  // Turn OFF
+    }
+    // If between (Target - Hysteresis) and Target, keep current state (maintain heat)
+  } else {
+    digitalWrite(HEATER_PIN, LOW); // Always OFF if disabled
+  }
+}
+
+// Read NTC 100k Thermistor using Beta equation
+// Assumes 4.7k pull-up resistor (standard RAMPS/Arduino setup)
+float readThermistor(int pin) {
+  int rawADC = analogRead(pin);
+  if (rawADC == 0) return -999.0; // Error or open circuit
+  
+  // Steinhart-Hart / Beta equation parameters for 100k NTC (3950 Beta)
+  // Standard RepRap/RAMPS style thermistor
+  const float BETA = 3950.0; 
+  const float SERIES_RESISTOR = 4700.0;
+  const float THERMISTOR_NOMINAL = 100000.0;
+  const float TEMP_NOMINAL = 25.0;
+  
+  // Calculate resistance
+  float resistance = SERIES_RESISTOR / ((1023.0 / rawADC) - 1.0);
+  
+  // Calculate temperature (Kelvin)
+  float steinhart;
+  steinhart = resistance / THERMISTOR_NOMINAL;     // (R/Ro)
+  steinhart = log(steinhart);                  // ln(R/Ro)
+  steinhart /= BETA;                           // 1/B * ln(R/Ro)
+  steinhart += 1.0 / (TEMP_NOMINAL + 273.15); // + (1/To)
+  steinhart = 1.0 / steinhart;                 // Invert
+  steinhart -= 273.15;                         // Convert to Celsius
+
+  return steinhart;
 }
