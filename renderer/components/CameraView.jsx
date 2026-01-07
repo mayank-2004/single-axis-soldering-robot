@@ -10,7 +10,7 @@ export default function CameraView({ isActive = true }) {
   const [availableDevices, setAvailableDevices] = useState([])
   const [selectedDeviceId, setSelectedDeviceId] = useState(null)
   const [facingMode, setFacingMode] = useState('environment') // 'user' or 'environment'
-  
+
   // Zoom functionality state
   const [zoomLevel, setZoomLevel] = useState(1) // 1 = no zoom, >1 = zoomed in
   const [panX, setPanX] = useState(0) // Pan offset X (pixels)
@@ -23,9 +23,9 @@ export default function CameraView({ isActive = true }) {
     try {
       // First, request permission by trying to get user media with minimal constraints
       try {
-        const tempStream = await navigator.mediaDevices.getUserMedia({ 
+        const tempStream = await navigator.mediaDevices.getUserMedia({
           video: true,
-          audio: false 
+          audio: false
         })
         // Stop the temporary stream immediately - we just needed it for permission
         tempStream.getTracks().forEach(track => track.stop())
@@ -44,7 +44,7 @@ export default function CameraView({ isActive = true }) {
       const videoDevices = devices.filter(device => device.kind === 'videoinput')
       console.log('[CameraView] Found video devices:', videoDevices.length)
       setAvailableDevices(videoDevices)
-      
+
       // Auto-select first device if none selected
       if (!selectedDeviceId && videoDevices.length > 0) {
         setSelectedDeviceId(videoDevices[0].deviceId)
@@ -61,7 +61,7 @@ export default function CameraView({ isActive = true }) {
       const devices = await navigator.mediaDevices.enumerateDevices()
       const videoDevices = devices.filter(device => device.kind === 'videoinput')
       setAvailableDevices(videoDevices)
-      
+
       // Auto-select first device if none selected
       if (!selectedDeviceId && videoDevices.length > 0) {
         setSelectedDeviceId(videoDevices[0].deviceId)
@@ -89,10 +89,10 @@ export default function CameraView({ isActive = true }) {
         video: selectedDeviceId
           ? { deviceId: { exact: selectedDeviceId } }
           : {
-              facingMode: facingMode,
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-            },
+            facingMode: facingMode,
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
         audio: false,
       }
 
@@ -103,7 +103,7 @@ export default function CameraView({ isActive = true }) {
     } catch (err) {
       console.error('[CameraView] Error starting camera:', err)
       let errorMessage = 'Failed to start camera'
-      
+
       if (err.name === 'NotAllowedError') {
         errorMessage = 'Camera access denied. Please allow camera access in Windows Settings → Privacy → Camera, then restart the app.'
       } else if (err.name === 'NotFoundError') {
@@ -115,14 +115,14 @@ export default function CameraView({ isActive = true }) {
       } else if (err.message) {
         errorMessage = err.message
       }
-      
+
       console.error('[CameraView] Full error details:', {
         name: err.name,
         message: err.message,
         constraint: err.constraint,
         stack: err.stack
       })
-      
+
       setError(errorMessage)
       setIsStreaming(false)
     }
@@ -184,7 +184,7 @@ export default function CameraView({ isActive = true }) {
     canvas.height = videoRef.current.videoHeight
     const ctx = canvas.getContext('2d')
     ctx.drawImage(videoRef.current, 0, 0)
-    
+
     // Convert to blob and download
     canvas.toBlob((blob) => {
       const url = URL.createObjectURL(blob)
@@ -203,39 +203,50 @@ export default function CameraView({ isActive = true }) {
     if (!videoRef.current || !videoContainerRef.current || !isStreaming) return
 
     const container = videoContainerRef.current
-    
+
     // Get container bounds
     const containerRect = container.getBoundingClientRect()
     const containerWidth = containerRect.width
     const containerHeight = containerRect.height
-    
+
     // Get click position relative to container
     const clickX = e.clientX - containerRect.left
     const clickY = e.clientY - containerRect.top
-    
-    // If already zoomed, reset zoom
-    if (zoomLevel > 1) {
+    const centerX = containerWidth / 2
+    const centerY = containerHeight / 2
+
+    // Calculate the clicked point's position in "unzoomed image equivalent space" relative to center
+    // Formula: (ScreenPos - Center - Pan) / Zoom = ImageOffset 
+    const imgOffsetX = (clickX - centerX - panX) / zoomLevel
+    const imgOffsetY = (clickY - centerY - panY) / zoomLevel
+
+    // Determine new zoom level
+    // Cycle: 1 -> 2 -> 4 -> 6 -> 8 -> 10 -> 1
+    let newZoomLevel = zoomLevel
+    if (zoomLevel === 1) {
+      newZoomLevel = 2
+    } else {
+      newZoomLevel += 2
+    }
+
+    if (newZoomLevel > 10) {
+      // Reset to 1x
       setZoomLevel(1)
       setPanX(0)
       setPanY(0)
       return
     }
-    
-    // Set zoom level (2x zoom)
-    const newZoomLevel = 2
+
     setZoomLevel(newZoomLevel)
-    
-    // Calculate pan to center the clicked point
-    // The clicked point should become the center of the zoomed view
-    // Formula: pan = (center - click) * (zoom - 1)
-    const centerX = containerWidth / 2
-    const centerY = containerHeight / 2
-    const offsetX = (centerX - clickX) * (newZoomLevel - 1)
-    const offsetY = (centerY - clickY) * (newZoomLevel - 1)
-    
-    setPanX(offsetX)
-    setPanY(offsetY)
-  }, [isStreaming, zoomLevel])
+
+    // Calculate new pan to CENTER the clicked point
+    // We want the point at ImageOffset to be at Center (0,0) on screen
+    // 0 = ImageOffset * NewZoom + NewPan
+    // NewPan = -(ImageOffset * NewZoom)
+
+    setPanX(-(imgOffsetX * newZoomLevel))
+    setPanY(-(imgOffsetY * newZoomLevel))
+  }, [isStreaming, zoomLevel, panX, panY])
 
   // Handle mouse down for dragging
   const handleMouseDown = useCallback((e) => {
@@ -251,22 +262,22 @@ export default function CameraView({ isActive = true }) {
   // Handle mouse move for dragging
   const handleMouseMove = useCallback((e) => {
     if (!isDragging || zoomLevel <= 1) return
-    
+
     const newPanX = e.clientX - dragStart.x
     const newPanY = e.clientY - dragStart.y
-    
+
     // Constrain panning to keep video within bounds
     if (!videoContainerRef.current || !videoRef.current) return
-    
+
     const container = videoContainerRef.current
     const containerRect = container.getBoundingClientRect()
     const containerWidth = containerRect.width
     const containerHeight = containerRect.height
-    
+
     // Calculate max pan based on zoom level
     const maxPanX = (containerWidth * (zoomLevel - 1)) / 2
     const maxPanY = (containerHeight * (zoomLevel - 1)) / 2
-    
+
     setPanX(Math.max(-maxPanX, Math.min(maxPanX, newPanX)))
     setPanY(Math.max(-maxPanY, Math.min(maxPanY, newPanY)))
   }, [isDragging, zoomLevel, dragStart])
@@ -347,7 +358,7 @@ export default function CameraView({ isActive = true }) {
           </div>
         )}
 
-        <div 
+        <div
           ref={videoContainerRef}
           className={styles.videoContainer}
           onDoubleClick={handleDoubleClick}
