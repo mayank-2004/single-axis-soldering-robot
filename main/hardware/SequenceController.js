@@ -30,7 +30,8 @@ export default class SequenceController extends EventEmitter {
         totalWireLengthUsed: 0,
         wireLengthPerPad: [],
         thermalMassDuration: 1000,
-        wireLength: null
+        wireLength: null,
+        retractClearance: 7.5  // mm - clearance above jig surface after soldering (5-10mm range)
       }
     }
   }
@@ -46,6 +47,21 @@ export default class SequenceController extends EventEmitter {
 
     const pads = padPositions.length > 0 ? padPositions : [{ z: 0 }]
 
+    // Validate pad positions against jig surface (if jig height is set)
+    if (this.movementController.state.jigHeightMm !== null) {
+      const jigSurfaceFromHome = this.movementController.BED_HEIGHT_MM - this.movementController.state.jigHeightMm
+      const jigSurfaceZ = -jigSurfaceFromHome  // Convert to negative (below home)
+      
+      const invalidPads = pads.filter((pad, index) => {
+        const padZ = pad.z || 0
+        return padZ < jigSurfaceZ
+      })
+      
+      if (invalidPads.length > 0) {
+        console.warn(`[Sequence] WARNING: ${invalidPads.length} pad position(s) are below jig surface (${jigSurfaceZ.toFixed(2)}mm). They will be clamped to jig surface to prevent collision.`)
+      }
+    }
+
     this.state.sequence.isActive = true
     this.state.sequence.isPaused = false
     this.state.sequence.currentPad = 0
@@ -58,6 +74,10 @@ export default class SequenceController extends EventEmitter {
     this.state.sequence.wireLength = options.wireLength || null
     this.state.sequence.totalWireLengthUsed = 0
     this.state.sequence.wireLengthPerPad = []
+    // Set retraction clearance (5-10mm range, default 7.5mm)
+    if (options.retractClearance !== undefined) {
+      this.state.sequence.retractClearance = Math.max(5.0, Math.min(10.0, Number(options.retractClearance) || 7.5))
+    }
 
     this.emit('sequence', this.getSequenceState())
     this._executeSequence()
@@ -201,8 +221,36 @@ export default class SequenceController extends EventEmitter {
 
     switch (action) {
       case 'lowerZ':
-        const solderingZ = z || 0
-        await this.movementController.moveToPosition(null, null, solderingZ)
+        // Calculate safe soldering position - never below jig surface
+        let solderingZ = z || 0
+        let clampedSolderingZ = solderingZ
+        
+        if (this.movementController.state.jigHeightMm !== null) {
+          // Calculate jig surface position (negative value, below home)
+          const jigSurfaceFromHome = this.movementController.BED_HEIGHT_MM - this.movementController.state.jigHeightMm
+          const jigSurfaceZ = -jigSurfaceFromHome  // Convert to negative (below home)
+          
+          // Minimum safe position: jig surface (or slightly above for safety)
+          // Never allow soldering position below jig surface to prevent PCB collision
+          const minSafeZ = jigSurfaceZ  // Can solder at jig surface level
+          
+          // Clamp soldering position to never go below jig surface
+          if (solderingZ < minSafeZ) {
+            clampedSolderingZ = minSafeZ
+            console.warn(`[Sequence] Soldering position ${solderingZ.toFixed(2)}mm clamped to jig surface ${minSafeZ.toFixed(2)}mm to prevent collision`)
+          } else {
+            clampedSolderingZ = solderingZ
+          }
+          
+          console.log(`[Sequence] Moving to soldering position: ${clampedSolderingZ.toFixed(2)}mm (jig surface at ${jigSurfaceZ.toFixed(2)}mm)`)
+        } else {
+          // If jig height not set, use position as-is but warn if it seems too low
+          if (solderingZ < -250) {
+            console.warn(`[Sequence] WARNING: Soldering position ${solderingZ.toFixed(2)}mm seems very low. Consider setting jig height for safety.`)
+          }
+        }
+        
+        await this.movementController.moveToPosition(null, null, clampedSolderingZ)
         
         if (this.auxiliaryController.state.fluxMist.autoMode && !this.auxiliaryController.state.fluxMist.isDispensing) {
           await this.auxiliaryController.dispenseFluxMist()
@@ -243,7 +291,35 @@ export default class SequenceController extends EventEmitter {
         break
 
       case 'retract':
-        await this.movementController.moveToPosition(null, null, safeZ)
+        // Retract only 5-10mm from jig surface (not to home position)
+        // This keeps the head close to the work area for efficient movement between components
+        let retractZ = null
+        const retractClearance = this.state.sequence.retractClearance || 7.5  // mm - clearance above jig surface (5-10mm range)
+        
+        if (this.movementController.state.jigHeightMm !== null) {
+          // Calculate jig surface position (negative value, below home)
+          const jigSurfaceFromHome = this.movementController.BED_HEIGHT_MM - this.movementController.state.jigHeightMm
+          const jigSurfaceZ = -jigSurfaceFromHome  // Convert to negative (below home)
+          
+          // Retract to jig surface + clearance (5-10mm above jig surface)
+          // This keeps head close to work area but with safe clearance
+          retractZ = jigSurfaceZ + retractClearance
+          
+          console.log(`[Sequence] Retracting to ${retractZ.toFixed(2)}mm (${retractClearance.toFixed(1)}mm above jig surface at ${jigSurfaceZ.toFixed(2)}mm)`)
+        } else {
+          // Fallback: If jig height not set, retract upward from current soldering position
+          const solderingZ = z || this.movementController.state.position.z || 0
+          retractZ = solderingZ + retractClearance  // Move up by clearance amount from soldering position
+          console.log(`[Sequence] Retracting ${retractClearance.toFixed(1)}mm upward from soldering position (jig height not set)`)
+        }
+        
+        // Ensure we don't retract above home position (0.00mm)
+        if (retractZ > 0) {
+          retractZ = 0.0
+          console.log(`[Sequence] Retraction clamped to home position (0.00mm)`)
+        }
+        
+        await this.movementController.moveToPosition(null, null, retractZ)
         
         if (this.auxiliaryController.state.airBreeze.autoMode && !this.auxiliaryController.state.airBreeze.isActive) {
           await this.auxiliaryController.activateAirBreeze()

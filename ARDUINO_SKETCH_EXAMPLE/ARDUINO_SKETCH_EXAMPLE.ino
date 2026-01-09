@@ -26,8 +26,6 @@ bool isWireFeeding = false;
 float fluxPercentage = 82.0;
 float fluxMl = 68.0;
 
-
-
 bool fumeExtractorEnabled = false;
 float fumeExtractorSpeed = 80.0;
 
@@ -135,6 +133,9 @@ float savedMovementDistance = 0.0f;  // Saved movement distance from home positi
 bool hasSavedMovement = false;
 float homePosition = 0.0f;  // Home position is 0.00mm (at Z_MAX limit switch)
 bool isExecutingSavedMovement = false;
+bool isPaddleHeld = false;  // Track if paddle is currently being held
+bool paddleMovingToSaved = false;  // Track if paddle is moving to saved position
+bool paddleMovingToHome = false;  // Track if paddle is returning to home
 
 // Forward declarations for motion helpers
 void moveZAxisByDistance(float distanceMm, unsigned int stepDelayUs = 0);
@@ -988,7 +989,7 @@ void handleButtonControls() {
     if (currentTime - lastButtonUpPress > BUTTON_DEBOUNCE_MS) {
       // First press or repeat - check if enough time has passed
       if (lastButtonUpRepeat == 0 || (currentTime - lastButtonUpRepeat > BUTTON_REPEAT_DELAY_MS)) {
-        if (!isExecutingSavedMovement) {
+        if (!isExecutingSavedMovement && !isPaddleHeld) {
           // Check if already at home (cannot move above 0.00mm)
           if (zPosition >= Z_HOME_POSITION || isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN)) {
             zPosition = Z_HOME_POSITION;  // Ensure at home
@@ -1016,7 +1017,7 @@ void handleButtonControls() {
     if (currentTime - lastButtonDownPress > BUTTON_DEBOUNCE_MS) {
       // First press or repeat - check if enough time has passed
       if (lastButtonDownRepeat == 0 || (currentTime - lastButtonDownRepeat > BUTTON_REPEAT_DELAY_MS)) {
-        if (!isExecutingSavedMovement) {
+        if (!isExecutingSavedMovement && !isPaddleHeld) {
           // Move head down by a small increment (negative distance = move down)
           moveZAxisByDistance(-0.1f);
           lastButtonDownRepeat = currentTime;
@@ -1042,17 +1043,118 @@ void handleButtonControls() {
   }
   lastButtonSaveState = currentButtonSave;
   
-  // Handle PADDLE (executes saved movement sequence)
+  // Handle PADDLE (foot pedal)
+  // PRESS (HIGH->LOW): Move DOWN to saved position
+  // RELEASE (LOW->HIGH): Move UP to home position
+  
+  // Debug: Print current and last state for troubleshooting
+  static unsigned long lastDebugPrint = 0;
+  if (millis() - lastDebugPrint > 2000) {  // Print every 2 seconds
+    Serial.print("[PADDLE DEBUG] Current: ");
+    Serial.print(currentPaddle == HIGH ? "HIGH" : "LOW");
+    Serial.print(", Last: ");
+    Serial.print(lastPaddleState == HIGH ? "HIGH" : "LOW");
+    Serial.print(", isPaddleHeld: ");
+    Serial.println(isPaddleHeld ? "true" : "false");
+    lastDebugPrint = millis();
+  }
+  
+  // Detect PRESS transition: HIGH -> LOW
   if (currentPaddle == LOW && lastPaddleState == HIGH) {
-    // Paddle just pressed (falling edge)
-    if (currentTime - lastPaddlePress > BUTTON_DEBOUNCE_MS) {
-      if (hasSavedMovement && !isMoving && !isExecutingSavedMovement) {
-        executeSavedMovement();
-      }
-      lastPaddlePress = currentTime;
+    // Paddle was just PRESSED (HIGH->LOW) - move UP to home position
+    Serial.println("========================================");
+    Serial.println("[PADDLE] TRANSITION: HIGH->LOW (PRESSED)");
+    Serial.println("[PADDLE] ACTION: Moving UP to home position");
+    Serial.println("========================================");
+    
+    isPaddleHeld = true;
+    lastPaddlePress = currentTime;
+    
+    // CRITICAL: Update state BEFORE movement to lock in this transition
+    lastPaddleState = LOW;
+    
+    Serial.print("[PADDLE] From: ");
+    Serial.print(zPosition, 2);
+    Serial.print(" mm -> To: ");
+    Serial.print(homePosition, 2);
+    Serial.println(" mm (HOME)");
+    
+    // Clear blocking flags
+    isExecutingSavedMovement = false;
+    paddleMovingToSaved = false;
+    paddleMovingToHome = true;
+    
+    // Move UP to home position (blocking call)
+    moveZAxisTo(homePosition);
+    
+    paddleMovingToHome = false;
+    Serial.print("[PADDLE] COMPLETE: Now at ");
+    Serial.print(zPosition, 2);
+    Serial.println(" mm");
+    
+    // Verify state after movement - paddle should still be LOW (pressed)
+    bool verifyPaddle = digitalRead(PADDLE_PIN);
+    if (verifyPaddle != LOW) {
+      Serial.print("[PADDLE] WARNING: State changed during movement! Expected LOW, got ");
+      Serial.println(verifyPaddle == HIGH ? "HIGH" : "LOW");
+      // Don't update lastPaddleState - let next loop handle it
+    } else {
+      // State is correct - ensure lastPaddleState is LOW
+      lastPaddleState = LOW;
+      Serial.println("[PADDLE] State verified: Still LOW (pressed)");
     }
   }
-  lastPaddleState = currentPaddle;
+  // Detect RELEASE transition: LOW -> HIGH
+  else if (currentPaddle == HIGH && lastPaddleState == LOW) {
+    // Paddle was just RELEASED (LOW->HIGH) - move DOWN to saved position
+    Serial.println("========================================");
+    Serial.println("[PADDLE] TRANSITION: LOW->HIGH (RELEASED)");
+    Serial.println("[PADDLE] ACTION: Moving DOWN to saved position");
+    Serial.println("========================================");
+    
+    isPaddleHeld = false;
+    
+    // CRITICAL: Update state BEFORE movement to lock in this transition
+    lastPaddleState = HIGH;
+    
+    if (!hasSavedMovement) {
+      Serial.println("[PADDLE] ERROR: No saved movement! Press SAVE button first.");
+    } else {
+      // Calculate target position (saved position from home)
+      float targetPosition = homePosition + savedMovementDistance;
+      
+      Serial.print("[PADDLE] From: ");
+      Serial.print(zPosition, 2);
+      Serial.print(" mm -> To: ");
+      Serial.print(targetPosition, 2);
+      Serial.println(" mm (SAVED POSITION)");
+      
+      // Clear blocking flags
+      isExecutingSavedMovement = false;
+      paddleMovingToHome = false;
+      paddleMovingToSaved = true;
+      
+      // Move DOWN to saved position (blocking call)
+      moveZAxisTo(targetPosition);
+      
+      paddleMovingToSaved = false;
+      Serial.print("[PADDLE] COMPLETE: Now at ");
+      Serial.print(zPosition, 2);
+      Serial.println(" mm");
+      
+      // Verify state after movement - paddle should still be HIGH (released)
+      bool verifyPaddle = digitalRead(PADDLE_PIN);
+      if (verifyPaddle != HIGH) {
+        Serial.print("[PADDLE] WARNING: State changed during movement! Expected HIGH, got ");
+        Serial.println(verifyPaddle == HIGH ? "HIGH" : "LOW");
+        // Don't update lastPaddleState - let next loop handle it
+      } else {
+        // State is correct - ensure lastPaddleState is HIGH
+        lastPaddleState = HIGH;
+        Serial.println("[PADDLE] State verified: Still HIGH (released)");
+      }
+    }
+  }
 }
 
 void saveMovementSequence() {
