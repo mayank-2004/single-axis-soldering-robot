@@ -111,6 +111,11 @@ const int BUTTON_DOWN_PIN = 37;
 const int BUTTON_SAVE_PIN = 35;
 const int PADDLE_PIN = 34;
 
+// Emergency Stop configuration
+const int EMERGENCY_STOP_PIN = 33;  // Digital pin for emergency stop button (normally-closed switch)
+bool emergencyStopActive = false;   // Global E-stop state (true = E-stop active, machine stopped)
+bool lastEmergencyStopState = HIGH; // Last read state for debouncing
+
 // bool useRealSensors = true;  
 bool useRealSensors = false;  // Always use simulation mode since sensors are disabled
 
@@ -200,17 +205,57 @@ void setup() {
   pinMode(BUTTON_DOWN_PIN, INPUT_PULLUP);
   pinMode(BUTTON_SAVE_PIN, INPUT_PULLUP);
   pinMode(PADDLE_PIN, INPUT_PULLUP);
+  
+  // Emergency stop pin (INPUT_PULLUP - normally-closed switch, opens when E-stop pressed)
+  pinMode(EMERGENCY_STOP_PIN, INPUT_PULLUP);
 
   // Initialize button states
   lastButtonUpState = digitalRead(BUTTON_UP_PIN);
   lastButtonDownState = digitalRead(BUTTON_DOWN_PIN);
   lastButtonSaveState = digitalRead(BUTTON_SAVE_PIN);
   lastPaddleState = digitalRead(PADDLE_PIN);
+  lastEmergencyStopState = digitalRead(EMERGENCY_STOP_PIN);
+  
+  // Initialize E-stop state (HIGH = not pressed, LOW = pressed/opened)
+  emergencyStopActive = (digitalRead(EMERGENCY_STOP_PIN) == LOW);
+  
+  if (emergencyStopActive) {
+    Serial.println("[E-STOP] WARNING: Emergency stop is ACTIVE on startup!");
+    Serial.println("[E-STOP] All movements and heaters are DISABLED.");
+    Serial.println("[E-STOP] Release E-stop button and send reset command to resume.");
+  } else {
+    Serial.println("[E-STOP] Emergency stop system initialized - READY");
+  }
   
   delay(1000); // Give time for serial connection to stabilize
 }
 
 void loop() {
+  // CRITICAL: Check emergency stop FIRST (highest priority)
+  checkEmergencyStop();
+  
+  // If E-stop is active, skip all operations except status reporting
+  if (emergencyStopActive) {
+    // Stop all movements immediately
+    isMoving = false;
+    isWireFeeding = false;
+    
+    // Disable heater immediately
+    if (HEATER_PIN != -1) {
+      digitalWrite(HEATER_PIN, LOW);
+    }
+    heaterEnabled = false;
+    
+    // Send status update (E-stop state is included)
+    sendMachineState();
+    
+    // Still process commands (to allow reset command)
+    processCommands();
+    
+    delay(UPDATE_INTERVAL);
+    return;  // Exit early - don't execute normal operations
+  }
+  
   // Handle button controls (up, down, save, paddle)
   handleButtonControls();
 
@@ -322,6 +367,9 @@ void sendMachineState() {
   JsonObject limits = doc.createNestedObject("limits");
   limits["upper"] = isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN);  // Upper limit (home position)
   limits["lower"] = isLimitSwitchTriggered(LIMIT_SWITCH_Z_MIN_PIN);  // Lower limit (bottom)
+  
+  // Emergency stop status (CRITICAL SAFETY FEATURE)
+  doc["emergencyStop"] = emergencyStopActive;  // true = E-stop active, false = normal operation
   
   // Temperature data
   JsonObject temp = doc.createNestedObject("temp");
@@ -435,21 +483,51 @@ void processCommands() {
           Serial.println(targetTemperature);
         }
         else if (cmd == "heater") {
-          heaterEnabled = cmdDoc["enable"] | heaterEnabled;
-          Serial.print("[CMD] Heater ");
-          Serial.println(heaterEnabled ? "ENABLED" : "DISABLED");
-          // Simple ON/OFF control
-          if (HEATER_PIN != -1) digitalWrite(HEATER_PIN, heaterEnabled ? HIGH : LOW);
+          // Check E-stop before enabling heater
+          if (cmdDoc["enable"] && emergencyStopActive) {
+            Serial.println("[E-STOP] Heater enable rejected - emergency stop is active!");
+            heaterEnabled = false;
+            if (HEATER_PIN != -1) digitalWrite(HEATER_PIN, LOW);
+          } else {
+            heaterEnabled = cmdDoc["enable"] | heaterEnabled;
+            Serial.print("[CMD] Heater ");
+            Serial.println(heaterEnabled ? "ENABLED" : "DISABLED");
+            // Simple ON/OFF control
+            if (HEATER_PIN != -1) digitalWrite(HEATER_PIN, heaterEnabled ? HIGH : LOW);
+          }
+        }
+        else if (cmd == "reset" || cmd == "estop:reset") {
+          // Reset emergency stop (only works if E-stop button is released)
+          if (digitalRead(EMERGENCY_STOP_PIN) == HIGH) {
+            // E-stop button is released (HIGH = normal state)
+            emergencyStopActive = false;
+            Serial.println("========================================");
+            Serial.println("[E-STOP] Emergency stop RESET");
+            Serial.println("[E-STOP] Machine operation RESUMED");
+            Serial.println("========================================");
+          } else {
+            // E-stop button is still pressed/opened
+            emergencyStopActive = true;
+            Serial.println("[E-STOP] Reset FAILED - E-stop button is still pressed!");
+            Serial.println("[E-STOP] Release the E-stop button first, then send reset command.");
+          }
         }
         else if (cmd == "feed" || cmd == "wirefeed") {
-          float length = cmdDoc["length"] | 0;
-          if (length > 0) {
-            wireFeedStatus = "feeding";
-            isWireFeeding = true;
-            feedWireByLength(length);
-            // After feeding, update status
+          // Check E-stop before wire feed
+          if (emergencyStopActive) {
+            Serial.println("[E-STOP] Wire feed command rejected - emergency stop is active!");
             wireFeedStatus = "idle";
             isWireFeeding = false;
+          } else {
+            float length = cmdDoc["length"] | 0;
+            if (length > 0) {
+              wireFeedStatus = "feeding";
+              isWireFeeding = true;
+              feedWireByLength(length);
+              // After feeding, update status
+              wireFeedStatus = "idle";
+              isWireFeeding = false;
+            }
           }
         }
 
@@ -510,9 +588,13 @@ void processCommands() {
           }
         }
         else if (cmd == "jog") {
-          // Manual movement commands (single-axis: only Z-axis)
-          String axis = cmdDoc["axis"] | "";
-          float distance = cmdDoc["distance"] | 0;
+          // Check E-stop before jog
+          if (emergencyStopActive) {
+            Serial.println("[E-STOP] Jog command rejected - emergency stop is active!");
+          } else {
+            // Manual movement commands (single-axis: only Z-axis)
+            String axis = cmdDoc["axis"] | "";
+            float distance = cmdDoc["distance"] | 0;
           unsigned int speedDelay = 0;
           if (cmdDoc.containsKey("speed")) {
             float speedValue = cmdDoc["speed"] | 0;
@@ -550,6 +632,7 @@ void processCommands() {
           } else {
             Serial.println("[CMD] WARNING: X/Y axis not supported (single-axis machine)");
           }
+          }
         }
         else if (cmd == "setspeed" || cmd == "speed") {
           float speedValue = cmdDoc["speed"] | 0;
@@ -570,19 +653,24 @@ void processCommands() {
           }
         }
         else if (cmd == "home") {
-          // Optional speed parameter for homing
-          unsigned int speedDelay = 0;
-          if (cmdDoc.containsKey("speed")) {
-            float speedValue = cmdDoc["speed"] | 0;
-            if (speedValue > 0 && speedValue <= 100) {
-              // Formula: delay = MAX - ((speed - 1) / (100 - 1)) * (MAX - MIN)
-              speedDelay = Z_STEP_DELAY_MAX - static_cast<unsigned int>(((speedValue - 1.0f) / 99.0f) * (Z_STEP_DELAY_MAX - Z_STEP_DELAY_MIN));
-            } else if (speedValue > 100) {
-              speedDelay = static_cast<unsigned int>(speedValue);
+          // Check E-stop before homing
+          if (emergencyStopActive) {
+            Serial.println("[E-STOP] Home command rejected - emergency stop is active!");
+          } else {
+            // Optional speed parameter for homing
+            unsigned int speedDelay = 0;
+            if (cmdDoc.containsKey("speed")) {
+              float speedValue = cmdDoc["speed"] | 0;
+              if (speedValue > 0 && speedValue <= 100) {
+                // Formula: delay = MAX - ((speed - 1) / (100 - 1)) * (MAX - MIN)
+                speedDelay = Z_STEP_DELAY_MAX - static_cast<unsigned int>(((speedValue - 1.0f) / 99.0f) * (Z_STEP_DELAY_MAX - Z_STEP_DELAY_MIN));
+              } else if (speedValue > 100) {
+                speedDelay = static_cast<unsigned int>(speedValue);
+              }
             }
+            Serial.println("[CMD] Executing home command");
+            homeZAxis(speedDelay);
           }
-          Serial.println("[CMD] Executing home command");
-          homeZAxis(speedDelay);
         }
         else if (cmd == "save") {
           // Save movement sequence from home position to current position
@@ -692,6 +780,60 @@ void processCommands() {
   }
 }
 
+// Emergency Stop Functions
+
+void checkEmergencyStop() {
+  // Read emergency stop pin (INPUT_PULLUP: HIGH = normal, LOW = E-stop pressed/opened)
+  bool currentEStopState = digitalRead(EMERGENCY_STOP_PIN);
+  
+  // Debounce check (simple - can be enhanced if needed)
+  static unsigned long lastEStopCheck = 0;
+  const unsigned long E_STOP_DEBOUNCE_MS = 10;
+  
+  if (millis() - lastEStopCheck < E_STOP_DEBOUNCE_MS) {
+    return;  // Skip if too soon since last check
+  }
+  lastEStopCheck = millis();
+  
+  // E-stop is ACTIVE when pin reads LOW (switch opened/pressed)
+  bool newEStopState = (currentEStopState == LOW);
+  
+  // Detect state change
+  if (newEStopState != emergencyStopActive) {
+    emergencyStopActive = newEStopState;
+    
+    if (emergencyStopActive) {
+      // E-stop was just ACTIVATED
+      Serial.println("========================================");
+      Serial.println("[E-STOP] EMERGENCY STOP ACTIVATED!");
+      Serial.println("[E-STOP] All movements STOPPED");
+      Serial.println("[E-STOP] Heater DISABLED");
+      Serial.println("[E-STOP] Wire feed STOPPED");
+      Serial.println("[E-STOP] Machine is in SAFE STATE");
+      Serial.println("========================================");
+      
+      // Immediately stop all operations
+      isMoving = false;
+      isWireFeeding = false;
+      wireFeedStatus = "idle";
+      
+      // Disable heater immediately
+      if (HEATER_PIN != -1) {
+        digitalWrite(HEATER_PIN, LOW);
+      }
+      heaterEnabled = false;
+      
+    } else {
+      // E-stop was just RELEASED (but machine still needs reset command)
+      Serial.println("========================================");
+      Serial.println("[E-STOP] Emergency stop button RELEASED");
+      Serial.println("[E-STOP] Machine still in E-STOP state");
+      Serial.println("[E-STOP] Send 'reset' command to resume operation");
+      Serial.println("========================================");
+    }
+  }
+}
+
 // Z-axis motion helper functions
 
 bool isLimitSwitchTriggered(int pin) {
@@ -740,6 +882,13 @@ void applyZMovement(long steps, bool moveUp, unsigned int stepDelayUs = 0) {
   bool limitHit = false;
   
   while (stepsCompleted < steps) {
+    // CRITICAL: Check emergency stop EVERY STEP (highest priority)
+    if (emergencyStopActive) {
+      Serial.println("[E-STOP] Movement stopped by emergency stop!");
+      isMoving = false;
+      return;  // Exit immediately
+    }
+    
     // Check limit switches EVERY STEP for immediate detection
     // This ensures the app gets notified immediately when a limit switch is triggered
     if (!moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MIN_PIN)) {
@@ -779,6 +928,13 @@ void applyZMovement(long steps, bool moveUp, unsigned int stepDelayUs = 0) {
 }
 
 void moveZAxisByDistance(float distanceMm, unsigned int stepDelayUs) {
+  // CRITICAL: Check emergency stop before any movement
+  if (emergencyStopActive) {
+    Serial.println("[E-STOP] Movement command rejected - emergency stop is active!");
+    isMoving = false;
+    return;
+  }
+  
   if (fabsf(distanceMm) < 0.001f) {
     return;
   }
@@ -946,6 +1102,14 @@ void pulseWireFeedStep() {
 }
 
 void feedWireByLength(float lengthMm) {
+  // CRITICAL: Check emergency stop before wire feed
+  if (emergencyStopActive) {
+    Serial.println("[E-STOP] Wire feed stopped by emergency stop!");
+    isWireFeeding = false;
+    wireFeedStatus = "idle";
+    return;
+  }
+  
   if (lengthMm <= 0) {
     return;
   }
@@ -962,6 +1126,14 @@ void feedWireByLength(float lengthMm) {
 
   // Feed wire by pulsing the stepper motor
   for (long i = 0; i < stepsToMove; i++) {
+    // Check E-stop during wire feed (every step)
+    if (emergencyStopActive) {
+      Serial.println("[E-STOP] Wire feed stopped by emergency stop!");
+      isWireFeeding = false;
+      wireFeedStatus = "idle";
+      return;
+    }
+    
     pulseWireFeedStep();
     
     // Optional: Add small delay between steps for smoother operation

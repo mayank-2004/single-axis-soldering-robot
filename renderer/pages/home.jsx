@@ -16,6 +16,7 @@ import JigCalibration from '../components/JigCalibration'
 // import GCodeMonitor from '../components/GCodeMonitor'
 import CameraView from '../components/CameraView'
 import ThemeToggle from '../components/ThemeToggle'
+import EmergencyStopControl from '../components/EmergencyStopControl'
 import styles from './home.module.css'
 
 const initialCalibration = [
@@ -131,6 +132,9 @@ export default function HomePage() {
     const volume = Math.PI * radius * radius * height // volume in mm³
     return volume
   }, [wireDiameter])
+
+  // Emergency stop state
+  const [emergencyStopActive, setEmergencyStopActive] = useState(false)
 
   const [sequenceState, setSequenceState] = useState({
     stage: 'idle',
@@ -654,6 +658,20 @@ export default function HomePage() {
     window.ipc.on?.('airBreeze:update', handleAirBreezeState)
     window.ipc.on?.('airJetPressure:update', handleAirJetPressureState)
 
+    // Emergency stop handlers
+    const handleEmergencyStopUpdate = (payload) => {
+      if (payload?.active !== undefined) {
+        setEmergencyStopActive(Boolean(payload.active))
+      }
+    }
+
+    window.ipc.on?.('emergencyStop:update', handleEmergencyStopUpdate)
+    window.ipc.on?.('emergencyStop', handleEmergencyStopUpdate)
+
+    // Request E-stop status on mount
+    window.ipc.send?.('emergencyStop:status:request')
+    window.ipc.on?.('emergencyStop:status:response', handleEmergencyStopUpdate)
+
     // Listen for actual Arduino JSON data (only this counts as real Arduino data)
     window.ipc.on?.('arduino:data:received', handleArduinoDataReceived)
 
@@ -1111,6 +1129,14 @@ export default function HomePage() {
     setIsSerialConnecting(true)
     setSerialConnectionError(null)
     window.ipc.send('serial:disconnect')
+  }, [])
+
+  // Emergency stop reset handler
+  const handleEmergencyStopReset = useCallback(() => {
+    if (typeof window === 'undefined' || !window.ipc?.send) {
+      return
+    }
+    window.ipc.send('emergencyStop:reset')
   }, [])
 
   // Sequence control handlers
@@ -2175,6 +2201,7 @@ export default function HomePage() {
     { id: 'flux-mist', label: 'Flux Mist' },
     { id: 'air-control', label: 'Air Control' },
     { id: 'sequence-monitor', label: 'Sequence Monitor' },
+    { id: 'emergency-stop', label: 'Emergency Stop' },
   ]
 
   return (
@@ -2419,6 +2446,16 @@ export default function HomePage() {
                   z: Number.parseFloat(solderHeight || 0),
                 }
               ]}
+            />
+          </section>
+        )}
+
+        {activeComponent === 'emergency-stop' && (
+          <section className={styles.solderingControls} aria-label="Emergency stop control">
+            <EmergencyStopControl
+              isActive={emergencyStopActive}
+              onReset={handleEmergencyStopReset}
+              isConnected={isSerialConnected}
             />
           </section>
         )}

@@ -32,6 +32,7 @@ This is a **single-axis soldering robot** application built with Electron and Ne
 - **Temperature Control**: Soldering tip temperature management
 - **Wire Feed Control**: Automated solder wire dispensing
 - **Limit Switch Safety**: Hardware safety stops at travel limits
+- **Emergency Stop System**: Critical safety feature to immediately stop all operations
 - **Real-time Monitoring**: Live position, temperature, and status updates
 
 ### Machine Type
@@ -501,6 +502,121 @@ Frontend: Updates UI to show "000.00 mm"
 - **Upper Limit (Pin 3)**: Home position at 0.00mm
 - **Lower Limit (Pin 2)**: Safety stop at bed level (~280mm)
 
+### Emergency Stop System
+
+**Purpose**: Critical safety feature to immediately stop all machine operations in case of emergency.
+
+#### Prerequisites
+
+**Hardware Requirements**:
+- **Emergency Stop Button**: Normally-closed (NC) switch (momentary or latching)
+  - Recommended: Red mushroom button for high visibility
+  - Type: Mechanical switch rated for your application
+- **Wiring**:
+  - One terminal → Arduino Pin 33 (EMERGENCY_STOP_PIN)
+  - Other terminal → GND (Ground)
+  - Uses INPUT_PULLUP configuration (internal pull-up resistor)
+
+**Software Requirements**:
+- Arduino firmware with E-stop support (included)
+- Backend E-stop state handling (included)
+- Frontend UI component (included)
+
+#### How It Works
+
+1. **Normal Operation** (E-stop button NOT pressed):
+   - Pin 33 reads HIGH (internal pull-up)
+   - `emergencyStopActive = false`
+   - Machine operates normally
+
+2. **Emergency Stop Activated** (E-stop button pressed/opened):
+   - Pin 33 reads LOW (switch opens, connects to GND)
+   - `emergencyStopActive = true`
+   - **Immediate Actions**:
+     - All Z-axis movements STOP immediately
+     - Wire feed operations STOP immediately
+     - Heater is DISABLED immediately
+     - All soldering sequences STOP immediately
+     - New movement commands are REJECTED
+     - Status updates continue (for monitoring)
+
+3. **Reset Procedure**:
+   - Release the E-stop button (pin returns to HIGH)
+   - Click "Reset E-Stop" button in the app
+   - Arduino verifies button is released
+   - Machine operation RESUMES
+
+#### Safety Features
+
+- **Highest Priority**: E-stop is checked FIRST in every loop iteration
+- **Movement Protection**: All movement functions check E-stop before and during execution
+- **Immediate Response**: E-stop state is checked every step during movements
+- **Automatic Sequence Stop**: Running sequences are automatically stopped when E-stop activates
+- **Heater Safety**: Heater is immediately disabled when E-stop activates
+- **Visual Feedback**: Frontend UI shows clear E-stop status with warnings
+
+#### Arduino Pin Configuration
+
+```cpp
+const int EMERGENCY_STOP_PIN = 33;  // Digital pin for E-stop button
+```
+
+**Wiring Diagram**:
+```
+E-Stop Button (NC)
+    |
+    ├── Terminal 1 ──→ Arduino Pin 33
+    |
+    └── Terminal 2 ──→ GND
+```
+
+#### Status in JSON Output
+
+The Arduino includes E-stop status in every status update:
+
+```json
+{
+  "pos": {"z": -5.0, "moving": false},
+  "emergencyStop": false,  // true = E-stop active, false = normal
+  ...
+}
+```
+
+#### Commands
+
+**Reset Emergency Stop**:
+```json
+{"command": "reset"}
+```
+or
+```json
+{"command": "estop:reset"}
+```
+
+**Note**: Reset only works if the E-stop button is physically released (pin reads HIGH).
+
+#### Frontend UI
+
+The Emergency Stop Control component provides:
+- **Status Indicator**: Visual display of E-stop state (ACTIVE/READY)
+- **Warning Messages**: Clear alerts when E-stop is active
+- **Reset Button**: Allows resetting E-stop after button is released
+- **Real-time Updates**: Status updates automatically from Arduino
+
+#### Troubleshooting
+
+**Problem**: E-stop always shows as active
+- **Solution**: Check wiring - ensure switch is properly connected and not stuck open
+
+**Problem**: Reset button doesn't work
+- **Solution**: Verify E-stop button is physically released. Reset only works when button is released.
+
+**Problem**: Machine doesn't stop when E-stop is pressed
+- **Solution**: Check wiring connection to Pin 33, verify switch is working, check Serial Monitor for E-stop messages
+
+**Problem**: E-stop status not updating in UI
+- **Solution**: Verify serial connection, check that Arduino is sending `emergencyStop` field in JSON
+
 ---
 
 ## Communication Protocol
@@ -518,6 +634,7 @@ Frontend: Updates UI to show "000.00 mm"
 {"command":"temp","target":345}
 {"command":"feed","length":10.5,"rate":8.0}
 {"command":"fan","machine":true,"tip":false}
+{"command":"reset"}
 ```
 
 ### Status Format (Arduino → App)
@@ -540,6 +657,7 @@ Frontend: Updates UI to show "000.00 mm"
   "airJet": {"enabled":false,"active":false,"pressure":80},
   "seq": {"stage":"idle","active":false,"pad":0,"total":0,"progress":0,"error":null},
   "height": 5.0,
+  "emergencyStop": false,
   "config": {
     "leadScrewPitch": 1.0,
     "motorStepsPerRev": 200,
@@ -1011,6 +1129,7 @@ speedMmPerSecond = (1,000,000 / stepDelay) / stepsPerMm
 - **Tip Heating**: Temperature control
 - **Wire Feed**: Solder wire dispensing
 - **Sequence Monitor**: Soldering sequence control
+- **Emergency Stop**: Critical safety system for immediate machine shutdown
 - **LCD Display**: Virtual machine status display
 - **Component Height**: Set maximum component height
 - **Pad Soldering Metrics**: Temperature recommendations
@@ -1223,6 +1342,8 @@ this.state.zAxisSpeed = 95  // Default speed (1-100%)
 **Hardware Events** (Emitted by `SolderingHardware.js`):
 - `position:update` - Position changed
 - `limitSwitch:update` - Limit switch state changed
+- `emergencyStop:update` - Emergency stop state changed
+- `emergencyStop` - Emergency stop activated
 - `calibration` - Calibration updated
 - `tip` - Temperature changed
 - `wireFeed` - Wire feed status changed
@@ -1235,6 +1356,8 @@ this.state.zAxisSpeed = 95  // Default speed (1-100%)
 - `jig:height:set` - Set jig height
 - `tip:target:set` - Set temperature target
 - `sequence:start` - Start soldering sequence
+- `emergencyStop:status:request` - Request E-stop status
+- `emergencyStop:reset` - Reset emergency stop
 - And more...
 
 ### State Management
@@ -1254,6 +1377,7 @@ this.state.zAxisSpeed = 95  // Default speed (1-100%)
 - **Serial Errors**: Logged, connection status updated
 - **JSON Parse Errors**: Logged, data skipped
 - **Limit Switch Errors**: Warnings displayed, movement stopped
+- **Emergency Stop**: All operations stopped immediately, visual alerts displayed
 - **Command Errors**: Error responses sent back to frontend
 
 ---

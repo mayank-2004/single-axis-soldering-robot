@@ -51,7 +51,8 @@ export default class ArduinoDataHandler extends EventEmitter {
       (data.airJet && typeof data.airJet === 'object') ||
       (data.seq && typeof data.seq === 'object') ||
       (data.limits && typeof data.limits === 'object') ||
-      (typeof data.height === 'number')
+      (typeof data.height === 'number') ||
+      (typeof data.emergencyStop === 'boolean')
 
     // If no valid Arduino fields found, this is probably noise/invalid data
     if (!hasValidData) {
@@ -180,6 +181,11 @@ export default class ArduinoDataHandler extends EventEmitter {
     // Component height
     if (data.height !== undefined && data.height !== null) {
       updates.componentHeight = parseFloat(data.height) || 0
+    }
+
+    // Emergency stop status (CRITICAL SAFETY FEATURE)
+    if (data.emergencyStop !== undefined) {
+      updates.emergencyStop = Boolean(data.emergencyStop)
     }
 
     // Add timestamp

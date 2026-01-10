@@ -41,6 +41,9 @@ export default class SolderingHardware extends EventEmitter {
     this.wireFeedController = new WireFeedController(this.serialManager)
     this.auxiliaryController = new AuxiliaryController(this.serialManager)
     this.sequenceController = new SequenceController(this.movementController, this.wireFeedController, this.auxiliaryController)
+    
+    // Emergency stop state
+    this.emergencyStopActive = false
   }
 
   _setupEventForwarding() {
@@ -455,6 +458,41 @@ export default class SolderingHardware extends EventEmitter {
         }
         this.emit('limitSwitch:update', payload)
       }
+
+      // Handle emergency stop (CRITICAL SAFETY FEATURE)
+      if (updates.emergencyStop !== undefined) {
+        const wasActive = this.emergencyStopActive
+        this.emergencyStopActive = Boolean(updates.emergencyStop)
+        
+        // If E-stop was just activated, stop all operations
+        if (this.emergencyStopActive && !wasActive) {
+          console.warn('[SolderingHardware] EMERGENCY STOP ACTIVATED!')
+          
+          // Stop sequence immediately
+          if (this.sequenceController.state.sequence.isActive) {
+            this.sequenceController.stopSequence()
+            console.log('[SolderingHardware] Sequence stopped due to emergency stop')
+          }
+          
+          // Disable heater
+          this.temperatureController.setHeaterEnabled(false)
+          
+          // Emit E-stop event
+          this.emit('emergencyStop', {
+            active: true,
+            timestamp: Date.now()
+          })
+        } else if (!this.emergencyStopActive && wasActive) {
+          // E-stop was released (but still needs reset command)
+          console.log('[SolderingHardware] Emergency stop button released (reset required)')
+        }
+        
+        // Always emit current state
+        this.emit('emergencyStop:update', {
+          active: this.emergencyStopActive,
+          timestamp: Date.now()
+        })
+      }
     } catch (error) {
       console.error('[SolderingHardware] Error handling Arduino data:', error)
     }
@@ -482,5 +520,34 @@ export default class SolderingHardware extends EventEmitter {
       return this.serialManager.getStatus()
     }
     return { isConnected: false, mode: 'simulation' }
+  }
+
+  // Emergency stop methods
+  getEmergencyStopState() {
+    return {
+      active: this.emergencyStopActive,
+      timestamp: Date.now()
+    }
+  }
+
+  async resetEmergencyStop() {
+    if (!this.connected || !this.serialManager) {
+      return { error: 'Not connected to hardware' }
+    }
+
+    if (!this.emergencyStopActive) {
+      return { status: 'Emergency stop is not active' }
+    }
+
+    try {
+      await this.serialManager.sendJsonCommand({
+        command: 'reset'
+      })
+      
+      // Note: State will be updated when Arduino sends next status update
+      return { status: 'Reset command sent to Arduino' }
+    } catch (error) {
+      return { error: error.message }
+    }
   }
 }

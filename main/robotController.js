@@ -613,6 +613,30 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
     sendPositionUpdate(event.sender)
   })
 
+  // Emergency stop handlers
+  registerIpcListener('emergencyStop:status:request', (event) => {
+    const state = hardware.getEmergencyStopState()
+    event.sender.send('emergencyStop:status:response', state)
+  })
+
+  registerIpcListener('emergencyStop:reset', async (event) => {
+    const result = await hardware.resetEmergencyStop()
+    event.sender.send('emergencyStop:reset:response', result)
+    
+    // Send updated state
+    const state = hardware.getEmergencyStopState()
+    event.sender.send('emergencyStop:status:response', state)
+  })
+
+  // Forward emergency stop events to renderer
+  registerHardwareListener('emergencyStop:update', (data) => {
+    sendToRenderer('emergencyStop:update', data)
+  })
+
+  registerHardwareListener('emergencyStop', (data) => {
+    sendToRenderer('emergencyStop', data)
+  })
+
   registerIpcListener('axis:jog', async (event, payload = {}) => {
     console.log('[robotController] Received axis:jog command:', payload)
     try {
