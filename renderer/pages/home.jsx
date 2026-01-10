@@ -17,6 +17,7 @@ import JigCalibration from '../components/JigCalibration'
 import CameraView from '../components/CameraView'
 import ThemeToggle from '../components/ThemeToggle'
 import EmergencyStopControl from '../components/EmergencyStopControl'
+import PIDTuningControl from '../components/PIDTuningControl'
 import styles from './home.module.css'
 
 const initialCalibration = [
@@ -88,6 +89,15 @@ export default function HomePage() {
   const [isHeaterEnabled, setIsHeaterEnabled] = useState(false)
   const [heaterStatus, setHeaterStatus] = useState('')
   const [currentTipTemperature, setCurrentTipTemperature] = useState(null)
+  
+  // PID control state
+  const [pidEnabled, setPidEnabled] = useState(true)
+  const [pidKp, setPidKp] = useState(5.0)
+  const [pidKi, setPidKi] = useState(0.1)
+  const [pidKd, setPidKd] = useState(1.0)
+  const [pidPower, setPidPower] = useState(0)
+  const [pidOutput, setPidOutput] = useState(0)
+  
   const [wireDiameter, setWireDiameter] = useState('')
   const [wireFeedStatus, setWireFeedStatus] = useState('idle')
   const [wireFeedMessage, setWireFeedMessage] = useState('')
@@ -493,6 +503,26 @@ export default function HomePage() {
       // Update current temperature from tip state (synced with LcdDisplay)
       if (payload.current !== undefined) {
         setCurrentTipTemperature(payload.current)
+      }
+
+      // PID control data
+      if (payload.pidEnabled !== undefined) {
+        setPidEnabled(Boolean(payload.pidEnabled))
+      }
+      if (payload.pidKp !== undefined) {
+        setPidKp(payload.pidKp)
+      }
+      if (payload.pidKi !== undefined) {
+        setPidKi(payload.pidKi)
+      }
+      if (payload.pidKd !== undefined) {
+        setPidKd(payload.pidKd)
+      }
+      if (payload.pidPower !== undefined) {
+        setPidPower(payload.pidPower)
+      }
+      if (payload.pidOutput !== undefined) {
+        setPidOutput(payload.pidOutput)
       }
     }
 
@@ -1137,6 +1167,53 @@ export default function HomePage() {
       return
     }
     window.ipc.send('emergencyStop:reset')
+  }, [])
+
+  // PID control handlers
+  const handlePIDParametersSet = useCallback((kp, ki, kd) => {
+    if (typeof window === 'undefined' || !window.ipc?.send) {
+      return Promise.reject(new Error('IPC not available'))
+    }
+    return new Promise((resolve, reject) => {
+      window.ipc.send('pid:parameters:set', { kp, ki, kd })
+      window.ipc.once('pid:parameters:ack', (payload) => {
+        if (payload?.error) {
+          reject(new Error(payload.error))
+        } else {
+          resolve(payload)
+        }
+      })
+      window.ipc.once('pid:parameters:error', (payload) => {
+        reject(new Error(payload?.error || 'Failed to set PID parameters'))
+      })
+      // Timeout after 5 seconds
+      setTimeout(() => {
+        reject(new Error('Timeout waiting for PID parameters response'))
+      }, 5000)
+    })
+  }, [])
+
+  const handlePIDEnabledSet = useCallback((enabled) => {
+    if (typeof window === 'undefined' || !window.ipc?.send) {
+      return Promise.reject(new Error('IPC not available'))
+    }
+    return new Promise((resolve, reject) => {
+      window.ipc.send('pid:enabled:set', { enabled })
+      window.ipc.once('pid:enabled:ack', (payload) => {
+        if (payload?.error) {
+          reject(new Error(payload.error))
+        } else {
+          resolve(payload)
+        }
+      })
+      window.ipc.once('pid:enabled:error', (payload) => {
+        reject(new Error(payload?.error || 'Failed to set PID enabled'))
+      })
+      // Timeout after 5 seconds
+      setTimeout(() => {
+        reject(new Error('Timeout waiting for PID enabled response'))
+      }, 5000)
+    })
   }, [])
 
   // Sequence control handlers
@@ -2460,6 +2537,21 @@ export default function HomePage() {
           </section>
         )}
 
+        {activeComponent === 'pid-tuning' && (
+          <section className={styles.solderingControls} aria-label="PID temperature control">
+            <PIDTuningControl
+              pidEnabled={pidEnabled}
+              pidKp={pidKp}
+              pidKi={pidKi}
+              pidKd={pidKd}
+              pidPower={pidPower}
+              pidOutput={pidOutput}
+              isConnected={isSerialConnected}
+              onPIDParametersSet={handlePIDParametersSet}
+              onPIDEnabledSet={handlePIDEnabledSet}
+            />
+          </section>
+        )}
 
         {/* Empty spool alert - highest priority */}
         {isWireEmpty ? (

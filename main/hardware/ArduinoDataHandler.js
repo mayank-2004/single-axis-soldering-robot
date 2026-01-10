@@ -93,6 +93,18 @@ export default class ArduinoDataHandler extends EventEmitter {
         current: parseFloat(data.temp.current) || 0,
         heaterEnabled: Boolean(data.temp.heater),
       }
+      
+      // PID control data (if PID is enabled)
+      if (data.temp.pid !== undefined) {
+        updates.temperature.pidEnabled = Boolean(data.temp.pid)
+        if (data.temp.pid) {
+          updates.temperature.pidOutput = parseFloat(data.temp.pidOutput) || 0
+          updates.temperature.pidPower = parseFloat(data.temp.pidPower) || 0  // Power percentage (0-100%)
+          updates.temperature.pidKp = parseFloat(data.temp.pidKp) || 0
+          updates.temperature.pidKi = parseFloat(data.temp.pidKi) || 0
+          updates.temperature.pidKd = parseFloat(data.temp.pidKd) || 0
+        }
+      }
     }
 
     // Wire feed data

@@ -258,6 +258,14 @@ export default class SolderingHardware extends EventEmitter {
     return this.temperatureController.getTipStatus()
   }
 
+  async setPIDParameters(kp, ki, kd) {
+    return this.temperatureController.setPIDParameters(kp, ki, kd)
+  }
+
+  async setPIDEnabled(enabled) {
+    return this.temperatureController.setPIDEnabled(enabled)
+  }
+
   // Wire feed methods
   async startWireFeed(length, rate, skipWireRemainingUpdate = false) {
     return this.wireFeedController.startWireFeed(length, rate, skipWireRemainingUpdate)

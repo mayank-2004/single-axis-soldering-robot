@@ -13,6 +13,26 @@ float targetTemperature = 290.0;
 float currentTemperature = 25.0;  // Default value for simulation
 bool heaterEnabled = false;
 
+// PID Temperature Control Configuration
+bool usePIDControl = true;  // Set to false to use simple ON/OFF control
+float pidKp = 5.0;          // Proportional gain (tune this)
+float pidKi = 0.1;          // Integral gain (tune this)
+float pidKd = 1.0;          // Derivative gain (tune this)
+
+// PID internal variables
+float pidError = 0.0;
+float pidLastError = 0.0;
+float pidIntegral = 0.0;
+float pidDerivative = 0.0;
+float pidOutput = 0.0;      // PID output (0-255 for PWM)
+unsigned long pidLastTime = 0;
+const unsigned long PID_COMPUTE_INTERVAL_MS = 100;  // Compute PID every 100ms
+
+// PID limits
+const float PID_INTEGRAL_LIMIT = 255.0;  // Prevent integral windup
+const float PID_OUTPUT_MIN = 0.0;
+const float PID_OUTPUT_MAX = 255.0;      // Full PWM power (8-bit)
+
 String wireFeedStatus = "idle";
 float wireFeedRate = 8.0;
 bool wireBreakDetected = false;  // Default value for simulation
@@ -151,6 +171,8 @@ void handleButtonControls();
 void saveMovementSequence();
 void executeSavedMovement();
 void manageHeater();
+void computePID();
+void applyPIDOutput();
 float readThermistor(int pin);
 
 
@@ -177,7 +199,12 @@ void setup() {
   Serial.println(")");
   
   // Initialize Hardware Pins
-  if (HEATER_PIN != -1) pinMode(HEATER_PIN, OUTPUT);
+  if (HEATER_PIN != -1) {
+    pinMode(HEATER_PIN, OUTPUT);
+    // For PWM control, ensure pin supports PWM (Arduino Mega: pins 2-13, 44-46)
+    // If HEATER_PIN doesn't support PWM, PID will use software PWM or ON/OFF fallback
+    analogWrite(HEATER_PIN, 0);  // Initialize to OFF
+  }
   if (TEMP_SENSOR_PIN != -1) pinMode(TEMP_SENSOR_PIN, INPUT);
   if (FUME_EXTRACTOR_PIN != -1) pinMode(FUME_EXTRACTOR_PIN, OUTPUT);
   if (FLUX_MIST_PIN != -1) pinMode(FLUX_MIST_PIN, OUTPUT);
@@ -227,6 +254,32 @@ void setup() {
     Serial.println("[E-STOP] Emergency stop system initialized - READY");
   }
   
+  // Initialize PID controller
+  pidLastTime = millis();
+  pidLastError = 0.0;
+  pidIntegral = 0.0;
+  pidOutput = 0.0;
+  
+  Serial.println("[SETUP] PID Temperature Control Configuration:");
+  Serial.print("[SETUP]   PID Control: ");
+  Serial.println(usePIDControl ? "ENABLED" : "DISABLED (using ON/OFF)");
+  if (usePIDControl) {
+    Serial.print("[SETUP]   Kp (Proportional): ");
+    Serial.println(pidKp, 3);
+    Serial.print("[SETUP]   Ki (Integral): ");
+    Serial.println(pidKi, 3);
+    Serial.print("[SETUP]   Kd (Derivative): ");
+    Serial.println(pidKd, 3);
+    Serial.print("[SETUP]   PID Compute Interval: ");
+    Serial.print(PID_COMPUTE_INTERVAL_MS);
+    Serial.println(" ms");
+    Serial.print("[SETUP]   PWM Range: 0-255 (");
+    Serial.print((PID_OUTPUT_MIN / 255.0) * 100.0, 1);
+    Serial.print("% - ");
+    Serial.print((PID_OUTPUT_MAX / 255.0) * 100.0, 1);
+    Serial.println("%)");
+  }
+  
   delay(1000); // Give time for serial connection to stabilize
 }
 
@@ -259,8 +312,13 @@ void loop() {
   // Handle button controls (up, down, save, paddle)
   handleButtonControls();
 
-  // Manage heater temperature
-  manageHeater();
+  // Manage heater temperature (PID or ON/OFF control)
+  if (usePIDControl) {
+    computePID();
+    applyPIDOutput();
+  } else {
+    manageHeater();  // Simple ON/OFF control
+  }
   
   // Read sensors and update values
   readSensors();
@@ -376,6 +434,16 @@ void sendMachineState() {
   temp["target"] = targetTemperature;
   temp["current"] = currentTemperature;
   temp["heater"] = heaterEnabled;
+  if (usePIDControl) {
+    temp["pid"] = true;
+    temp["pidOutput"] = pidOutput;  // PWM output (0-255)
+    temp["pidPower"] = (pidOutput / 255.0) * 100.0;  // Power percentage (0-100%)
+    temp["pidKp"] = pidKp;
+    temp["pidKi"] = pidKi;
+    temp["pidKd"] = pidKd;
+  } else {
+    temp["pid"] = false;
+  }
   
   // Wire feed data
   JsonObject wire = doc.createNestedObject("wire");
@@ -481,6 +549,44 @@ void processCommands() {
           targetTemperature = cmdDoc["target"] | targetTemperature;
           Serial.print("[CMD] Set target temperature: ");
           Serial.println(targetTemperature);
+          // Reset PID integral when target changes to prevent windup
+          if (usePIDControl) {
+            pidIntegral = 0.0;
+            pidLastError = 0.0;
+          }
+        }
+        else if (cmd == "pid" || cmd == "pid:tune") {
+          // PID tuning command: {"command":"pid","kp":5.0,"ki":0.1,"kd":1.0}
+          if (cmdDoc.containsKey("kp")) {
+            pidKp = cmdDoc["kp"] | pidKp;
+            Serial.print("[CMD] PID Kp set to: ");
+            Serial.println(pidKp, 3);
+          }
+          if (cmdDoc.containsKey("ki")) {
+            pidKi = cmdDoc["ki"] | pidKi;
+            Serial.print("[CMD] PID Ki set to: ");
+            Serial.println(pidKi, 3);
+          }
+          if (cmdDoc.containsKey("kd")) {
+            pidKd = cmdDoc["kd"] | pidKd;
+            Serial.print("[CMD] PID Kd set to: ");
+            Serial.println(pidKd, 3);
+          }
+          if (cmdDoc.containsKey("enable")) {
+            usePIDControl = cmdDoc["enable"] | usePIDControl;
+            Serial.print("[CMD] PID Control ");
+            Serial.println(usePIDControl ? "ENABLED" : "DISABLED");
+            // Reset PID when toggling
+            pidIntegral = 0.0;
+            pidLastError = 0.0;
+            pidOutput = 0.0;
+          }
+          Serial.print("[CMD] Current PID values - Kp: ");
+          Serial.print(pidKp, 3);
+          Serial.print(", Ki: ");
+          Serial.print(pidKi, 3);
+          Serial.print(", Kd: ");
+          Serial.println(pidKd, 3);
         }
         else if (cmd == "heater") {
           // Check E-stop before enabling heater
@@ -1377,14 +1483,85 @@ void executeSavedMovement() {
   isExecutingSavedMovement = false;
   isMoving = false;
 }
+// PID Temperature Control Functions
+
+void computePID() {
+  if (!heaterEnabled || HEATER_PIN == -1) {
+    pidOutput = 0.0;
+    pidIntegral = 0.0;
+    pidLastError = 0.0;
+    return;
+  }
+
+  // Check if enough time has passed since last computation
+  unsigned long now = millis();
+  unsigned long timeDelta = now - pidLastTime;
+  
+  if (timeDelta < PID_COMPUTE_INTERVAL_MS) {
+    return;  // Too soon, skip this computation
+  }
+  
+  float deltaTime = timeDelta / 1000.0;  // Convert to seconds
+  pidLastTime = now;
+
+  // Calculate error (difference between target and current temperature)
+  pidError = targetTemperature - currentTemperature;
+
+  // Proportional term
+  float pTerm = pidKp * pidError;
+
+  // Integral term (with anti-windup protection)
+  pidIntegral += pidError * deltaTime;
+  
+  // Limit integral to prevent windup
+  if (pidIntegral > PID_INTEGRAL_LIMIT) pidIntegral = PID_INTEGRAL_LIMIT;
+  if (pidIntegral < -PID_INTEGRAL_LIMIT) pidIntegral = -PID_INTEGRAL_LIMIT;
+  
+  float iTerm = pidKi * pidIntegral;
+
+  // Derivative term (rate of change)
+  pidDerivative = (pidError - pidLastError) / deltaTime;
+  float dTerm = pidKd * pidDerivative;
+
+  // Calculate PID output
+  pidOutput = pTerm + iTerm + dTerm;
+
+  // Limit output to valid PWM range (0-255)
+  if (pidOutput > PID_OUTPUT_MAX) pidOutput = PID_OUTPUT_MAX;
+  if (pidOutput < PID_OUTPUT_MIN) pidOutput = PID_OUTPUT_MIN;
+  
+  // If output is negative (temperature above target), set to 0
+  if (pidOutput < 0) pidOutput = 0;
+
+  // Store error for next derivative calculation
+  pidLastError = pidError;
+}
+
+void applyPIDOutput() {
+  if (HEATER_PIN == -1) return;
+
+  if (!heaterEnabled || emergencyStopActive) {
+    // Heater disabled or E-stop active - turn off
+    analogWrite(HEATER_PIN, 0);
+    pidOutput = 0.0;
+    return;
+  }
+
+  // Apply PID output as PWM (0-255)
+  // Note: If HEATER_PIN doesn't support hardware PWM, this will use software PWM
+  // For Arduino Mega: PWM pins are 2-13, 44-46
+  int pwmValue = (int)pidOutput;
+  analogWrite(HEATER_PIN, pwmValue);
+}
+
 void manageHeater() {
   if (HEATER_PIN == -1) return;
 
-  // Simple hysteresis (Bang-Bang) control
+  // Simple hysteresis (Bang-Bang) control (fallback when PID is disabled)
   // Adjust HYSTERESIS value as needed (e.g., 2.0 degrees)
   const float HYSTERESIS = 2.0;
 
-  if (heaterEnabled) {
+  if (heaterEnabled && !emergencyStopActive) {
     if (currentTemperature < (targetTemperature - HYSTERESIS)) {
       digitalWrite(HEATER_PIN, HIGH); // Turn ON
     } else if (currentTemperature > targetTemperature) {
@@ -1392,7 +1569,7 @@ void manageHeater() {
     }
     // If between (Target - Hysteresis) and Target, keep current state (maintain heat)
   } else {
-    digitalWrite(HEATER_PIN, LOW); // Always OFF if disabled
+    digitalWrite(HEATER_PIN, LOW); // Always OFF if disabled or E-stop active
   }
 }
 

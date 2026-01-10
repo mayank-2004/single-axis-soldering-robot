@@ -532,6 +532,32 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
     sendTipStatus(event.sender)
   })
 
+  registerIpcListener('pid:parameters:set', (event, payload = {}) => {
+    if (hardware.state.emergencyStopActive) {
+      event.sender.send('pid:parameters:ack', { error: 'Emergency stop is active. Cannot tune PID.' })
+      return
+    }
+    hardware.setPIDParameters(payload.kp, payload.ki, payload.kd).then((result) => {
+      if (result.error) {
+        event.sender.send('pid:parameters:error', result)
+      } else {
+        sendTipStatus(event.sender)
+        event.sender.send('pid:parameters:ack', result)
+      }
+    })
+  })
+
+  registerIpcListener('pid:enabled:set', (event, payload = {}) => {
+    hardware.setPIDEnabled(payload.enabled).then((result) => {
+      if (result.error) {
+        event.sender.send('pid:enabled:error', result)
+      } else {
+        sendTipStatus(event.sender)
+        event.sender.send('pid:enabled:ack', result)
+      }
+    })
+  })
+
   registerIpcListener('wire:feed:status:request', (event) => {
     sendWireFeedStatus(event.sender)
   })

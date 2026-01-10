@@ -1,0 +1,252 @@
+.controlCard {
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  margin-bottom: 1rem;
+}
+
+.controlHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.controlTitle {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin: 0;
+}
+
+.toggleContainer {
+  display: flex;
+  align-items: center;
+}
+
+.toggleLabel {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  gap: 0.75rem;
+}
+
+.toggleInput {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggleSlider {
+  position: relative;
+  width: 48px;
+  height: 24px;
+  background-color: #ccc;
+  border-radius: 24px;
+  transition: background-color 0.3s;
+}
+
+.toggleSlider::before {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 3px;
+  top: 3px;
+  background-color: white;
+  border-radius: 50%;
+  transition: transform 0.3s;
+}
+
+.toggleInput:checked + .toggleSlider {
+  background-color: #4caf50;
+}
+
+.toggleInput:checked + .toggleSlider::before {
+  transform: translateX(24px);
+}
+
+.toggleInput:disabled + .toggleSlider {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.toggleText {
+  font-size: 0.9rem;
+  color: #666;
+  user-select: none;
+}
+
+.pidParameters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.parameterGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.parameterLabel {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #333;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.parameterHint {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: #666;
+  font-style: italic;
+}
+
+.parameterInput {
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 1rem;
+  transition: border-color 0.2s;
+}
+
+.parameterInput:focus {
+  outline: none;
+  border-color: #4caf50;
+}
+
+.parameterInput:disabled {
+  background-color: #f5f5f5;
+  cursor: not-allowed;
+}
+
+.actions {
+  margin-bottom: 1.5rem;
+}
+
+.applyButton {
+  padding: 0.75rem 1.5rem;
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.applyButton:hover:not(:disabled) {
+  background-color: #45a049;
+}
+
+.applyButton:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+.pidStatus {
+  background-color: #f9f9f9;
+  border-radius: 4px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.statusRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.statusRow:last-child {
+  margin-bottom: 0;
+}
+
+.statusLabel {
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.statusValue {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.powerBar {
+  width: 100%;
+  height: 8px;
+  background-color: #e0e0e0;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 0.75rem;
+}
+
+.powerBarFill {
+  height: 100%;
+  background: linear-gradient(90deg, #4caf50, #8bc34a);
+  transition: width 0.3s;
+}
+
+.statusMessage {
+  padding: 0.75rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.statusMessage:not(:empty) {
+  background-color: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffeaa7;
+}
+
+.infoBox {
+  background-color: #e3f2fd;
+  border: 1px solid #90caf9;
+  border-radius: 4px;
+  padding: 1rem;
+  margin-top: 1rem;
+}
+
+.infoTitle {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1976d2;
+  margin: 0 0 0.5rem 0;
+}
+
+.infoList {
+  margin: 0;
+  padding-left: 1.5rem;
+  font-size: 0.85rem;
+  color: #1565c0;
+}
+
+.infoList li {
+  margin-bottom: 0.25rem;
+}
+
+.disabledMessage {
+  padding: 1rem;
+  background-color: #f5f5f5;
+  border-radius: 4px;
+  text-align: center;
+  color: #666;
+}
+
+.disabledHint {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: #999;
+}
+

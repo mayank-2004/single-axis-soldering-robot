@@ -16,6 +16,7 @@
 12. [Installation & Setup](#installation--setup)
 13. [Usage Guide](#usage-guide)
 14. [Troubleshooting](#troubleshooting)
+15. [PID Temperature Control System](#pid-temperature-control-system)
 
 ---
 
@@ -29,7 +30,7 @@ This is a **single-axis soldering robot** application built with Electron and Ne
 - **Manual Movement**: Jog controls for precise positioning
 - **Soldering Sequences**: Automated multi-stage soldering process
 - **Jig Calibration**: Reference height system for safe positioning
-- **Temperature Control**: Soldering tip temperature management
+- **Temperature Control**: Soldering tip temperature management with PID control
 - **Wire Feed Control**: Automated solder wire dispensing
 - **Limit Switch Safety**: Hardware safety stops at travel limits
 - **Emergency Stop System**: Critical safety feature to immediately stop all operations
@@ -619,6 +620,155 @@ The Emergency Stop Control component provides:
 
 ---
 
+### PID Temperature Control System
+
+The PID (Proportional-Integral-Derivative) temperature control system provides smooth, stable temperature control for the soldering tip, replacing the simple ON/OFF control with hysteresis.
+
+#### Overview
+
+**PID Control** uses a feedback loop to maintain precise temperature by continuously adjusting heater power based on:
+- **Proportional (P)**: Response to current temperature error
+- **Integral (I)**: Eliminates steady-state error over time
+- **Derivative (D)**: Reduces overshoot and oscillations
+
+#### Benefits
+
+- **Temperature Stability**: ±0.5-1°C (vs ±3-5°C with ON/OFF)
+- **Faster Response**: Quicker heating with minimal overshoot
+- **Better Heat Recovery**: Automatic compensation when tip cools during soldering
+- **Energy Efficiency**: Variable power (only what's needed) vs constant full power cycles
+- **Improved Quality**: Consistent temperature = better solder flow and fewer cold joints
+
+#### Hardware Requirements
+
+- **Heater Pin**: Must support PWM (Arduino Mega: pins 2-13, 44-46)
+- **Temperature Sensor**: NTC 100k thermistor (Beta 3950) with 4.7k pull-up resistor
+- **PWM Frequency**: Standard Arduino PWM (~490Hz or ~980Hz depending on pin)
+
+#### Configuration
+
+**Arduino Firmware** (`ARDUINO_SKETCH_EXAMPLE.ino`):
+
+```cpp
+// PID Control Configuration
+bool usePIDControl = true;  // Enable/disable PID
+float pidKp = 5.0;          // Proportional gain
+float pidKi = 0.1;          // Integral gain
+float pidKd = 1.0;          // Derivative gain
+
+// PID Compute Interval
+const unsigned long PID_COMPUTE_INTERVAL_MS = 100;  // Compute every 100ms
+
+// PID Output Range
+const float PID_OUTPUT_MIN = 0.0;
+const float PID_OUTPUT_MAX = 255.0;  // Full PWM power (8-bit)
+```
+
+#### PID Tuning
+
+**Default Values** (starting point):
+- **Kp = 5.0**: Proportional gain
+- **Ki = 0.1**: Integral gain
+- **Kd = 1.0**: Derivative gain
+
+**Tuning Guidelines**:
+
+1. **Start with defaults**: Use Kp=5.0, Ki=0.1, Kd=1.0
+2. **Increase Kp** for faster response (but may cause overshoot)
+3. **Increase Ki** to eliminate steady-state error (temperature settling below target)
+4. **Increase Kd** to reduce oscillations and overshoot
+5. **Monitor temperature stability** and adjust gradually
+
+**Typical Ranges**:
+- **Kp**: 2.0 - 10.0 (most systems work well with 3.0 - 7.0)
+- **Ki**: 0.01 - 0.5 (start low, increase if needed)
+- **Kd**: 0.1 - 2.0 (helps with overshoot)
+
+#### Usage
+
+**Frontend UI** (`PIDTuningControl` component):
+
+1. Navigate to **"PID Tuning"** in the component navigation
+2. **Toggle PID Control**: Enable/disable PID (falls back to ON/OFF when disabled)
+3. **Adjust Parameters**: Enter Kp, Ki, Kd values
+4. **Apply**: Click "Apply PID Parameters" to send to Arduino
+5. **Monitor**: Watch heater power percentage and PWM output
+
+**Real-time Monitoring**:
+- **Heater Power**: Percentage (0-100%) showing current power output
+- **PWM Output**: Raw PWM value (0-255) sent to heater pin
+- **Temperature Stability**: Monitor current temperature vs target
+
+#### Commands
+
+**Set PID Parameters**:
+```json
+{"command":"pid","kp":5.0,"ki":0.1,"kd":1.0}
+```
+
+**Enable/Disable PID**:
+```json
+{"command":"pid","enable":true}
+```
+
+**Status Response** (included in temperature JSON):
+```json
+{
+  "temp": {
+    "target": 290,
+    "current": 285.5,
+    "heater": true,
+    "pid": true,
+    "pidOutput": 180,
+    "pidPower": 70.6,
+    "pidKp": 5.0,
+    "pidKi": 0.1,
+    "pidKd": 1.0
+  }
+}
+```
+
+#### How It Works
+
+1. **Temperature Reading**: Arduino reads thermistor every loop cycle
+2. **PID Computation**: Every 100ms, PID algorithm calculates:
+   - Error = Target - Current
+   - P term = Kp × Error
+   - I term = Ki × Sum of errors over time
+   - D term = Kd × Rate of temperature change
+   - Output = P + I + D
+3. **PWM Application**: Output (0-255) is applied as PWM to heater pin
+4. **Continuous Adjustment**: Power adjusts automatically to maintain target temperature
+
+#### During Soldering
+
+- **Pre-heating**: PID applies full power initially, reduces as temperature approaches target
+- **Soldering**: PID compensates for heat loss when solder wire contacts tip
+- **Between Pads**: PID maintains target temperature during idle periods
+- **Thermal Mass**: PID responds quickly to large pads that absorb heat
+
+#### Troubleshooting
+
+**Problem**: Temperature oscillates (overshoots and undershoots)
+- **Solution**: Increase Kd (derivative gain) to reduce oscillations
+
+**Problem**: Temperature settles below target
+- **Solution**: Increase Ki (integral gain) to eliminate steady-state error
+
+**Problem**: Slow response to temperature changes
+- **Solution**: Increase Kp (proportional gain) for faster response
+
+**Problem**: Large overshoot when heating
+- **Solution**: Increase Kd and/or reduce Kp
+
+**Problem**: PID not working (heater always full power or always off)
+- **Solution**: Check that HEATER_PIN supports PWM, verify PID is enabled, check temperature sensor readings
+
+**Problem**: Temperature not stabilizing
+- **Solution**: Verify PID parameters are reasonable, check for sensor noise, ensure compute interval is appropriate
+
+---
+
 ## Communication Protocol
 
 ### Command Format (App → Arduino)
@@ -646,7 +796,7 @@ The Emergency Stop Control component provides:
 {
   "pos": {"z":-5.0,"moving":false},
   "limits": {"upper":false,"lower":false},
-  "temp": {"target":345,"current":25,"heater":false},
+  "temp": {"target":345,"current":25,"heater":false,"pid":true,"pidOutput":0,"pidPower":0,"pidKp":5.0,"pidKi":0.1,"pidKd":1.0},
   "wire": {"status":"idle","feedRate":8.0,"break":false},
   "spool": {"weight":500,"wireLength":10000,"remaining":100},
   "flux": {"percentage":82,"ml":68},
