@@ -2279,6 +2279,7 @@ export default function HomePage() {
     { id: 'air-control', label: 'Air Control' },
     { id: 'sequence-monitor', label: 'Sequence Monitor' },
     { id: 'emergency-stop', label: 'Emergency Stop' },
+    { id: 'pid-tuning', label: 'PID Tuning' },
   ]
 
   return (

@@ -118,12 +118,27 @@ unsigned int currentZStepDelay = Z_STEP_DELAY_MIN; // Default speed set to faste
 // Standard stepper pulse configuration
 const unsigned int PULSE_WIDTH_US = 5; // Minimum pulse width for DM542 driver
 
-// Wire Feed stepper configuration
+// Wire Feed stepper configuration (2DM542 driver)
 const int WIRE_FEED_STEP_PIN = 9;
 const int WIRE_FEED_DIR_PIN = 8;
 
-const int WIRE_FEED_STEPS_PER_MM = 200;      // Adjust to your wire feed mechanics
-const unsigned int WIRE_FEED_STEP_DELAY_US = 500; // Pulse width for wire feed stepper (microseconds)
+// 2DM542 Microstepping configuration (for wire feed)
+const int WIRE_FEED_MICROSTEPPING = 16;  // Change this to match your 2DM542 DIP switch setting
+const int WIRE_FEED_MOTOR_STEPS_PER_REVOLUTION = 200;  // Standard 1.8° stepper motor
+
+// Wire feed mechanism parameters (adjust based on your hardware)
+// These values depend on your wire feed roller diameter and gear ratio
+const float WIRE_FEED_ROLLER_DIAMETER_MM = 10.0;  // Diameter of wire feed roller in mm (adjust to your hardware)
+const float WIRE_FEED_GEAR_RATIO = 1.0;  // Gear ratio (1.0 = direct drive, adjust if you have gears)
+
+// Calculate wire feed steps per mm
+// Formula: Steps per mm = (Motor steps per rev × Microstepping) / (π × Roller diameter × Gear ratio)
+float wireFeedStepsPerMm = (static_cast<float>(WIRE_FEED_MOTOR_STEPS_PER_REVOLUTION) * static_cast<float>(WIRE_FEED_MICROSTEPPING)) / (3.14159f * WIRE_FEED_ROLLER_DIAMETER_MM * WIRE_FEED_GEAR_RATIO);
+
+// Wire feed speed control
+const unsigned int WIRE_FEED_STEP_DELAY_MIN_US = 100;  // Fastest feed rate (microseconds)
+const unsigned int WIRE_FEED_STEP_DELAY_MAX_US = 2000; // Slowest feed rate (microseconds)
+unsigned int wireFeedStepDelayUs = 500;  // Current feed rate (default: 500μs = moderate speed)
 
 // Button and Paddle configuration
 const int BUTTON_UP_PIN = 39;
@@ -280,6 +295,29 @@ void setup() {
     Serial.println("%)");
   }
   
+  // Initialize wire feed configuration
+  Serial.println("[SETUP] Wire Feed Configuration (2DM542 Driver):");
+  Serial.print("[SETUP]   STEP Pin: ");
+  Serial.println(WIRE_FEED_STEP_PIN);
+  Serial.print("[SETUP]   DIR Pin: ");
+  Serial.println(WIRE_FEED_DIR_PIN);
+  Serial.print("[SETUP]   Microstepping: ");
+  Serial.println(WIRE_FEED_MICROSTEPPING);
+  Serial.print("[SETUP]   Motor Steps/Rev: ");
+  Serial.println(WIRE_FEED_MOTOR_STEPS_PER_REVOLUTION);
+  Serial.print("[SETUP]   Roller Diameter: ");
+  Serial.print(WIRE_FEED_ROLLER_DIAMETER_MM);
+  Serial.println(" mm");
+  Serial.print("[SETUP]   Gear Ratio: ");
+  Serial.println(WIRE_FEED_GEAR_RATIO);
+  Serial.print("[SETUP]   Calculated Steps/mm: ");
+  Serial.println(wireFeedStepsPerMm, 3);
+  Serial.print("[SETUP]   Feed Rate Range: ");
+  Serial.print(WIRE_FEED_STEP_DELAY_MIN_US);
+  Serial.print(" - ");
+  Serial.print(WIRE_FEED_STEP_DELAY_MAX_US);
+  Serial.println(" μs");
+  
   delay(1000); // Give time for serial connection to stabilize
 }
 
@@ -420,6 +458,13 @@ void sendMachineState() {
   config["motorStepsPerRev"] = MOTOR_STEPS_PER_REVOLUTION;
   config["microstepping"] = MICROSTEPPING;
   config["stepsPerMm"] = zStepsPerMm;
+  
+  // Wire feed configuration
+  JsonObject wireFeedConfig = config.createNestedObject("wireFeed");
+  wireFeedConfig["microstepping"] = WIRE_FEED_MICROSTEPPING;
+  wireFeedConfig["stepsPerMm"] = wireFeedStepsPerMm;
+  wireFeedConfig["rollerDiameter"] = WIRE_FEED_ROLLER_DIAMETER_MM;
+  wireFeedConfig["gearRatio"] = WIRE_FEED_GEAR_RATIO;
   
   // Limit switch status (for app warnings)
   JsonObject limits = doc.createNestedObject("limits");
@@ -626,7 +671,29 @@ void processCommands() {
             isWireFeeding = false;
           } else {
             float length = cmdDoc["length"] | 0;
+            float rate = cmdDoc["rate"] | 8.0;  // Feed rate in mm/s (default: 8.0 mm/s)
+            
             if (length > 0) {
+              // Update feed rate if provided
+              if (rate > 0 && rate <= 50.0) {  // Limit rate to 0-50 mm/s
+                // Convert mm/s to step delay (microseconds)
+                // Formula: delay = (1,000,000 / (rate × stepsPerMm))
+                float calculatedDelay = 1000000.0 / (rate * wireFeedStepsPerMm);
+                // Clamp to valid range
+                if (calculatedDelay < WIRE_FEED_STEP_DELAY_MIN_US) {
+                  wireFeedStepDelayUs = WIRE_FEED_STEP_DELAY_MIN_US;
+                } else if (calculatedDelay > WIRE_FEED_STEP_DELAY_MAX_US) {
+                  wireFeedStepDelayUs = WIRE_FEED_STEP_DELAY_MAX_US;
+                } else {
+                  wireFeedStepDelayUs = static_cast<unsigned int>(calculatedDelay);
+                }
+                Serial.print("[CMD] Wire feed rate set to: ");
+                Serial.print(rate, 1);
+                Serial.print(" mm/s (delay: ");
+                Serial.print(wireFeedStepDelayUs);
+                Serial.println(" μs)");
+              }
+              
               wireFeedStatus = "feeding";
               isWireFeeding = true;
               feedWireByLength(length);
@@ -634,6 +701,86 @@ void processCommands() {
               wireFeedStatus = "idle";
               isWireFeeding = false;
             }
+          }
+        }
+        else if (cmd == "wirefeed:calibrate" || cmd == "calibratewire") {
+          // Wire feed calibration command
+          // Options:
+          // 1. {"command":"wirefeed:calibrate","stepsPerMm":3200.0} - Set steps per mm directly
+          // 2. {"command":"wirefeed:calibrate","commanded":10.0,"actual":9.8} - Calibrate from test feed
+          // 3. {"command":"wirefeed:calibrate","rollerDiameter":10.0} - Recalculate from roller diameter
+          // 4. {"command":"wirefeed:calibrate","microstepping":16} - Recalculate from microstepping
+          
+          if (cmdDoc.containsKey("stepsPerMm")) {
+            float newStepsPerMm = cmdDoc["stepsPerMm"] | wireFeedStepsPerMm;
+            if (newStepsPerMm > 0) {
+              wireFeedStepsPerMm = newStepsPerMm;
+              Serial.print("[CMD] Wire feed steps per mm set to: ");
+              Serial.println(wireFeedStepsPerMm, 3);
+            } else {
+              Serial.println("[CMD] ERROR: Steps per mm must be positive");
+            }
+          }
+          else if (cmdDoc.containsKey("commanded") && cmdDoc.containsKey("actual")) {
+            float commanded = cmdDoc["commanded"] | 0;
+            float actual = cmdDoc["actual"] | 0;
+            if (commanded > 0 && actual > 0) {
+              // Calibrate: newStepsPerMm = oldStepsPerMm × (commanded / actual)
+              wireFeedStepsPerMm = wireFeedStepsPerMm * (commanded / actual);
+              Serial.print("[CMD] Wire feed calibrated: ");
+              Serial.print(commanded, 2);
+              Serial.print(" mm commanded, ");
+              Serial.print(actual, 2);
+              Serial.print(" mm actual");
+              Serial.print(" -> New steps/mm: ");
+              Serial.println(wireFeedStepsPerMm, 3);
+            } else {
+              Serial.println("[CMD] ERROR: Commanded and actual must be positive numbers");
+            }
+          }
+          else if (cmdDoc.containsKey("rollerDiameter")) {
+            float newDiameter = cmdDoc["rollerDiameter"] | WIRE_FEED_ROLLER_DIAMETER_MM;
+            if (newDiameter > 0) {
+              // Recalculate steps per mm from roller diameter
+              wireFeedStepsPerMm = (static_cast<float>(WIRE_FEED_MOTOR_STEPS_PER_REVOLUTION) * static_cast<float>(WIRE_FEED_MICROSTEPPING)) / (3.14159f * newDiameter * WIRE_FEED_GEAR_RATIO);
+              Serial.print("[CMD] Wire feed recalculated with roller diameter ");
+              Serial.print(newDiameter, 2);
+              Serial.print(" mm -> Steps/mm: ");
+              Serial.println(wireFeedStepsPerMm, 3);
+            } else {
+              Serial.println("[CMD] ERROR: Roller diameter must be positive");
+            }
+          }
+          else if (cmdDoc.containsKey("microstepping")) {
+            int newMicrostepping = cmdDoc["microstepping"] | WIRE_FEED_MICROSTEPPING;
+            if (newMicrostepping > 0) {
+              // Recalculate steps per mm from microstepping
+              wireFeedStepsPerMm = (static_cast<float>(WIRE_FEED_MOTOR_STEPS_PER_REVOLUTION) * static_cast<float>(newMicrostepping)) / (3.14159f * WIRE_FEED_ROLLER_DIAMETER_MM * WIRE_FEED_GEAR_RATIO);
+              Serial.print("[CMD] Wire feed recalculated with microstepping ");
+              Serial.print(newMicrostepping);
+              Serial.print(" -> Steps/mm: ");
+              Serial.println(wireFeedStepsPerMm, 3);
+            } else {
+              Serial.println("[CMD] ERROR: Microstepping must be positive");
+            }
+          }
+          else {
+            // Show current configuration
+            Serial.println("[CMD] Current wire feed configuration:");
+            Serial.print("[CMD]   Steps per mm: ");
+            Serial.println(wireFeedStepsPerMm, 3);
+            Serial.print("[CMD]   Microstepping: ");
+            Serial.println(WIRE_FEED_MICROSTEPPING);
+            Serial.print("[CMD]   Roller diameter: ");
+            Serial.print(WIRE_FEED_ROLLER_DIAMETER_MM);
+            Serial.println(" mm");
+            Serial.print("[CMD]   Gear ratio: ");
+            Serial.println(WIRE_FEED_GEAR_RATIO);
+            Serial.println("[CMD] Usage options:");
+            Serial.println("[CMD]   1. {\"command\":\"wirefeed:calibrate\",\"stepsPerMm\":3200.0}");
+            Serial.println("[CMD]   2. {\"command\":\"wirefeed:calibrate\",\"commanded\":10.0,\"actual\":9.8}");
+            Serial.println("[CMD]   3. {\"command\":\"wirefeed:calibrate\",\"rollerDiameter\":10.0}");
+            Serial.println("[CMD]   4. {\"command\":\"wirefeed:calibrate\",\"microstepping\":16}");
           }
         }
 
@@ -1194,16 +1341,18 @@ void homeZAxis(unsigned int stepDelayUs) {
 // Wire feed helper functions
 // ----------------------------------
 
-// Standard wire feed step function
+// Standard wire feed step function (for 2DM542 driver)
 void pulseWireFeedStep() {
+  // 2DM542 requires minimum 2.5μs pulse width, we use 5μs for safety
   digitalWrite(WIRE_FEED_STEP_PIN, HIGH);
-  delayMicroseconds(PULSE_WIDTH_US);
+  delayMicroseconds(PULSE_WIDTH_US);  // Minimum pulse width (5μs)
   digitalWrite(WIRE_FEED_STEP_PIN, LOW);
   
-  if (WIRE_FEED_STEP_DELAY_US > PULSE_WIDTH_US) {
-    delayMicroseconds(WIRE_FEED_STEP_DELAY_US - PULSE_WIDTH_US);
+  // Delay between steps (controls feed rate)
+  if (wireFeedStepDelayUs > PULSE_WIDTH_US) {
+    delayMicroseconds(wireFeedStepDelayUs - PULSE_WIDTH_US);
   } else {
-    delayMicroseconds(1);
+    delayMicroseconds(1);  // Minimum delay
   }
 }
 
@@ -1223,8 +1372,8 @@ void feedWireByLength(float lengthMm) {
   // Set direction: HIGH = feed wire out, LOW = retract (if needed)
   digitalWrite(WIRE_FEED_DIR_PIN, HIGH);
 
-  // Calculate number of steps needed
-  long stepsToMove = static_cast<long>(lengthMm * WIRE_FEED_STEPS_PER_MM);
+  // Calculate number of steps needed (using calculated steps per mm)
+  long stepsToMove = static_cast<long>(lengthMm * wireFeedStepsPerMm);
 
   if (stepsToMove <= 0) {
     return;
