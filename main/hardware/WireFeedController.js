@@ -79,7 +79,9 @@ export default class WireFeedController extends EventEmitter {
 
     if (this.serialManager?.isConnected) {
       try {
+        console.log(`[WireFeedController] Sending wire feed command: { command: 'feed', length: ${lengthNumeric} }`)
         await this._sendCommand({ command: 'feed', length: lengthNumeric })
+        console.log(`[WireFeedController] Wire feed command sent successfully`)
         const durationMs = Math.max(1200, (lengthNumeric / rateNumeric) * 1000)
         
         this._registerTimeout(() => {

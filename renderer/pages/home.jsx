@@ -155,12 +155,16 @@ export default function HomePage() {
     totalPads: 0,
     progress: 0,
     error: null,
+    currentPass: 0,
+    maxPasses: 1,
   })
   const [currentPosition, setCurrentPosition] = useState({
     x: 120.0,
     y: 45.3,
     z: 0.0, // Start at home position (0.00mm) - FIXED
     isMoving: false,
+    savedMovementDistance: 0.0,
+    hasSavedMovement: false,
   })
   const [limitSwitchAlert, setLimitSwitchAlert] = useState(false)
   // const [limitSwitchMessage, setLimitSwitchMessage] = useState('Upper limit switch reached - can\'t go upward')
@@ -643,6 +647,8 @@ export default function HomePage() {
         totalPads: payload.totalPads ?? current.totalPads,
         progress: payload.progress ?? current.progress,
         error: payload.error ?? current.error,
+        currentPass: payload.currentPass ?? current.currentPass ?? 0,
+        maxPasses: payload.maxPasses ?? current.maxPasses ?? 1,
       }))
     }
 
@@ -944,6 +950,12 @@ export default function HomePage() {
             typeof payload.isMoving === 'boolean'
               ? payload.isMoving
               : current.isMoving,
+          savedMovementDistance: typeof payload.savedMovementDistance === 'number'
+            ? payload.savedMovementDistance
+            : (current.savedMovementDistance || 0.0),
+          hasSavedMovement: typeof payload.hasSavedMovement === 'boolean'
+            ? payload.hasSavedMovement
+            : (current.hasSavedMovement || false),
         }
       })
     }
@@ -1221,13 +1233,49 @@ export default function HomePage() {
     if (typeof window === 'undefined' || !window.ipc?.send) {
       return
     }
+    
+    // Enhance pad positions with size information for multiple passes
+    const enhancedPadPositions = padPositions.map((pos, index) => {
+      // If pad position doesn't have area, try to get it from saved configurations
+      if (!pos.area && savedPadConfigurations.length > 0) {
+        // Try to match by z position or use first config
+        const matchingConfig = savedPadConfigurations.find(
+          config => Math.abs(config.solderHeight - (pos.z || 0)) < 0.1
+        ) || savedPadConfigurations[0]
+        
+        if (matchingConfig && matchingConfig.area) {
+          return {
+            ...pos,
+            area: matchingConfig.area,
+            // Also include dimensions if available
+            width: matchingConfig.dimensions?.width || matchingConfig.dimensions?.side,
+            height: matchingConfig.dimensions?.height || matchingConfig.dimensions?.side,
+            diameter: matchingConfig.dimensions?.diameter || matchingConfig.dimensions?.radius * 2,
+          }
+        }
+      }
+      
+      // If we have padArea from current calculation, use it
+      if (!pos.area && padArea) {
+        return {
+          ...pos,
+          area: padArea,
+          width: padDimensions.width || padDimensions.side,
+          height: padDimensions.height || padDimensions.side,
+          diameter: padDimensions.diameter || (padDimensions.radius ? padDimensions.radius * 2 : undefined),
+        }
+      }
+      
+      return pos
+    })
+    
     window.ipc.send('sequence:start', {
-      padPositions,
+      padPositions: enhancedPadPositions,
       options: {
         wireLength: wireUsed, // Use calculated wire length from pad metrics
       }
     })
-  }, [wireUsed])
+  }, [wireUsed, savedPadConfigurations, padArea, padDimensions])
 
   const handleSequenceStop = useCallback(() => {
     if (typeof window === 'undefined' || !window.ipc?.send) {
@@ -2518,12 +2566,9 @@ export default function HomePage() {
               onStop={handleSequenceStop}
               onPause={handleSequencePause}
               onResume={handleSequenceResume}
-              padPositions={[
-                {
-                  // Single-axis machine: Only Z-axis (X and Y removed)
-                  z: Number.parseFloat(solderHeight || 0),
-                }
-              ]}
+              padPositions={[]}
+              isConnected={isSerialConnected}
+              hasSavedMovement={currentPosition.hasSavedMovement}
             />
           </section>
         )}

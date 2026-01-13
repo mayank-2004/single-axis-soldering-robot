@@ -10,7 +10,7 @@ export default class MovementController extends EventEmitter {
     this._isCompensating = false
 
     this.state = {
-      position: { z: 0.0, isMoving: false },
+      position: { z: 0.0, isMoving: false, savedMovementDistance: 0.0, hasSavedMovement: false },
       zAxisSpeed: 100,
       componentHeightMm: null,
       jigHeightMm: null
@@ -119,9 +119,12 @@ export default class MovementController extends EventEmitter {
   }
 
   async moveToPosition(x, y, z) {
+    console.log(`[MovementController] moveToPosition called: x=${x}, y=${y}, z=${z}, isConnected=${this.serialManager?.isConnected}`)
     if (this.serialManager?.isConnected) {
       if (z !== null && z !== undefined) {
+        console.log(`[MovementController] Sending move command: { command: 'move', z: ${z} }`)
         await this._sendCommand({ command: 'move', z })
+        console.log(`[MovementController] Move command sent, updating state`)
         this.state.position.z = z
         this.state.position.isMoving = true
         this.emit('position:update', this.getPosition())
@@ -129,6 +132,8 @@ export default class MovementController extends EventEmitter {
           this.state.position.isMoving = false
           this.emit('position:update', this.getPosition())
         }, 1000)
+      } else {
+        console.warn(`[MovementController] moveToPosition: z is null or undefined`)
       }
     } else {
       this.state.position.isMoving = true
@@ -168,7 +173,12 @@ export default class MovementController extends EventEmitter {
   }
 
   getPosition() {
-    return { z: this.state.position.z, isMoving: this.state.position.isMoving }
+    return { 
+      z: this.state.position.z, 
+      isMoving: this.state.position.isMoving,
+      savedMovementDistance: this.state.position.savedMovementDistance || 0,
+      hasSavedMovement: this.state.position.hasSavedMovement || false,
+    }
   }
 
   getSafeTravelSpace() {
@@ -190,6 +200,14 @@ export default class MovementController extends EventEmitter {
 
       this.state.position.z = newZ
       this.state.position.isMoving = isNowMoving
+      
+      // Update saved movement data if provided
+      if (updates.position.savedMovementDistance !== undefined) {
+        this.state.position.savedMovementDistance = updates.position.savedMovementDistance
+      }
+      if (updates.position.hasSavedMovement !== undefined) {
+        this.state.position.hasSavedMovement = updates.position.hasSavedMovement
+      }
 
       if (this._lastMovementCommand && wasMoving && !isNowMoving) {
         const actualDistance = newZ - this._lastMovementCommand.previousPosition

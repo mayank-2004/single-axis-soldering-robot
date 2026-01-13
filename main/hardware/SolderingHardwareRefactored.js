@@ -363,6 +363,55 @@ export default class SolderingHardware extends EventEmitter {
     return this.sequenceController.getThermalMassDuration()
   }
 
+  // Enhanced sequence configuration methods
+  setPreHeatDwellTime(timeMs) {
+    return this.sequenceController.setPreHeatDwellTime(timeMs)
+  }
+
+  getPreHeatDwellTime() {
+    return this.sequenceController.getPreHeatDwellTime()
+  }
+
+  setPostSolderCoolingTime(timeMs) {
+    return this.sequenceController.setPostSolderCoolingTime(timeMs)
+  }
+
+  getPostSolderCoolingTime() {
+    return this.sequenceController.getPostSolderCoolingTime()
+  }
+
+  setFluxBeforePreHeat(enabled) {
+    return this.sequenceController.setFluxBeforePreHeat(enabled)
+  }
+
+  getFluxBeforePreHeat() {
+    return this.sequenceController.getFluxBeforePreHeat()
+  }
+
+  setEnableMultiplePasses(enabled) {
+    return this.sequenceController.setEnableMultiplePasses(enabled)
+  }
+
+  getEnableMultiplePasses() {
+    return this.sequenceController.getEnableMultiplePasses()
+  }
+
+  setLargePadThreshold(thresholdMm2) {
+    return this.sequenceController.setLargePadThreshold(thresholdMm2)
+  }
+
+  getLargePadThreshold() {
+    return this.sequenceController.getLargePadThreshold()
+  }
+
+  setPassesPerLargePad(passes) {
+    return this.sequenceController.setPassesPerLargePad(passes)
+  }
+
+  getPassesPerLargePad() {
+    return this.sequenceController.getPassesPerLargePad()
+  }
+
   // Calibration methods
   _updateCalibration(label, updates) {
     const entry = this.calibration.find((item) => item.label === label)

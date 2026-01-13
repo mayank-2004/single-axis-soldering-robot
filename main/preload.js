@@ -12,6 +12,13 @@ const handler = {
       ipcRenderer.removeListener(channel, subscription)
     }
   },
+  once(channel, callback) {
+    const subscription = (_event, ...args) => callback(...args)
+    ipcRenderer.once(channel, subscription)
+  },
+  off(channel, callback) {
+    ipcRenderer.removeListener(channel, callback)
+  },
 }
 
 contextBridge.exposeInMainWorld('ipc', handler)

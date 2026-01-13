@@ -451,6 +451,8 @@ void sendMachineState() {
   JsonObject pos = doc.createNestedObject("pos");
   pos["z"] = zPosition;
   pos["moving"] = isMoving;
+  pos["savedMovementDistance"] = savedMovementDistance;  // Saved movement distance from home (negative if below home)
+  pos["hasSavedMovement"] = hasSavedMovement;  // Whether a movement has been saved
   
   // Configuration data (for app to display/verify)
   JsonObject config = doc.createNestedObject("config");
@@ -696,10 +698,12 @@ void processCommands() {
               
               wireFeedStatus = "feeding";
               isWireFeeding = true;
+              sendMachineState();  // Send status update before feeding starts
               feedWireByLength(length);
-              // After feeding, update status
+              // After feeding, update status and notify app
               wireFeedStatus = "idle";
               isWireFeeding = false;
+              sendMachineState();  // Send status update after feeding completes
             }
           }
         }
@@ -1597,6 +1601,9 @@ void saveMovementSequence() {
   Serial.print(" mm from home position (current Z: ");
   Serial.print(zPosition);
   Serial.println(" mm)");
+  
+  // Immediately send updated state to app so UI knows movement is saved
+  sendMachineState();
 }
 
 void executeSavedMovement() {

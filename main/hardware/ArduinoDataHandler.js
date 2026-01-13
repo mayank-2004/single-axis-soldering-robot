@@ -66,6 +66,8 @@ export default class ArduinoDataHandler extends EventEmitter {
       updates.position = {
         z: parseFloat(data.pos.z) || 0,
         isMoving: Boolean(data.pos.moving),
+        savedMovementDistance: parseFloat(data.pos.savedMovementDistance) || 0,
+        hasSavedMovement: Boolean(data.pos.hasSavedMovement),
       }
     }
 

@@ -2,7 +2,10 @@ import { EventEmitter } from 'events'
 
 const sequenceStages = [
   { name: 'Lowering Z axis', action: 'lowerZ' },
+  { name: 'Applying flux', action: 'applyFlux' },
+  { name: 'Pre-heat dwell', action: 'preHeatDwell' },
   { name: 'Dispensing solder', action: 'dispense' },
+  { name: 'Post-solder cooling', action: 'postSolderCooling' },
   { name: 'Cleaning tip', action: 'cleanTip' },
   { name: 'Retracting head', action: 'retract' },
 ]
@@ -31,7 +34,16 @@ export default class SequenceController extends EventEmitter {
         wireLengthPerPad: [],
         thermalMassDuration: 1000,
         wireLength: null,
-        retractClearance: 7.5  // mm - clearance above jig surface after soldering (5-10mm range)
+        retractClearance: 7.5,  // mm - clearance above jig surface after soldering (5-10mm range)
+        // Enhanced sequence configuration
+        preHeatDwellTime: 500,  // ms - time to wait after lowering Z before dispensing (allows tip to heat pad)
+        postSolderCoolingTime: 1000,  // ms - time to wait after dispensing to let solder solidify
+        fluxBeforePreHeat: true,  // Apply flux before pre-heat dwell (true) or after lowering Z (false)
+        enableMultiplePasses: true,  // Enable multiple passes for large pads
+        largePadThreshold: 10.0,  // mm² - pad area threshold for multiple passes
+        passesPerLargePad: 2,  // Number of dispense/clean cycles for large pads
+        currentPass: 0,  // Track current pass for multiple pass logic
+        maxPasses: 1  // Maximum passes for current pad (calculated based on pad size)
       }
     }
   }
@@ -45,7 +57,25 @@ export default class SequenceController extends EventEmitter {
       return { error: 'Machine is currently moving' }
     }
 
-    const pads = padPositions.length > 0 ? padPositions : [{ z: 0 }]
+    // Use saved movement position if padPositions is empty or doesn't have z values
+    let pads = padPositions.length > 0 ? padPositions : []
+    
+    // If no pad positions provided, use saved movement position
+    if (pads.length === 0 || pads.every(pad => pad.z === undefined || pad.z === null)) {
+      const savedDistance = this.movementController.state.position.savedMovementDistance || 0
+      const hasSaved = this.movementController.state.position.hasSavedMovement
+      
+      if (hasSaved) {
+        // Calculate target position: home (0.0) + savedMovementDistance (negative value)
+        const savedZ = savedDistance  // savedMovementDistance is already relative to home
+        pads = [{ z: savedZ }]
+        console.log(`[Sequence] Using saved movement position: ${savedZ.toFixed(2)}mm (hasSaved: ${hasSaved}, savedDistance: ${savedDistance})`)
+      } else {
+        // Fallback to home position if no saved movement
+        pads = [{ z: 0 }]
+        console.warn('[Sequence] No saved movement found. Using home position (0.00mm). Please save a movement first.')
+      }
+    }
 
     // Validate pad positions against jig surface (if jig height is set)
     if (this.movementController.state.jigHeightMm !== null) {
@@ -74,9 +104,32 @@ export default class SequenceController extends EventEmitter {
     this.state.sequence.wireLength = options.wireLength || null
     this.state.sequence.totalWireLengthUsed = 0
     this.state.sequence.wireLengthPerPad = []
+    this.state.sequence.currentPass = 0
+    this.state.sequence.maxPasses = 1
+    
     // Set retraction clearance (5-10mm range, default 7.5mm)
     if (options.retractClearance !== undefined) {
       this.state.sequence.retractClearance = Math.max(5.0, Math.min(10.0, Number(options.retractClearance) || 7.5))
+    }
+    
+    // Enhanced sequence options
+    if (options.preHeatDwellTime !== undefined) {
+      this.state.sequence.preHeatDwellTime = Math.max(0, Math.min(5000, Number(options.preHeatDwellTime) || 500))
+    }
+    if (options.postSolderCoolingTime !== undefined) {
+      this.state.sequence.postSolderCoolingTime = Math.max(0, Math.min(10000, Number(options.postSolderCoolingTime) || 1000))
+    }
+    if (options.fluxBeforePreHeat !== undefined) {
+      this.state.sequence.fluxBeforePreHeat = Boolean(options.fluxBeforePreHeat)
+    }
+    if (options.enableMultiplePasses !== undefined) {
+      this.state.sequence.enableMultiplePasses = Boolean(options.enableMultiplePasses)
+    }
+    if (options.largePadThreshold !== undefined) {
+      this.state.sequence.largePadThreshold = Math.max(1.0, Math.min(100.0, Number(options.largePadThreshold) || 10.0))
+    }
+    if (options.passesPerLargePad !== undefined) {
+      this.state.sequence.passesPerLargePad = Math.max(1, Math.min(5, Number(options.passesPerLargePad) || 2))
     }
 
     this.emit('sequence', this.getSequenceState())
@@ -127,7 +180,7 @@ export default class SequenceController extends EventEmitter {
   }
 
   getSequenceState() {
-    const { stage, isActive, isPaused, lastCompleted, currentPad, totalPads, progress, error, totalWireLengthUsed, wireLengthPerPad } = this.state.sequence
+    const { stage, isActive, isPaused, lastCompleted, currentPad, totalPads, progress, error, totalWireLengthUsed, wireLengthPerPad, currentPass, maxPasses } = this.state.sequence
     return { 
       stage, 
       isActive, 
@@ -139,7 +192,68 @@ export default class SequenceController extends EventEmitter {
       error,
       totalWireLengthUsed: totalWireLengthUsed || 0,
       wireLengthPerPad: wireLengthPerPad || [],
+      currentPass: currentPass || 0,
+      maxPasses: maxPasses || 1,
     }
+  }
+  
+  // Configuration methods for enhanced sequence options
+  setPreHeatDwellTime(timeMs) {
+    const timeValue = Math.max(0, Math.min(5000, Number(timeMs) || 500))
+    this.state.sequence.preHeatDwellTime = timeValue
+    return { status: `Pre-heat dwell time set to ${timeValue}ms (${(timeValue / 1000).toFixed(1)}s)` }
+  }
+  
+  getPreHeatDwellTime() {
+    return this.state.sequence.preHeatDwellTime || 500
+  }
+  
+  setPostSolderCoolingTime(timeMs) {
+    const timeValue = Math.max(0, Math.min(10000, Number(timeMs) || 1000))
+    this.state.sequence.postSolderCoolingTime = timeValue
+    return { status: `Post-solder cooling time set to ${timeValue}ms (${(timeValue / 1000).toFixed(1)}s)` }
+  }
+  
+  getPostSolderCoolingTime() {
+    return this.state.sequence.postSolderCoolingTime || 1000
+  }
+  
+  setFluxBeforePreHeat(enabled) {
+    this.state.sequence.fluxBeforePreHeat = Boolean(enabled)
+    return { status: `Flux application ${enabled ? 'before' : 'after'} pre-heat` }
+  }
+  
+  getFluxBeforePreHeat() {
+    return this.state.sequence.fluxBeforePreHeat !== false
+  }
+  
+  setEnableMultiplePasses(enabled) {
+    this.state.sequence.enableMultiplePasses = Boolean(enabled)
+    return { status: `Multiple passes ${enabled ? 'enabled' : 'disabled'}` }
+  }
+  
+  getEnableMultiplePasses() {
+    return this.state.sequence.enableMultiplePasses !== false
+  }
+  
+  setLargePadThreshold(thresholdMm2) {
+    const thresholdValue = Math.max(1.0, Math.min(100.0, Number(thresholdMm2) || 10.0))
+    this.state.sequence.largePadThreshold = thresholdValue
+    return { status: `Large pad threshold set to ${thresholdValue.toFixed(1)}mm²` }
+  }
+  
+  getLargePadThreshold() {
+    return this.state.sequence.largePadThreshold || 10.0
+  }
+  
+  setPassesPerLargePad(passes) {
+    const passesValue = Math.max(1, Math.min(5, Number(passes) || 2))
+    this.state.sequence.passesPerLargePad = passesValue
+    return { status: `Passes per large pad set to ${passesValue}` }
+  }
+  
+  getPassesPerLargePad() {
+    return this.state.sequence.passesPerLargePad || 2
   }
 
   setThermalMassDuration(duration) {
@@ -152,12 +266,42 @@ export default class SequenceController extends EventEmitter {
     return this.state.sequence.thermalMassDuration || 1000
   }
 
+  // Calculate number of passes needed for a pad based on its size
+  _calculatePassesForPad(padPosition) {
+    if (!this.state.sequence.enableMultiplePasses) {
+      return 1
+    }
+    
+    // Calculate pad area if dimensions are available
+    // Pad position can have: z, area, width, height, diameter, etc.
+    let padArea = 0
+    
+    if (padPosition.area !== undefined) {
+      padArea = Number(padPosition.area) || 0
+    } else if (padPosition.width !== undefined && padPosition.height !== undefined) {
+      padArea = Number(padPosition.width) * Number(padPosition.height)
+    } else if (padPosition.diameter !== undefined) {
+      const radius = Number(padPosition.diameter) / 2
+      padArea = Math.PI * radius * radius
+    }
+    
+    // If pad area exceeds threshold, use multiple passes
+    if (padArea > this.state.sequence.largePadThreshold) {
+      return this.state.sequence.passesPerLargePad
+    }
+    
+    return 1
+  }
+
   async _executeSequence() {
     const sequence = this.state.sequence
 
     if (!sequence.isActive || sequence.isPaused) {
+      console.log(`[Sequence] _executeSequence: sequence not active or paused (isActive: ${sequence.isActive}, isPaused: ${sequence.isPaused})`)
       return
     }
+    
+    console.log(`[Sequence] _executeSequence: currentPad=${sequence.currentPad}, totalPads=${sequence.totalPads}, index=${sequence.index}`)
 
     if (sequence.currentPad >= sequence.totalPads) {
       sequence.isActive = false
@@ -174,11 +318,35 @@ export default class SequenceController extends EventEmitter {
     }
 
     const currentPad = sequence.padPositions[sequence.currentPad]
+    
+    // Calculate max passes for current pad when starting a new pad (index === 0)
+    if (sequence.index === 0) {
+      sequence.currentPass = 0
+      sequence.maxPasses = this._calculatePassesForPad(currentPad)
+      if (sequence.maxPasses > 1) {
+        console.log(`[Sequence] Pad ${sequence.currentPad + 1} requires ${sequence.maxPasses} passes (large pad)`)
+      }
+    }
+    
     const currentStage = sequenceStages[sequence.index]
 
     if (!currentStage) {
+      // All stages complete - check if we need more passes
+      if (sequence.currentPass < sequence.maxPasses - 1) {
+        // More passes needed - reset to dispense stage
+        sequence.currentPass++
+        sequence.index = sequenceStages.findIndex(stage => stage.action === 'dispense')
+        console.log(`[Sequence] Starting pass ${sequence.currentPass + 1} of ${sequence.maxPasses} for pad ${sequence.currentPad + 1}`)
+        this.emit('sequence', this.getSequenceState())
+        await this._executeSequence()
+        return
+      }
+      
+      // All passes complete for this pad - move to next pad
       sequence.currentPad++
       sequence.index = 0
+      sequence.currentPass = 0
+      sequence.maxPasses = 1
       sequence.progress = Math.round((sequence.currentPad / sequence.totalPads) * 100)
       this.emit('sequence', this.getSequenceState())
       await this._executeSequence()
@@ -225,6 +393,8 @@ export default class SequenceController extends EventEmitter {
         let solderingZ = z || 0
         let clampedSolderingZ = solderingZ
         
+        console.log(`[Sequence] lowerZ stage: padPosition.z = ${z}, solderingZ = ${solderingZ.toFixed(2)}mm`)
+        
         if (this.movementController.state.jigHeightMm !== null) {
           // Calculate jig surface position (negative value, below home)
           const jigSurfaceFromHome = this.movementController.BED_HEIGHT_MM - this.movementController.state.jigHeightMm
@@ -248,16 +418,32 @@ export default class SequenceController extends EventEmitter {
           if (solderingZ < -250) {
             console.warn(`[Sequence] WARNING: Soldering position ${solderingZ.toFixed(2)}mm seems very low. Consider setting jig height for safety.`)
           }
+          console.log(`[Sequence] Moving to soldering position: ${clampedSolderingZ.toFixed(2)}mm (no jig height set)`)
         }
         
+        console.log(`[Sequence] Calling moveToPosition with z = ${clampedSolderingZ.toFixed(2)}mm`)
         await this.movementController.moveToPosition(null, null, clampedSolderingZ)
+        console.log(`[Sequence] moveToPosition completed`)
         
-        if (this.auxiliaryController.state.fluxMist.autoMode && !this.auxiliaryController.state.fluxMist.isDispensing) {
+        // Apply flux immediately after lowering if fluxBeforePreHeat is false
+        if (!this.state.sequence.fluxBeforePreHeat && this.auxiliaryController.state.fluxMist.autoMode && !this.auxiliaryController.state.fluxMist.isDispensing) {
           await this.auxiliaryController.dispenseFluxMist()
         }
-        
-        const dwellDuration = this.state.sequence.thermalMassDuration || 1000
-        await new Promise((resolve) => setTimeout(resolve, dwellDuration))
+        break
+
+      case 'applyFlux':
+        // Apply flux before pre-heat (if fluxBeforePreHeat is true)
+        if (this.state.sequence.fluxBeforePreHeat && this.auxiliaryController.state.fluxMist.autoMode && !this.auxiliaryController.state.fluxMist.isDispensing) {
+          await this.auxiliaryController.dispenseFluxMist()
+        }
+        break
+
+      case 'preHeatDwell':
+        // Wait for tip to heat the pad before dispensing solder
+        // This allows the pad to reach proper temperature for good solder flow
+        const preHeatDuration = this.state.sequence.preHeatDwellTime || 500
+        console.log(`[Sequence] Pre-heat dwell: waiting ${preHeatDuration}ms for pad to heat`)
+        await new Promise((resolve) => setTimeout(resolve, preHeatDuration))
         break
 
       case 'dispense':
@@ -270,6 +456,12 @@ export default class SequenceController extends EventEmitter {
           wireLength = this.state.sequence.wireLength
         }
         
+        // For multiple passes, reduce wire length per pass
+        if (this.state.sequence.maxPasses > 1) {
+          wireLength = wireLength / this.state.sequence.maxPasses
+          console.log(`[Sequence] Pass ${this.state.sequence.currentPass + 1}/${this.state.sequence.maxPasses}: dispensing ${wireLength.toFixed(2)}mm wire`)
+        }
+        
         const currentPadIndex = this.state.sequence.currentPad
         if (!this.state.sequence.wireLengthPerPad[currentPadIndex]) {
           this.state.sequence.wireLengthPerPad[currentPadIndex] = 0
@@ -278,19 +470,51 @@ export default class SequenceController extends EventEmitter {
         this.state.sequence.totalWireLengthUsed += wireLength
         
         const feedRate = 8.0
+        console.log(`[Sequence] Starting wire feed: ${wireLength.toFixed(2)}mm at ${feedRate}mm/s`)
         await this.wireFeedController.startWireFeed(wireLength, feedRate, true)
-        while (this.wireFeedController.state.wireFeed.status === 'feeding') {
+        
+        // Wait for wire feed to complete - check status from Arduino updates
+        let waitCount = 0
+        const maxWait = 100  // Maximum 10 seconds (100 * 100ms)
+        while (this.wireFeedController.state.wireFeed.status === 'feeding' && waitCount < maxWait) {
           await new Promise(resolve => setTimeout(resolve, 100))
+          waitCount++
+        }
+        
+        if (this.wireFeedController.state.wireFeed.status === 'feeding') {
+          console.warn(`[Sequence] Wire feed still in 'feeding' status after ${maxWait * 100}ms, continuing anyway`)
+        } else {
+          console.log(`[Sequence] Wire feed completed with status: ${this.wireFeedController.state.wireFeed.status}`)
         }
         break
 
+      case 'postSolderCooling':
+        // Wait after dispensing to let solder solidify before moving
+        // This prevents solder from being disturbed while still molten
+        const coolingDuration = this.state.sequence.postSolderCoolingTime || 1000
+        console.log(`[Sequence] Post-solder cooling: waiting ${coolingDuration}ms for solder to solidify`)
+        await new Promise((resolve) => setTimeout(resolve, coolingDuration))
+        break
+
       case 'cleanTip':
-        if (this.auxiliaryController.state.airJetPressure.autoMode && !this.auxiliaryController.state.airJetPressure.isActive) {
-          await this.auxiliaryController.activateAirJetPressure()
+        // Only clean tip on the last pass (or if single pass)
+        if (this.state.sequence.currentPass >= this.state.sequence.maxPasses - 1) {
+          if (this.auxiliaryController.state.airJetPressure.autoMode && !this.auxiliaryController.state.airJetPressure.isActive) {
+            await this.auxiliaryController.activateAirJetPressure()
+          }
+        } else {
+          console.log(`[Sequence] Skipping tip clean (pass ${this.state.sequence.currentPass + 1}/${this.state.sequence.maxPasses} - will clean after final pass)`)
         }
         break
 
       case 'retract':
+        // Only retract after all passes are complete for this pad
+        if (this.state.sequence.currentPass < this.state.sequence.maxPasses - 1) {
+          // More passes needed - skip retraction and loop back to dispense
+          console.log(`[Sequence] Skipping retraction (pass ${this.state.sequence.currentPass + 1}/${this.state.sequence.maxPasses} - will retract after final pass)`)
+          break
+        }
+        
         // Retract only 5-10mm from jig surface (not to home position)
         // This keeps the head close to the work area for efficient movement between components
         let retractZ = null

@@ -163,3 +163,201 @@
   transform: translateY(-1px);
 }
 
+.headerTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.configToggle {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(96, 165, 250, 0.3);
+  background: rgba(96, 165, 250, 0.1);
+  color: #60a5fa;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.configToggle:hover {
+  background: rgba(96, 165, 250, 0.2);
+  border-color: rgba(96, 165, 250, 0.5);
+}
+
+.passInfo {
+  color: #fbbf24;
+  margin-left: 8px;
+}
+
+.configSection {
+  padding: 16px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(96, 165, 250, 0.2);
+  margin-bottom: 8px;
+}
+
+.configSectionTitle {
+  margin: 0 0 16px 0;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #cbd5f5;
+  font-weight: 600;
+}
+
+.configGroup {
+  margin-bottom: 16px;
+}
+
+.configGroup:last-of-type {
+  margin-bottom: 0;
+}
+
+.configGroupTitle {
+  margin: 0 0 10px 0;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  font-weight: 500;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.configRow {
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.configRow:last-child {
+  margin-bottom: 0;
+}
+
+.configLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: #cbd5f5;
+  letter-spacing: 0.05em;
+}
+
+.configHint {
+  font-size: 10px;
+  color: #94a3b8;
+  font-style: italic;
+  font-weight: normal;
+}
+
+.configInputGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.configInput {
+  flex: 0 0 auto;
+  width: 100px;
+  padding: 6px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 6px;
+  background: rgba(10, 18, 32, 0.8);
+  color: #f1f5f9;
+  font-size: 12px;
+  font-family: 'Share Tech Mono', 'VT323', 'Roboto Mono', monospace;
+}
+
+.configInput:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.configInput:focus {
+  outline: none;
+  border-color: rgba(96, 165, 250, 0.5);
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.1);
+}
+
+.configUnit {
+  font-size: 11px;
+  color: #94a3b8;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.configCheckboxLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: #cbd5f5;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+}
+
+.configCheckbox {
+  margin-right: 8px;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: #60a5fa;
+}
+
+.configCheckbox:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.configActions {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.configApplyButton {
+  width: 100%;
+  padding: 10px 16px;
+  border-radius: 6px;
+  border: 1px solid rgba(96, 165, 250, 0.3);
+  background: linear-gradient(135deg, rgba(96, 165, 250, 0.2), rgba(59, 130, 246, 0.3));
+  color: #93c5fd;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: 'Share Tech Mono', 'VT323', 'Roboto Mono', monospace;
+}
+
+.configApplyButton:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(96, 165, 250, 0.3), rgba(59, 130, 246, 0.4));
+  border-color: rgba(96, 165, 250, 0.5);
+  transform: translateY(-1px);
+}
+
+.configApplyButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.configStatusMessage {
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  letter-spacing: 0.05em;
+}
+

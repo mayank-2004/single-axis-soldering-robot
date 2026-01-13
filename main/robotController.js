@@ -533,7 +533,7 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
   })
 
   registerIpcListener('pid:parameters:set', (event, payload = {}) => {
-    if (hardware.state.emergencyStopActive) {
+    if (hardware.emergencyStopActive) {
       event.sender.send('pid:parameters:ack', { error: 'Emergency stop is active. Cannot tune PID.' })
       return
     }
@@ -607,6 +607,67 @@ export function setupRobotController({ ipcMain, getWebContents, options = {} }) 
     const result = await hardware.startSequence(padPositions, options)
     event.sender.send('sequence:start:response', result)
     sendSequenceUpdate(event.sender)
+  })
+
+  // Enhanced sequence configuration handlers
+  registerIpcListener('sequence:preheat-dwell:set', (event, payload = {}) => {
+    const result = hardware.setPreHeatDwellTime(payload.timeMs)
+    event.sender.send('sequence:preheat-dwell:ack', result)
+  })
+
+  registerIpcListener('sequence:preheat-dwell:request', (event) => {
+    const timeMs = hardware.getPreHeatDwellTime()
+    event.sender.send('sequence:preheat-dwell:status', { timeMs })
+  })
+
+  registerIpcListener('sequence:cooling:set', (event, payload = {}) => {
+    const result = hardware.setPostSolderCoolingTime(payload.timeMs)
+    event.sender.send('sequence:cooling:ack', result)
+  })
+
+  registerIpcListener('sequence:cooling:request', (event) => {
+    const timeMs = hardware.getPostSolderCoolingTime()
+    event.sender.send('sequence:cooling:status', { timeMs })
+  })
+
+  registerIpcListener('sequence:flux-timing:set', (event, payload = {}) => {
+    const result = hardware.setFluxBeforePreHeat(payload.enabled)
+    event.sender.send('sequence:flux-timing:ack', result)
+  })
+
+  registerIpcListener('sequence:flux-timing:request', (event) => {
+    const enabled = hardware.getFluxBeforePreHeat()
+    event.sender.send('sequence:flux-timing:status', { enabled })
+  })
+
+  registerIpcListener('sequence:multiple-passes:set', (event, payload = {}) => {
+    const result = hardware.setEnableMultiplePasses(payload.enabled)
+    event.sender.send('sequence:multiple-passes:ack', result)
+  })
+
+  registerIpcListener('sequence:multiple-passes:request', (event) => {
+    const enabled = hardware.getEnableMultiplePasses()
+    event.sender.send('sequence:multiple-passes:status', { enabled })
+  })
+
+  registerIpcListener('sequence:large-pad-threshold:set', (event, payload = {}) => {
+    const result = hardware.setLargePadThreshold(payload.thresholdMm2)
+    event.sender.send('sequence:large-pad-threshold:ack', result)
+  })
+
+  registerIpcListener('sequence:large-pad-threshold:request', (event) => {
+    const thresholdMm2 = hardware.getLargePadThreshold()
+    event.sender.send('sequence:large-pad-threshold:status', { thresholdMm2 })
+  })
+
+  registerIpcListener('sequence:passes-per-large-pad:set', (event, payload = {}) => {
+    const result = hardware.setPassesPerLargePad(payload.passes)
+    event.sender.send('sequence:passes-per-large-pad:ack', result)
+  })
+
+  registerIpcListener('sequence:passes-per-large-pad:request', (event) => {
+    const passes = hardware.getPassesPerLargePad()
+    event.sender.send('sequence:passes-per-large-pad:status', { passes })
   })
 
   registerIpcListener('sequence:stop', (event) => {
