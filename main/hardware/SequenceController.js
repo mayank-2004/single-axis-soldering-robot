@@ -35,7 +35,6 @@ export default class SequenceController extends EventEmitter {
         thermalMassDuration: 1000,
         wireLength: null,
         retractClearance: 7.5,  // mm - clearance above jig surface after soldering (5-10mm range)
-        // Enhanced sequence configuration
         preHeatDwellTime: 500,  // ms - time to wait after lowering Z before dispensing (allows tip to heat pad)
         postSolderCoolingTime: 1000,  // ms - time to wait after dispensing to let solder solidify
         fluxBeforePreHeat: true,  // Apply flux before pre-heat dwell (true) or after lowering Z (false)

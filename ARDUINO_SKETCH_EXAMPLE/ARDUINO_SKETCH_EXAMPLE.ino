@@ -119,8 +119,8 @@ unsigned int currentZStepDelay = Z_STEP_DELAY_MIN; // Default speed set to faste
 const unsigned int PULSE_WIDTH_US = 5; // Minimum pulse width for DM542 driver
 
 // Wire Feed stepper configuration (2DM542 driver)
-const int WIRE_FEED_STEP_PIN = 9;
-const int WIRE_FEED_DIR_PIN = 8;
+const int WIRE_FEED_STEP_PIN = 6;
+const int WIRE_FEED_DIR_PIN = 7;
 
 // 2DM542 Microstepping configuration (for wire feed)
 const int WIRE_FEED_MICROSTEPPING = 16;  // Change this to match your 2DM542 DIP switch setting
@@ -138,7 +138,7 @@ float wireFeedStepsPerMm = (static_cast<float>(WIRE_FEED_MOTOR_STEPS_PER_REVOLUT
 // Wire feed speed control
 const unsigned int WIRE_FEED_STEP_DELAY_MIN_US = 100;  // Fastest feed rate (microseconds)
 const unsigned int WIRE_FEED_STEP_DELAY_MAX_US = 2000; // Slowest feed rate (microseconds)
-unsigned int wireFeedStepDelayUs = 500;  // Current feed rate (default: 500μs = moderate speed)
+unsigned int wireFeedStepDelayUs = 300;  // Current feed rate (default: 500μs = moderate speed)
 
 // Button and Paddle configuration
 const int BUTTON_UP_PIN = 39;

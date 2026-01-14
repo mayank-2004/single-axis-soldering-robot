@@ -482,6 +482,22 @@ export default class SolderingHardware extends EventEmitter {
 
     this.serialManager.on('connected', () => {
       console.log('[SolderingHardware] Serial port connected')
+      
+      // Auto-homing: When app connects to Arduino, automatically home the head
+      // Wait a bit for Arduino to initialize, then send home command
+      setTimeout(async () => {
+        try {
+          console.log('[SolderingHardware] Auto-homing head on connection...')
+          const result = await this.movementController.home()
+          if (result.error) {
+            console.warn('[SolderingHardware] Auto-homing failed:', result.error)
+          } else {
+            console.log('[SolderingHardware] Auto-homing completed:', result.status)
+          }
+        } catch (error) {
+          console.error('[SolderingHardware] Auto-homing error:', error)
+        }
+      }, 1500) // Wait 1.5 seconds for Arduino to initialize
     })
 
     this.serialManager.on('disconnected', () => {
