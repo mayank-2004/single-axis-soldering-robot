@@ -128,17 +128,29 @@ const int WIRE_FEED_MOTOR_STEPS_PER_REVOLUTION = 200;  // Standard 1.8° stepper
 
 // Wire feed mechanism parameters (adjust based on your hardware)
 // These values depend on your wire feed roller diameter and gear ratio
-const float WIRE_FEED_ROLLER_DIAMETER_MM = 10.0;  // Diameter of wire feed roller in mm (adjust to your hardware)
+const float WIRE_FEED_ROLLER_DIAMETER_MM = 65.0;  // Diameter of wire feed roller in mm (measured by user)
 const float WIRE_FEED_GEAR_RATIO = 1.0;  // Gear ratio (1.0 = direct drive, adjust if you have gears)
 
 // Calculate wire feed steps per mm
 // Formula: Steps per mm = (Motor steps per rev × Microstepping) / (π × Roller diameter × Gear ratio)
-float wireFeedStepsPerMm = (static_cast<float>(WIRE_FEED_MOTOR_STEPS_PER_REVOLUTION) * static_cast<float>(WIRE_FEED_MICROSTEPPING)) / (3.14159f * WIRE_FEED_ROLLER_DIAMETER_MM * WIRE_FEED_GEAR_RATIO);
+// NOTE: Divided by 16 to compensate for 2DM542 driver behavior (similar to Z-axis issue)
+// The driver appears to operate in Full Step mode regardless of DIP switch microstepping settings
+float wireFeedStepsPerMm = ((static_cast<float>(WIRE_FEED_MOTOR_STEPS_PER_REVOLUTION) * static_cast<float>(WIRE_FEED_MICROSTEPPING)) / (3.14159f * WIRE_FEED_ROLLER_DIAMETER_MM * WIRE_FEED_GEAR_RATIO)) / 16.0f;
 
 // Wire feed speed control
 const unsigned int WIRE_FEED_STEP_DELAY_MIN_US = 100;  // Fastest feed rate (microseconds)
 const unsigned int WIRE_FEED_STEP_DELAY_MAX_US = 2000; // Slowest feed rate (microseconds)
 unsigned int wireFeedStepDelayUs = 300;  // Current feed rate (default: 500μs = moderate speed)
+
+// --- MOTOR POWER MANAGEMENT ---
+// Enable pins to control motor power (connect to ENA+ on DM542)
+// NOTE: You MUST wire the ENA+ pin of your drivers to these Arduino pins!
+const int STEPPER_Z_ENABLE_PIN = 62;    // Suggested pin for Z-Axis Enable (Standard RAMPS Z_ENABLE)
+const int WIRE_FEED_ENABLE_PIN = 38;    // Suggested pin for Wire Feed Enable (Standard RAMPS X_ENABLE)
+
+const unsigned long MOTOR_IDLE_TIMEOUT_MS = 5000; // Disable motors after 5 seconds of inactivity
+unsigned long lastMotorActivityTime = 0;
+bool areMotorsEnabled = true; // Default to enabled to ensure hold at start
 
 // Button and Paddle configuration
 const int BUTTON_UP_PIN = 39;
@@ -189,6 +201,8 @@ void manageHeater();
 void computePID();
 void applyPIDOutput();
 float readThermistor(int pin);
+void enableMotors();
+void disableMotors();
 
 
 void setup() {
@@ -229,18 +243,26 @@ void setup() {
   // Z-axis stepper motor pins
   pinMode(STEPPER_Z_STEP_PIN, OUTPUT);
   pinMode(STEPPER_Z_DIR_PIN, OUTPUT);
+  pinMode(STEPPER_Z_ENABLE_PIN, OUTPUT); // ENABLE pin
   pinMode(LIMIT_SWITCH_Z_MIN_PIN, INPUT_PULLUP);
   pinMode(LIMIT_SWITCH_Z_MAX_PIN, INPUT_PULLUP);
 
   digitalWrite(STEPPER_Z_STEP_PIN, LOW);
   digitalWrite(STEPPER_Z_DIR_PIN, LOW);
+  // Default to DISABLED (HIGH) to prevent heating until moved
+  digitalWrite(STEPPER_Z_ENABLE_PIN, HIGH); 
 
   // Wire feed stepper motor pins
   pinMode(WIRE_FEED_STEP_PIN, OUTPUT);
   pinMode(WIRE_FEED_DIR_PIN, OUTPUT);
+  pinMode(WIRE_FEED_ENABLE_PIN, OUTPUT); // ENABLE pin
 
   digitalWrite(WIRE_FEED_STEP_PIN, LOW);
   digitalWrite(WIRE_FEED_DIR_PIN, LOW);
+  // Default to DISABLED (HIGH) to prevent heating
+  digitalWrite(WIRE_FEED_ENABLE_PIN, HIGH);
+  
+  areMotorsEnabled = false; // Track internal state
 
   // Button and paddle pins (INPUT_PULLUP - buttons connect to ground when pressed)
   pinMode(BUTTON_UP_PIN, INPUT_PULLUP);
@@ -1035,6 +1057,20 @@ void processCommands() {
     Serial.print("[CMD] Received: ");
     Serial.println(command);
   }
+
+  // --- MOTOR POWER MANAGEMENT ---
+  // Check if motors have been idle for too long and disable them
+  if (areMotorsEnabled && (millis() - lastMotorActivityTime > MOTOR_IDLE_TIMEOUT_MS)) {
+    disableMotors();
+    Serial.println("[POWER] Motors disabled due to inactivity (Cool down mode)");
+  }
+  
+  // Update last activity time if motors are moving
+  if (isMoving || isWireFeeding) {
+    lastMotorActivityTime = millis();
+    // Ensure motors are enabled if we are moving (failsafe)
+    if (!areMotorsEnabled) enableMotors();
+  }
 }
 
 // Emergency Stop Functions
@@ -1197,6 +1233,13 @@ void moveZAxisByDistance(float distanceMm, unsigned int stepDelayUs) {
   }
 
   // distanceMm > 0 means move up (towards home/0.00mm)
+  // Check limit switches (redundant safety)
+  if (!moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MIN_PIN)) return;
+  if (moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN)) return;
+
+  // ENABLE MOTORS BEFORE MOVING
+  enableMotors();
+
   // distanceMm < 0 means move down (away from home, negative values)
   bool moveUp = distanceMm > 0;
 
@@ -1298,6 +1341,9 @@ void homeZAxis(unsigned int stepDelayUs) {
 
   Serial.println("[Home] Starting homing sequence - moving upward until limit switch triggers...");
 
+  // ENABLE MOTORS BEFORE HOMING
+  enableMotors();
+
   isMoving = true;
   digitalWrite(STEPPER_Z_DIR_PIN, HIGH); // Move towards home (upward, towards Z_MAX limit switch)
 
@@ -1372,6 +1418,9 @@ void feedWireByLength(float lengthMm) {
   if (lengthMm <= 0) {
     return;
   }
+
+  // ENABLE MOTORS BEFORE FEEDING
+  enableMotors();
 
   // Set direction: HIGH = feed wire out, LOW = retract (if needed)
   digitalWrite(WIRE_FEED_DIR_PIN, HIGH);
