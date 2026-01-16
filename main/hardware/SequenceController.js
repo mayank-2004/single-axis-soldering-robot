@@ -440,9 +440,10 @@ export default class SequenceController extends EventEmitter {
       case 'preHeatDwell':
         // Wait for tip to heat the pad before dispensing solder
         // This allows the pad to reach proper temperature for good solder flow
-        const preHeatDuration = this.state.sequence.preHeatDwellTime || 500
-        console.log(`[Sequence] Pre-heat dwell: waiting ${preHeatDuration}ms for pad to heat`)
-        await new Promise((resolve) => setTimeout(resolve, preHeatDuration))
+        // Use thermalMassDuration (from Pad Metrics) if available, otherwise use preHeatDwellTime
+        const thermalDuration = this.state.sequence.thermalMassDuration || this.state.sequence.preHeatDwellTime || 500
+        console.log(`[Sequence] Pre-heat dwell: waiting ${thermalDuration}ms for pad to heat (thermal mass compensated: ${this.state.sequence.thermalMassDuration ? 'yes' : 'no'})`)
+        await new Promise((resolve) => setTimeout(resolve, thermalDuration))
         break
 
       case 'dispense':

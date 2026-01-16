@@ -5,7 +5,7 @@ export default class WireFeedController extends EventEmitter {
     super()
     this.serialManager = serialManager
     this.timers = []
-    
+
     this.state = {
       wireFeed: {
         status: 'idle',
@@ -83,7 +83,7 @@ export default class WireFeedController extends EventEmitter {
         await this._sendCommand({ command: 'feed', length: lengthNumeric })
         console.log(`[WireFeedController] Wire feed command sent successfully`)
         const durationMs = Math.max(1200, (lengthNumeric / rateNumeric) * 1000)
-        
+
         this._registerTimeout(() => {
           if (!this.state.wireFeed.wireBreak.detected) {
             this._updateSpoolAfterFeed(lengthNumeric, rotationsNeeded, skipWireRemainingUpdate)
@@ -119,6 +119,21 @@ export default class WireFeedController extends EventEmitter {
     return { status: this.state.wireFeed.message }
   }
 
+  tareSpool() {
+    this.state.spool.tareWeight = this.state.spool.currentWeight
+    this.state.spool.isTared = true
+    this.emit('spool', this.getSpoolState())
+    return { status: 'Spool tared', tareWeight: this.state.spool.tareWeight }
+  }
+
+  resetSpool() {
+    this.state.spool.tareWeight = 0.0
+    this.state.spool.isTared = false
+    this.state.spool.currentWireLength = this.state.spool.initialWireLength
+    this.emit('spool', this.getSpoolState())
+    return { status: 'Spool reset' }
+  }
+
   getWireFeedStatus() {
     return {
       status: this.state.wireFeed.status,
@@ -133,17 +148,17 @@ export default class WireFeedController extends EventEmitter {
     const wireRadius = spool.wireDiameter / 2
     const layers = Math.floor((spool.initialWireLength - spool.currentWireLength) / (Math.PI * spool.spoolDiameter))
     const effectiveDiameter = spool.spoolDiameter + (layers * 2 * wireRadius)
-    
+
     let remainingPercentage = 0
     if (spool.initialWireLength > 0) {
       remainingPercentage = (spool.currentWireLength / spool.initialWireLength) * 100
     }
     remainingPercentage = Math.max(0, Math.min(100, remainingPercentage))
-    
+
     const calculatedWeight = this._calculateWireWeight(spool.currentWireLength)
     const netWeightFromLength = calculatedWeight - spool.tareWeight
     let netWeight = netWeightFromLength
-    
+
     if (spool.initialWeight > 0) {
       const syncedNetWeight = spool.initialWeight * (remainingPercentage / 100)
       netWeight = Math.max(0, syncedNetWeight)
@@ -152,7 +167,7 @@ export default class WireFeedController extends EventEmitter {
         remainingPercentage = (netWeight / spool.initialWeight) * 100
       }
     }
-    
+
     return {
       spoolDiameter: spool.spoolDiameter,
       wireDiameter: spool.wireDiameter,
@@ -185,9 +200,38 @@ export default class WireFeedController extends EventEmitter {
     return volumeMm3 * densityGPerMm3
   }
 
+  _updateSpoolAfterCompleteCycle(totalWireLengthUsed) {
+    const { spool } = this.state
+
+    // Deduct the total wire length used in the cycle from the current length
+    spool.currentWireLength = Math.max(0, spool.currentWireLength - totalWireLengthUsed)
+    spool.lastCycleWireLengthUsed = totalWireLengthUsed
+
+    // Recalculate remaining percentage
+    let remainingPercentage = 0
+    if (spool.initialWireLength > 0) {
+      remainingPercentage = (spool.currentWireLength / spool.initialWireLength) * 100
+    }
+    remainingPercentage = Math.max(0, Math.min(100, remainingPercentage))
+
+    // Recalculate weight based on new length/percentage
+    if (spool.initialWeight > 0) {
+      const newNetWeight = spool.initialWeight * (remainingPercentage / 100)
+      spool.currentWeight = newNetWeight + spool.tareWeight
+    } else {
+      spool.currentWeight = this._calculateWireWeight(spool.currentWireLength)
+    }
+
+    spool.lastUpdated = Date.now()
+    console.log(`[WireFeedController] Cycle complete. Updated spool: used=${totalWireLengthUsed.toFixed(2)}mm, remaining=${spool.currentWireLength.toFixed(2)}mm`)
+
+    this.emit('spool', this.getSpoolState())
+    return { status: 'Spool updated after cycle', lengthUsed: totalWireLengthUsed }
+  }
+
   _updateSpoolAfterFeed(feedLength, rotations, skipWireRemainingUpdate = false) {
     const { spool } = this.state
-    
+
     if (!skipWireRemainingUpdate) {
       spool.currentWireLength = Math.max(0, spool.currentWireLength - feedLength)
       let remainingPercentage = 0
@@ -195,7 +239,7 @@ export default class WireFeedController extends EventEmitter {
         remainingPercentage = (spool.currentWireLength / spool.initialWireLength) * 100
       }
       remainingPercentage = Math.max(0, Math.min(100, remainingPercentage))
-      
+
       if (spool.initialWeight > 0) {
         const newNetWeight = spool.initialWeight * (remainingPercentage / 100)
         spool.currentWeight = newNetWeight + spool.tareWeight
@@ -203,7 +247,7 @@ export default class WireFeedController extends EventEmitter {
         spool.currentWeight = this._calculateWireWeight(spool.currentWireLength)
       }
     }
-    
+
     spool.totalRotations += rotations
     spool.currentRotation = (spool.currentRotation + (rotations * 360)) % 360
     spool.lastUpdated = Date.now()

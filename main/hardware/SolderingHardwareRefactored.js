@@ -41,7 +41,7 @@ export default class SolderingHardware extends EventEmitter {
     this.wireFeedController = new WireFeedController(this.serialManager)
     this.auxiliaryController = new AuxiliaryController(this.serialManager)
     this.sequenceController = new SequenceController(this.movementController, this.wireFeedController, this.auxiliaryController)
-    
+
     // Emergency stop state
     this.emergencyStopActive = false
   }
@@ -279,6 +279,14 @@ export default class SolderingHardware extends EventEmitter {
     return this.wireFeedController.getSpoolState()
   }
 
+  tareSpool() {
+    return this.wireFeedController.tareSpool()
+  }
+
+  resetSpool() {
+    return this.wireFeedController.resetSpool()
+  }
+
   // Auxiliary methods
   setFanState(fan, enabled) {
     return this.auxiliaryController.setFanState(fan, enabled)
@@ -298,6 +306,22 @@ export default class SolderingHardware extends EventEmitter {
 
   async dispenseFluxMist(duration = null, flowRate = null) {
     return this.auxiliaryController.dispenseFluxMist(duration, flowRate)
+  }
+
+  setFumeExtractorAutoMode(autoMode) {
+    return this.auxiliaryController.setFumeExtractorAutoMode(autoMode)
+  }
+
+  setFluxMistAutoMode(autoMode) {
+    return this.auxiliaryController.setFluxMistAutoMode(autoMode)
+  }
+
+  setAirBreezeAutoMode(autoMode) {
+    return this.auxiliaryController.setAirBreezeAutoMode(autoMode)
+  }
+
+  setAirJetPressureAutoMode(autoMode) {
+    return this.auxiliaryController.setAirJetPressureAutoMode(autoMode)
   }
 
   getFluxState() {
@@ -482,7 +506,7 @@ export default class SolderingHardware extends EventEmitter {
 
     this.serialManager.on('connected', () => {
       console.log('[SolderingHardware] Serial port connected')
-      
+
       // Auto-homing: When app connects to Arduino, automatically home the head
       // Wait a bit for Arduino to initialize, then send home command
       setTimeout(async () => {
@@ -536,20 +560,20 @@ export default class SolderingHardware extends EventEmitter {
       if (updates.emergencyStop !== undefined) {
         const wasActive = this.emergencyStopActive
         this.emergencyStopActive = Boolean(updates.emergencyStop)
-        
+
         // If E-stop was just activated, stop all operations
         if (this.emergencyStopActive && !wasActive) {
           console.warn('[SolderingHardware] EMERGENCY STOP ACTIVATED!')
-          
+
           // Stop sequence immediately
           if (this.sequenceController.state.sequence.isActive) {
             this.sequenceController.stopSequence()
             console.log('[SolderingHardware] Sequence stopped due to emergency stop')
           }
-          
+
           // Disable heater
           this.temperatureController.setHeaterEnabled(false)
-          
+
           // Emit E-stop event
           this.emit('emergencyStop', {
             active: true,
@@ -559,7 +583,7 @@ export default class SolderingHardware extends EventEmitter {
           // E-stop was released (but still needs reset command)
           console.log('[SolderingHardware] Emergency stop button released (reset required)')
         }
-        
+
         // Always emit current state
         this.emit('emergencyStop:update', {
           active: this.emergencyStopActive,
@@ -616,7 +640,7 @@ export default class SolderingHardware extends EventEmitter {
       await this.serialManager.sendJsonCommand({
         command: 'reset'
       })
-      
+
       // Note: State will be updated when Arduino sends next status update
       return { status: 'Reset command sent to Arduino' }
     } catch (error) {

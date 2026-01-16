@@ -89,7 +89,7 @@ export default function HomePage() {
   const [isHeaterEnabled, setIsHeaterEnabled] = useState(false)
   const [heaterStatus, setHeaterStatus] = useState('')
   const [currentTipTemperature, setCurrentTipTemperature] = useState(null)
-  
+
   // PID control state
   const [pidEnabled, setPidEnabled] = useState(true)
   const [pidKp, setPidKp] = useState(5.0)
@@ -97,7 +97,7 @@ export default function HomePage() {
   const [pidKd, setPidKd] = useState(1.0)
   const [pidPower, setPidPower] = useState(0)
   const [pidOutput, setPidOutput] = useState(0)
-  
+
   const [wireDiameter, setWireDiameter] = useState('')
   const [wireFeedStatus, setWireFeedStatus] = useState('idle')
   const [wireFeedMessage, setWireFeedMessage] = useState('')
@@ -622,10 +622,32 @@ export default function HomePage() {
 
       // DON'T track spool updates as Arduino data - only track actual arduino:data:received events
 
-      setSpoolState((current) => ({
-        ...current,
-        ...payload,
-      }))
+      setSpoolState((current) => {
+        const nextState = {
+          ...current,
+          ...payload,
+        }
+
+        // Update LCD display 'Wire Remaining' with real-time length in mm
+        if (nextState.currentWireLength !== undefined) {
+          setCalibration((prev) =>
+            prev.map((entry) => {
+              if (entry.label === 'Wire Remaining') {
+                return {
+                  ...entry,
+                  value: nextState.currentWireLength.toFixed(1),
+                  unit: 'mm',
+                  length: `${nextState.remainingPercentage.toFixed(1)}%`, // Show percentage alongside mm
+                  percentage: nextState.remainingPercentage // Pass explicit percentage for alerts
+                }
+              }
+              return entry
+            })
+          )
+        }
+
+        return nextState
+      })
 
       // Sync wire diameter to WireFeedControl when spool state updates
       if (payload.wireDiameter !== undefined) {
@@ -1233,7 +1255,7 @@ export default function HomePage() {
     if (typeof window === 'undefined' || !window.ipc?.send) {
       return
     }
-    
+
     // Enhance pad positions with size information for multiple passes
     const enhancedPadPositions = padPositions.map((pos, index) => {
       // If pad position doesn't have area, try to get it from saved configurations
@@ -1242,7 +1264,7 @@ export default function HomePage() {
         const matchingConfig = savedPadConfigurations.find(
           config => Math.abs(config.solderHeight - (pos.z || 0)) < 0.1
         ) || savedPadConfigurations[0]
-        
+
         if (matchingConfig && matchingConfig.area) {
           return {
             ...pos,
@@ -1254,7 +1276,7 @@ export default function HomePage() {
           }
         }
       }
-      
+
       // If we have padArea from current calculation, use it
       if (!pos.area && padArea) {
         return {
@@ -1265,10 +1287,10 @@ export default function HomePage() {
           diameter: padDimensions.diameter || (padDimensions.radius ? padDimensions.radius * 2 : undefined),
         }
       }
-      
+
       return pos
     })
-    
+
     window.ipc.send('sequence:start', {
       padPositions: enhancedPadPositions,
       options: {

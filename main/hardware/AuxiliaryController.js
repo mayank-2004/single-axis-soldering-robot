@@ -102,6 +102,12 @@ export default class AuxiliaryController extends EventEmitter {
     return { status: this.getFumeExtractorState() }
   }
 
+  setFumeExtractorAutoMode(autoMode) {
+    this.state.fumeExtractor.autoMode = Boolean(autoMode)
+    this.emit('fumeExtractor', this.getFumeExtractorState())
+    return { status: this.getFumeExtractorState() }
+  }
+
   getFumeExtractorState() {
     return {
       enabled: this.state.fumeExtractor.enabled,
@@ -180,6 +186,12 @@ export default class AuxiliaryController extends EventEmitter {
         }, durationNumeric)
       })
     }
+  }
+
+  setFluxMistAutoMode(autoMode) {
+    this.state.fluxMist.autoMode = Boolean(autoMode)
+    this.emit('fluxMist', this.getFluxMistState())
+    return { status: this.getFluxMistState() }
   }
 
   getFluxState() {
@@ -292,6 +304,12 @@ export default class AuxiliaryController extends EventEmitter {
     return { status: this.getAirBreezeState() }
   }
 
+  setAirBreezeAutoMode(autoMode) {
+    this.state.airBreeze.autoMode = Boolean(autoMode)
+    this.emit('airBreeze', this.getAirBreezeState())
+    return { status: this.getAirBreezeState() }
+  }
+
   async activateAirJetPressure(duration = null, pressure = null) {
     const jetDuration = duration !== null ? duration : this.state.airJetPressure.duration
     const jetPressure = pressure !== null ? pressure : this.state.airJetPressure.pressure
@@ -378,6 +396,12 @@ export default class AuxiliaryController extends EventEmitter {
       }
     }
 
+    this.emit('airJetPressure', this.getAirJetPressureState())
+    return { status: this.getAirJetPressureState() }
+  }
+
+  setAirJetPressureAutoMode(autoMode) {
+    this.state.airJetPressure.autoMode = Boolean(autoMode)
     this.emit('airJetPressure', this.getAirJetPressureState())
     return { status: this.getAirJetPressureState() }
   }

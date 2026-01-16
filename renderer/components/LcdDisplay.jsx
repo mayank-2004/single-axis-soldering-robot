@@ -37,7 +37,16 @@ export default function LcdDisplay({
   )
 
   const wirePercentage = useMemo(() => {
-    if (!wireRemainingReading || !wireRemainingReading.value) return null
+    if (!wireRemainingReading) return null
+
+    // If explicit percentage is provided, use it
+    if (wireRemainingReading.percentage !== undefined && wireRemainingReading.percentage !== null) {
+      return Number(wireRemainingReading.percentage)
+    }
+
+    if (!wireRemainingReading.value) return null
+
+    // Otherwise try to parse from value (fallback for legacy/percentage display)
     const numeric = typeof wireRemainingReading.value === 'number'
       ? wireRemainingReading.value
       : parseFloat(String(wireRemainingReading.value).replace(/[^0-9.]/g, ''))
@@ -66,7 +75,7 @@ export default function LcdDisplay({
 
     // Update on window resize
     window.addEventListener('resize', updatePanelWidth)
-    
+
     // Use ResizeObserver for more accurate container size tracking
     let resizeObserver
     if (wrapperRef.current && window.ResizeObserver) {
