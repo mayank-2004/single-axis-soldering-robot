@@ -33,12 +33,12 @@ export default function WireFeedControl({
               className={styles.controlInput}
               value={wireDiameter}
               onChange={onWireDiameterChange}
-              placeholder="e.g. 0.5"
+              placeholder="e.g. 0.7"
             />
             <span className={styles.controlUnit}>mm</span>
           </div>
         </div> */}
-        
+
         {/* Display only - value received from Arduino */}
         <div className={styles.controlRow}>
           <span className={styles.controlLabel}>Wire Diameter</span>
@@ -82,9 +82,9 @@ export default function WireFeedControl({
           <span className={styles.controlValue}>{status}</span>
         </div>
         <div className={styles.controlRow}>
-          <button 
-            type="button" 
-            className={styles.controlButtonWide} 
+          <button
+            type="button"
+            className={styles.controlButtonWide}
             onClick={onStart}
             disabled={!calculatedLength || calculatedLength <= 0}
           >
@@ -94,7 +94,7 @@ export default function WireFeedControl({
       </div>
       {message ? <p className={styles.controlStatus}>{message}</p> : null}
       <p className={styles.infoText}>
-        {calculatedLength !== null && calculatedLength > 0 
+        {calculatedLength !== null && calculatedLength > 0
           ? 'Calculated wire length from Pad Soldering Metrics will be used for feeding. Enter wire diameter when inserting a new wire type.'
           : 'Calculate wire length in Pad Soldering Metrics first. Enter wire diameter when inserting a new wire type.'
         }

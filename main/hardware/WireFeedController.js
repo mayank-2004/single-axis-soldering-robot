@@ -15,7 +15,7 @@ export default class WireFeedController extends EventEmitter {
       },
       spool: {
         spoolDiameter: 50.0,
-        wireDiameter: 0.5,
+        wireDiameter: 0.7,
         initialWireLength: 10000.0,
         currentWireLength: 10000.0,
         solderDensity: 8.5,

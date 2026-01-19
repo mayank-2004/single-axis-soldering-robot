@@ -39,7 +39,7 @@ bool wireBreakDetected = false;  // Default value for simulation
 
 float spoolWeight = 500.0;  // Default value for simulation
 float wireLength = 10000.0;  // Default value for simulation
-float wireDiameter = 0.5;
+float wireDiameter = 0.7;
 float remainingPercentage = 100.0;  // Default value for simulation
 bool isWireFeeding = false;
 
@@ -145,12 +145,11 @@ unsigned int wireFeedStepDelayUs = 300;  // Current feed rate (default: 500μs =
 // --- MOTOR POWER MANAGEMENT ---
 // Enable pins to control motor power (connect to ENA+ on DM542)
 // NOTE: You MUST wire the ENA+ pin of your drivers to these Arduino pins!
-const int STEPPER_Z_ENABLE_PIN = 62;    // Suggested pin for Z-Axis Enable (Standard RAMPS Z_ENABLE)
-const int WIRE_FEED_ENABLE_PIN = 38;    // Suggested pin for Wire Feed Enable (Standard RAMPS X_ENABLE)
-
-const unsigned long MOTOR_IDLE_TIMEOUT_MS = 5000; // Disable motors after 5 seconds of inactivity
-unsigned long lastMotorActivityTime = 0;
-bool areMotorsEnabled = true; // Default to enabled to ensure hold at start
+// const int STEPPER_Z_ENABLE_PIN = 62;    // Suggested pin for Z-Axis Enable (Standard RAMPS Z_ENABLE)
+// const int WIRE_FEED_ENABLE_PIN = 38;    // Suggested pin for Wire Feed Enable (Standard RAMPS X_ENABLE)
+// const unsigned long MOTOR_IDLE_TIMEOUT_MS = 5000; // Disable motors after 5 seconds of inactivity
+// unsigned long lastMotorActivityTime = 0;
+// bool areMotorsEnabled = true; // Default to enabled to ensure hold at start
 
 // Button and Paddle configuration
 const int BUTTON_UP_PIN = 39;
@@ -201,8 +200,8 @@ void manageHeater();
 void computePID();
 void applyPIDOutput();
 float readThermistor(int pin);
-void enableMotors();
-void disableMotors();
+// void enableMotors();
+// void disableMotors();
 
 
 void setup() {
@@ -243,26 +242,25 @@ void setup() {
   // Z-axis stepper motor pins
   pinMode(STEPPER_Z_STEP_PIN, OUTPUT);
   pinMode(STEPPER_Z_DIR_PIN, OUTPUT);
-  pinMode(STEPPER_Z_ENABLE_PIN, OUTPUT); // ENABLE pin
+  // pinMode(STEPPER_Z_ENABLE_PIN, OUTPUT); // ENABLE pin
   pinMode(LIMIT_SWITCH_Z_MIN_PIN, INPUT_PULLUP);
   pinMode(LIMIT_SWITCH_Z_MAX_PIN, INPUT_PULLUP);
 
   digitalWrite(STEPPER_Z_STEP_PIN, LOW);
   digitalWrite(STEPPER_Z_DIR_PIN, LOW);
   // Default to DISABLED (HIGH) to prevent heating until moved
-  digitalWrite(STEPPER_Z_ENABLE_PIN, HIGH); 
+  // digitalWrite(STEPPER_Z_ENABLE_PIN, HIGH); 
 
   // Wire feed stepper motor pins
   pinMode(WIRE_FEED_STEP_PIN, OUTPUT);
   pinMode(WIRE_FEED_DIR_PIN, OUTPUT);
-  pinMode(WIRE_FEED_ENABLE_PIN, OUTPUT); // ENABLE pin
+  // pinMode(WIRE_FEED_ENABLE_PIN, OUTPUT); // ENABLE pin
 
   digitalWrite(WIRE_FEED_STEP_PIN, LOW);
   digitalWrite(WIRE_FEED_DIR_PIN, LOW);
   // Default to DISABLED (HIGH) to prevent heating
-  digitalWrite(WIRE_FEED_ENABLE_PIN, HIGH);
-  
-  areMotorsEnabled = false; // Track internal state
+  // digitalWrite(WIRE_FEED_ENABLE_PIN, HIGH);
+  // areMotorsEnabled = false; // Track internal state
 
   // Button and paddle pins (INPUT_PULLUP - buttons connect to ground when pressed)
   pinMode(BUTTON_UP_PIN, INPUT_PULLUP);
@@ -1060,17 +1058,16 @@ void processCommands() {
 
   // --- MOTOR POWER MANAGEMENT ---
   // Check if motors have been idle for too long and disable them
-  if (areMotorsEnabled && (millis() - lastMotorActivityTime > MOTOR_IDLE_TIMEOUT_MS)) {
-    disableMotors();
-    Serial.println("[POWER] Motors disabled due to inactivity (Cool down mode)");
-  }
-  
+  // if (areMotorsEnabled && (millis() - lastMotorActivityTime > MOTOR_IDLE_TIMEOUT_MS)) {
+  //   disableMotors();
+  //   Serial.println("[POWER] Motors disabled due to inactivity (Cool down mode)");
+  // }
   // Update last activity time if motors are moving
-  if (isMoving || isWireFeeding) {
-    lastMotorActivityTime = millis();
-    // Ensure motors are enabled if we are moving (failsafe)
-    if (!areMotorsEnabled) enableMotors();
-  }
+  // if (isMoving || isWireFeeding) {
+  //   lastMotorActivityTime = millis();
+  //   // Ensure motors are enabled if we are moving (failsafe)
+  //   if (!areMotorsEnabled) enableMotors();
+  // }
 }
 
 // Emergency Stop Functions
@@ -1234,11 +1231,10 @@ void moveZAxisByDistance(float distanceMm, unsigned int stepDelayUs) {
 
   // distanceMm > 0 means move up (towards home/0.00mm)
   // Check limit switches (redundant safety)
-  if (!moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MIN_PIN)) return;
-  if (moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN)) return;
-
-  // ENABLE MOTORS BEFORE MOVING
-  enableMotors();
+  // if (!moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MIN_PIN)) return;
+  // if (moveUp && isLimitSwitchTriggered(LIMIT_SWITCH_Z_MAX_PIN)) return;
+  // // ENABLE MOTORS BEFORE MOVING
+  // enableMotors();
 
   // distanceMm < 0 means move down (away from home, negative values)
   bool moveUp = distanceMm > 0;
@@ -1342,7 +1338,7 @@ void homeZAxis(unsigned int stepDelayUs) {
   Serial.println("[Home] Starting homing sequence - moving upward until limit switch triggers...");
 
   // ENABLE MOTORS BEFORE HOMING
-  enableMotors();
+  // enableMotors();
 
   isMoving = true;
   digitalWrite(STEPPER_Z_DIR_PIN, HIGH); // Move towards home (upward, towards Z_MAX limit switch)
@@ -1420,7 +1416,7 @@ void feedWireByLength(float lengthMm) {
   }
 
   // ENABLE MOTORS BEFORE FEEDING
-  enableMotors();
+  // enableMotors();
 
   // Set direction: HIGH = feed wire out, LOW = retract (if needed)
   digitalWrite(WIRE_FEED_DIR_PIN, HIGH);

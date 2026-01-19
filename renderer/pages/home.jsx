@@ -98,7 +98,7 @@ export default function HomePage() {
   const [pidPower, setPidPower] = useState(0)
   const [pidOutput, setPidOutput] = useState(0)
 
-  const [wireDiameter, setWireDiameter] = useState('')
+  const [wireDiameter, setWireDiameter] = useState('0.7')
   const [wireFeedStatus, setWireFeedStatus] = useState('idle')
   const [wireFeedMessage, setWireFeedMessage] = useState('')
   const [wireBreak, setWireBreak] = useState({
@@ -108,7 +108,7 @@ export default function HomePage() {
   })
   const [spoolState, setSpoolState] = useState({
     spoolDiameter: 50.0,
-    wireDiameter: 0.5,
+    wireDiameter: 0.7,
     initialWireLength: 10000.0,
     currentWireLength: 10000.0,
     remainingPercentage: 100,

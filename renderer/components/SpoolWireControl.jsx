@@ -21,7 +21,7 @@ export default function SpoolWireControl({
     currentFeedRate,
   } = spoolState || {}
 
-  const [localWireDiameter, setLocalWireDiameter] = React.useState(wireDiameter?.toString() || '0.5')
+  const [localWireDiameter, setLocalWireDiameter] = React.useState(wireDiameter?.toString() || '0.7')
 
   React.useEffect(() => {
     if (wireDiameter !== undefined) setLocalWireDiameter(wireDiameter.toString())
@@ -65,7 +65,7 @@ export default function SpoolWireControl({
               className={styles.controlInput}
               value={localWireDiameter}
               onChange={handleWireDiameterChange}
-              placeholder="0.5"
+              placeholder="0.7"
             />
             <span className={styles.controlUnit}>mm</span>
             <button type="button" className={styles.controlButton} onClick={handleSubmit}>
@@ -92,8 +92,8 @@ export default function SpoolWireControl({
                   isWireEmpty
                     ? { color: '#ef4444', fontWeight: 700 }
                     : isWireLow
-                    ? { color: '#fca5a5', fontWeight: 700 }
-                    : undefined
+                      ? { color: '#fca5a5', fontWeight: 700 }
+                      : undefined
                 }
               >
                 {remainingPercentage?.toFixed(1) ?? '--'}%
@@ -104,8 +104,8 @@ export default function SpoolWireControl({
                   isWireEmpty
                     ? { color: '#ef4444' }
                     : isWireLow
-                    ? { color: '#f87171' }
-                    : undefined
+                      ? { color: '#f87171' }
+                      : undefined
                 }
               >
                 {remainingLength !== undefined ? `${(remainingLength / 1000).toFixed(2)} m` : '--'}
@@ -121,13 +121,13 @@ export default function SpoolWireControl({
                 background: isWireEmpty
                   ? 'linear-gradient(90deg, rgba(220, 38, 38, 0.95), rgba(185, 28, 28, 1))'
                   : isWireLow
-                  ? 'linear-gradient(90deg, rgba(239, 68, 68, 0.9), rgba(220, 38, 38, 0.95))'
-                  : undefined,
+                    ? 'linear-gradient(90deg, rgba(239, 68, 68, 0.9), rgba(220, 38, 38, 0.95))'
+                    : undefined,
                 boxShadow: isWireEmpty
                   ? '0 0 12px rgba(220, 38, 38, 0.8)'
                   : isWireLow
-                  ? '0 0 8px rgba(239, 68, 68, 0.6)'
-                  : undefined,
+                    ? '0 0 8px rgba(239, 68, 68, 0.6)'
+                    : undefined,
               }}
             />
           </div>
