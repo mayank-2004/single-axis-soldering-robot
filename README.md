@@ -13,10 +13,11 @@
 9. [Jig Calibration System](#jig-calibration-system)
 10. [Soldering Sequence Workflow](#soldering-sequence-workflow)
 11. [User Interface Components](#user-interface-components)
-12. [Installation & Setup](#installation--setup)
-13. [Usage Guide](#usage-guide)
-14. [Troubleshooting](#troubleshooting)
-15. [PID Temperature Control System](#pid-temperature-control-system)
+16. [Computer Vision System](#computer-vision-system)
+17. [Installation & Setup](#installation--setup)
+18. [Usage Guide](#usage-guide)
+19. [Troubleshooting](#troubleshooting)
+20. [PID Temperature Control System](#pid-temperature-control-system)
 
 ---
 
@@ -1574,3 +1575,32 @@ For issues, questions, or contributions, please [add your contact/support inform
 
 **Last Updated**: [Current Date]
 **Version**: 1.0.0
+13. [Usage Guide](#usage-guide)
+14. [Troubleshooting](#troubleshooting)
+15. [PID Temperature Control System](#pid-temperature-control-system)
+
+---
+
+## 16. Computer Vision System
+
+The robot features an advanced, frontend-based Computer Vision system for real-time Pad Detection, running entirely in the browser via WebAssembly (OpenCV.js).
+
+### Features
+*   **Real-time Pad Detection**: Identifies silver solder pads on green PCBs.
+*   **Dynamic Resolution**: Automatically adapts to camera resolution changes (supports up to 1920x1080).
+*   **Intelligent Filtering**:
+    *   **Color**: HSV filtering (Low Saturation, Value > 100) separates silver from green.
+    *   **Morphology**: `cv.MORPH_CLOSE` merges fragmented glare into solid pad shapes.
+    *   **Convexity ("Text Killer")**: Uses Convex Hull analysis (`Area/HullArea > 0.85`) to distinguish solid pads (convex) from text characters like "C", "U", "L" (concave).
+*   **Zero-Overhead Overlay**: Canvas-based overlay aligned perfectly with the video feed.
+
+### Technical Stack
+*   **Library**: OpenCV.js (WebAssembly)
+*   **Performance**: "Allocate Once, Reuse Forever" pattern prevents memory leaks and GC pauses.
+*   **Resolution**: Forces HD (min 1280x720) for maximum clarity.
+
+### Usage
+1.  Connect a USB Camera.
+2.  Navigate to **Camera View**.
+3.  Green boxes automatically highlight valid solder pads.
+4.  Text on the PCB is automatically ignored.

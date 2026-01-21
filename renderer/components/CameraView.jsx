@@ -24,6 +24,92 @@ export default function CameraView({ isActive = true }) {
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
 
+  // Calibration State
+  const [calibrationMode, setCalibrationMode] = useState(false)
+  const [pixelToMmRatio, setPixelToMmRatio] = useState(null)
+  const [showCalInput, setShowCalInput] = useState(false)
+  const [realDistInput, setRealDistInput] = useState('')
+  const [pendingCalPx, setPendingCalPx] = useState(0)
+
+  // Pad Listing State
+  const [detectedPads, setDetectedPads] = useState([]) // Snapshot of pads
+  const latestPadsRef = useRef([]) // Live CV data (not state)
+
+  // Ref to pass click event to the CV loop
+  const lastClickRef = useRef(null)
+
+  // Load Saved Calibration
+  useEffect(() => {
+    const savedRatio = localStorage.getItem('camera_pixel_ratio')
+    if (savedRatio) setPixelToMmRatio(parseFloat(savedRatio))
+  }, [])
+
+  // Handle Calibration Click (on Canvas)
+  const handleCanvasClick = (e) => {
+    if (!calibrationMode) return
+
+    const rect = e.target.getBoundingClientRect()
+    const scaleX = e.target.width / rect.width
+    const scaleY = e.target.height / rect.height
+
+    const x = (e.clientX - rect.left) * scaleX
+    const y = (e.clientY - rect.top) * scaleY
+
+    // Send click to CV loop to find which contour was clicked
+    lastClickRef.current = { x, y }
+  }
+
+  const handleStartCalibration = () => {
+    setCalibrationMode(true)
+    setShowCalInput(false)
+    setRealDistInput('')
+    lastClickRef.current = null
+  }
+
+  const handleScanPads = () => {
+    // Sort pads reading order: Top-Left to Bottom-Right
+    // Primary Sort: Y (with tolerance), Secondary Sort: X
+    const raw = latestPadsRef.current || []
+    const sorted = [...raw].sort((a, b) => {
+      const dy = Math.abs(a.y - b.y)
+      if (dy < 20) return a.x - b.x // Same row (roughly)
+      return a.y - b.y
+    }).map((p, i) => ({ ...p, id: i + 1 }))
+
+    setDetectedPads(sorted)
+  }
+
+  const handleSaveCalibration = () => {
+    const distMm = parseFloat(realDistInput)
+    if (isNaN(distMm) || distMm <= 0) {
+      alert("Please enter a valid width")
+      return
+    }
+
+    if (pendingCalPx <= 0) {
+      alert("Error: No pad width detected. Please try again.")
+      setCalibrationMode(false)
+      setShowCalInput(false)
+      return
+    }
+
+    // Ratio = Real / Pixels
+    const ratio = distMm / pendingCalPx
+    setPixelToMmRatio(ratio)
+    localStorage.setItem('camera_pixel_ratio', ratio.toString())
+
+    // Reset Mode
+    setCalibrationMode(false)
+    setShowCalInput(false)
+  }
+
+  const handleCancelCalibration = () => {
+    setCalibrationMode(false)
+    setShowCalInput(false)
+    lastClickRef.current = null
+  }
+
+
   // OpenCV Loaded Callback
   const onOpenCvReady = () => {
     // OpenCV.js (Emscripten) might not be fully initialized when the script loads.
@@ -140,8 +226,8 @@ export default function CameraView({ isActive = true }) {
       const constraints = {
         video: {
           ...(selectedDeviceId ? { deviceId: { exact: selectedDeviceId } } : { facingMode }),
-          width: { ideal: 1920 }, // Request Full HD for clarity
-          height: { ideal: 1080 }
+          width: { min: 1280, ideal: 1920 }, // Force HD or better
+          height: { min: 720, ideal: 1080 }
         },
         audio: false,
       }
@@ -425,25 +511,25 @@ export default function CameraView({ isActive = true }) {
     let low = null
     let high = null
 
+    // Structuring Element for Morphology (Closing gaps)
+    let kernel = null
+    let hull = null // For convexity check
+
     let contours = null
     let hierarchy = null
 
-    try {
-      src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4)
-      hsv = new cv.Mat()
-      mask = new cv.Mat()
-
-      // Bounds for "Silver/Gold" (Low Saturation, High Value)
-      // Note: For CV_8UC3, we need 3 values? H(0-180), S(0-255), V(0-255)
-      // But src is CV_8UC4 (RGBA) -> Converted to RGB -> HSV
-      low = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC3, [0, 0, 150, 0])
-      high = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC3, [180, 80, 255, 0])
-
-      contours = new cv.MatVector()
-      hierarchy = new cv.Mat()
-    } catch (e) {
-      console.error('Failed to initialize CV objects:', e)
-      return // Abort if we can't allocate
+    // Cleanup helper
+    // Cleanup helper
+    const deleteMats = () => {
+      if (src && !src.isDeleted()) src.delete(); src = null
+      if (hsv && !hsv.isDeleted()) hsv.delete(); hsv = null
+      if (mask && !mask.isDeleted()) mask.delete(); mask = null
+      if (low && !low.isDeleted()) low.delete(); low = null
+      if (high && !high.isDeleted()) high.delete(); high = null
+      if (kernel && !kernel.isDeleted()) kernel.delete(); kernel = null
+      if (hull && !hull.isDeleted()) hull.delete(); hull = null
+      if (contours && !contours.isDeleted()) contours.delete(); contours = null
+      if (hierarchy && !hierarchy.isDeleted()) hierarchy.delete(); hierarchy = null
     }
 
     const processFrame = () => {
@@ -454,12 +540,41 @@ export default function CameraView({ isActive = true }) {
           return
         }
 
-        // Sync canvas size if needed (and resize Mat if video size changed - rare but possible)
+        // DYNAMIC REALLOCATION: Check if resolution changed
+        if (!src || src.cols !== video.videoWidth || src.rows !== video.videoHeight) {
+          // console.log(`CV: Resizing to ${video.videoWidth}x${video.videoHeight}`)
+          deleteMats() // Safe delete old ones
+
+          // Reallocate
+          try {
+            src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4)
+            hsv = new cv.Mat()
+            mask = new cv.Mat()
+
+            // Bounds for "Silver/Gold" (Low Saturation, High Value)
+            // Lower Value to 100 to catch darker silver pads
+            low = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC3, [0, 0, 100, 0])
+            high = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC3, [180, 40, 255, 0])
+
+            // 3x3 Kernel (Reduced from 5x5 to avoid merging text like "C 2 4")
+            let kSize = new cv.Size(3, 3)
+            kernel = cv.getStructuringElement(cv.MORPH_RECT, kSize)
+
+            // Hull for Convexity
+            hull = new cv.Mat()
+
+            contours = new cv.MatVector()
+            hierarchy = new cv.Mat()
+          } catch (allocErr) {
+            console.error('CV Allocation failed:', allocErr)
+            return
+          }
+        }
+
+        // Sync canvas size
         if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
           canvas.width = video.videoWidth
           canvas.height = video.videoHeight
-          // If video size changed, we'd technically need to resize 'src'. 
-          // For simplicity in this robot, we assume constant resolution.
         }
 
         // 1. Capture Frame directly into 'src' via temp canvas
@@ -475,14 +590,33 @@ export default function CameraView({ isActive = true }) {
         // Threshold (Find Metallic colors: Low Saturation, High Value)
         cv.inRange(hsv, low, high, mask)
 
+        // Morphological Closing (Fill small black holes in white blobs)
+        // This bridges the gap between "Bright Spot - Glare - Bright Spot" on a single pad.
+        cv.morphologyEx(mask, mask, cv.MORPH_CLOSE, kernel)
+
         // Find Contours on the MASK
         cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 
         // 4. Draw Output
         ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-        const minArea = 1000
+        // Resolution Indicator
+        ctx.font = '14px Arial'
+        ctx.fillStyle = 'yellow'
+        // Show Calibration Info
+        const calText = pixelToMmRatio ? `Scale: 1px = ${pixelToMmRatio.toFixed(3)}mm` : 'Uncalibrated'
+        if (calibrationMode) {
+          ctx.fillStyle = '#f59e0b'
+          ctx.fillText(`Stream: ${video.videoWidth}x${video.videoHeight} | CLICK A GREEN PAD TO CALIBRATE`, 10, 20)
+        } else {
+          ctx.fillText(`Stream: ${video.videoWidth}x${video.videoHeight} | ${calText}`, 10, 20)
+        }
+
+        // DEBUGGING: Lower Thresholds to see EVERYTHING
+        const minArea = 100 // Keep low (100) to catch small pads
         const maxArea = (video.videoWidth * video.videoHeight) * 0.9
+
+        const framePads = [] // Accumulate pads for this frame
 
         for (let i = 0; i < contours.size(); ++i) {
           const contour = contours.get(i)
@@ -493,27 +627,66 @@ export default function CameraView({ isActive = true }) {
           if (area > minArea && area < maxArea) {
             const rect = cv.boundingRect(contour)
 
-            ctx.strokeStyle = '#00ff00' // Green
+            // --- FILTER: Convexity (The Text Killer) ---
+            // Convexity = ContourArea / HullArea
+
+            cv.convexHull(contour, hull, false, true)
+            const hullArea = cv.contourArea(hull)
+
+            let convexity = 0
+            if (hullArea > 0) convexity = area / hullArea
+            const ratio = rect.width / rect.height
+
+            // Filters Active
+            // Convexity > 0.85 (Strict) removes C/U shapes. Pads are usually 0.95+
+            if (convexity < 0.85) continue
+
+            // Aspect Ratio: Pads are usually 1.0-2.0. Text strings are > 3.0.
+            if (ratio < 0.2 || ratio > 3.0) continue // Reduced from 5.0
+
             ctx.lineWidth = 2
+            ctx.strokeStyle = '#00ff00' // Green (Target)
+
             ctx.strokeRect(rect.x, rect.y, rect.width, rect.height)
 
-            const centerX = rect.x + rect.width / 2
-            const centerY = rect.y + rect.height / 2
-
-            ctx.beginPath()
-            ctx.moveTo(centerX - 5, centerY)
-            ctx.lineTo(centerX + 5, centerY)
-            ctx.moveTo(centerX, centerY - 5)
-            ctx.lineTo(centerX, centerY + 5)
-            ctx.stroke()
-
+            // Label (Metric or Pixel)
             ctx.fillStyle = '#00ff00'
             ctx.font = '12px monospace'
-            ctx.fillText(`${rect.width}x${rect.height}`, rect.x, rect.y - 5)
+
+            if (pixelToMmRatio) {
+              const wMM = (rect.width * pixelToMmRatio).toFixed(1)
+              const hMM = (rect.height * pixelToMmRatio).toFixed(1)
+              ctx.fillText(`${wMM}x${hMM}mm`, rect.x, rect.y - 5)
+            } else {
+              ctx.fillText(`${rect.width}x${rect.height}px`, rect.x, rect.y - 5)
+            }
+
+            // --- CALIBRATION CLICK DETECTION ---
+            if (calibrationMode && lastClickRef.current) {
+              const click = lastClickRef.current
+              // Check if click is inside this rect
+              if (click.x >= rect.x && click.x <= (rect.x + rect.width) &&
+                click.y >= rect.y && click.y <= (rect.y + rect.height)) {
+
+                // Found the clicked pad!
+                setPendingCalPx(rect.width) // Use width as the reference dimension
+                setShowCalInput(true)
+                lastClickRef.current = null // Consume the click
+              }
+            }
+
+            // Push to Frame List
+            framePads.push({
+              x: rect.x, y: rect.y,
+              width: rect.width, height: rect.height
+            })
           }
           // CRITICAL MEMORY FIX: Delete the handle returned by .get()
           contour.delete()
         }
+
+        // Update Live Ref
+        latestPadsRef.current = framePads
 
       } catch (err) {
         console.error('CV Loop Error:', err)
@@ -532,15 +705,9 @@ export default function CameraView({ isActive = true }) {
       }
 
       // DEALLOCATION (Once at end)
+      // DEALLOCATION (Once at end)
       try {
-        if (src && !src.isDeleted()) src.delete()
-        if (hsv && !hsv.isDeleted()) hsv.delete()
-        if (mask && !mask.isDeleted()) mask.delete()
-        if (low && !low.isDeleted()) low.delete()
-        if (high && !high.isDeleted()) high.delete()
-
-        if (contours && !contours.isDeleted()) contours.delete()
-        if (hierarchy && !hierarchy.isDeleted()) hierarchy.delete()
+        deleteMats()
       } catch (e) {
         console.error('Cleanup error:', e)
       }
@@ -595,11 +762,43 @@ export default function CameraView({ isActive = true }) {
           <button
             type="button"
             className={styles.toggleButton}
+            onClick={calibrationMode ? handleStartCalibration : handleStartCalibration} // Re-start clears
+            style={{ backgroundColor: calibrationMode ? '#f59e0b' : undefined }}
+          >
+            {calibrationMode ? 'Targeting...' : '📏 Calibrate'}
+          </button>
+
+          {pixelToMmRatio && (
+            <button
+              type="button"
+              className={styles.toggleButton}
+              onClick={() => { setPixelToMmRatio(null); localStorage.removeItem('camera_pixel_ratio') }}
+              title="Clear saved calibration"
+            >
+              ❌
+            </button>
+          )}
+
+          <button
+            type="button"
+            className={styles.toggleButton}
             onClick={handleToggleStream}
             aria-label={isStreaming ? 'Stop camera' : 'Start camera'}
           >
             {isStreaming ? '⏸ Stop' : '▶ Start'}
           </button>
+
+          {cvProcessingEnabled && (
+            <button
+              type="button"
+              className={styles.toggleButton}
+              onClick={handleScanPads}
+              title="Scan and Log all detected pads"
+            >
+              📝 Scan Pads
+            </button>
+          )}
+
           <button
             type="button"
             className={styles.snapshotButton}
@@ -620,64 +819,108 @@ export default function CameraView({ isActive = true }) {
           </div>
         )}
 
-        <div
-          ref={videoContainerRef}
-          className={styles.videoContainer}
-          onDoubleClick={handleDoubleClick}
-          onMouseDown={handleMouseDown}
-          style={{ cursor: zoomLevel > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
-        >
-          {/* Video Element (Bottom Layer) */}
-          <video
-            ref={videoRef}
-            className={styles.video}
-            style={{
-              transform: `scale(${zoomLevel}) translate(${panX / zoomLevel}px, ${panY / zoomLevel}px)`,
-              transformOrigin: 'center center',
-              transition: isDragging ? 'none' : 'transform 0.3s ease-out',
-            }}
-            autoPlay
-            playsInline
-            muted
-            aria-label="Camera video feed"
-          />
-
-          {/* Canvas Overlay (Top Layer) - Moves with video zoom/pan */}
-          <canvas
-            ref={canvasRef}
-            className={styles.overlayCanvas}
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: '100%',
-              height: '100%',
-              pointerEvents: 'none', // Allow clicks to pass through to container
-              transform: `scale(${zoomLevel}) translate(${panX / zoomLevel}px, ${panY / zoomLevel}px)`,
-              transformOrigin: 'center center',
-              transition: isDragging ? 'none' : 'transform 0.3s ease-out',
-              zIndex: 10
-            }}
-          />
-
-          {!isStreaming && !error && (
-            <div className={styles.placeholder}>
-              <span className={styles.placeholderIcon}>📹</span>
-              <span className={styles.placeholderText}>Camera feed will appear here</span>
-            </div>
-          )}
-          {zoomLevel > 1 && (
-            <button
-              type="button"
-              className={styles.zoomResetButton}
-              onClick={handleResetZoom}
-              aria-label="Reset zoom"
-              title="Reset zoom (or double-click)"
+        <div style={{ display: 'flex', gap: '10px', height: '100%', minHeight: '500px' }}>
+          {/* Main Video Area */}
+          <div style={{ position: 'relative', flex: 1, background: 'black', borderRadius: '8px', overflow: 'hidden' }}>
+            <div
+              ref={videoContainerRef}
+              className={styles.videoContainer}
+              onClick={handleCanvasClick}
+              onDoubleClick={handleDoubleClick}
+              onMouseDown={handleMouseDown}
+              style={{ cursor: calibrationMode ? 'crosshair' : (zoomLevel > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default') }}
             >
-              🔍 {zoomLevel.toFixed(1)}×
-            </button>
+              {/* Video Element (Bottom Layer) */}
+              <video
+                ref={videoRef}
+                className={styles.video}
+                style={{
+                  transform: `scale(${zoomLevel}) translate(${panX / zoomLevel}px, ${panY / zoomLevel}px)`,
+                  transformOrigin: 'center center',
+                  transition: isDragging ? 'none' : 'transform 0.3s ease-out',
+                }}
+                autoPlay
+                playsInline
+                muted
+                aria-label="Camera video feed"
+              />
+
+              {/* Canvas Overlay (Top Layer) - Moves with video zoom/pan */}
+              <canvas
+                ref={canvasRef}
+                className={styles.overlayCanvas}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  pointerEvents: 'none', // Allow clicks to pass through to container
+                  transform: `scale(${zoomLevel}) translate(${panX / zoomLevel}px, ${panY / zoomLevel}px)`,
+                  transformOrigin: 'center center',
+                  transition: isDragging ? 'none' : 'transform 0.3s ease-out',
+                  zIndex: 10
+                }}
+              />
+
+              {!isStreaming && !error && (
+                <div className={styles.placeholder}>
+                  <span className={styles.placeholderIcon}>📹</span>
+                  <span className={styles.placeholderText}>Camera feed will appear here</span>
+                </div>
+              )}
+              {zoomLevel > 1 && (
+                <button
+                  type="button"
+                  className={styles.zoomResetButton}
+                  onClick={handleResetZoom}
+                  aria-label="Reset zoom"
+                  title="Reset zoom (or double-click)"
+                >
+                  🔍 {zoomLevel.toFixed(1)}×
+                </button>
+              )}
+
+            </div> {/* End of Video Container Relative Wrapper */}
+          </div> {/* End of Flex Item 1 */}
+
+          {/* Side Panel: Detected Pads List */}
+          {detectedPads.length > 0 && (
+            <aside style={{
+              width: '300px', background: '#111827', borderRadius: '8px', border: '1px solid #374151',
+              padding: '10px', display: 'flex', flexDirection: 'column', maxHeight: '600px', overflowY: 'auto'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <h3 style={{ margin: 0, color: 'white', fontSize: '16px' }}>
+                  Detected Pads
+                  {pixelToMmRatio && <span style={{ fontSize: '12px', color: '#10b981', marginLeft: '8px' }}>(Scale: {pixelToMmRatio.toFixed(3)})</span>}
+                </h3>
+                <button onClick={() => setDetectedPads([])} style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer' }}>Clear</button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {detectedPads.map(pad => (
+                  <div key={pad.id} style={{
+                    background: '#1f2937', padding: '8px', borderRadius: '4px', borderLeft: '4px solid #10b981',
+                    display: 'flex', flexDirection: 'column'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ fontWeight: 'bold', color: 'white' }}>Pad #{pad.id}</span>
+                      <span style={{ fontSize: '12px', color: '#9ca3af' }}>X:{pad.x} Y:{pad.y}</span>
+                    </div>
+                    <div style={{ marginTop: '4px', color: '#d1d5db', fontSize: '14px' }}>
+                      {pixelToMmRatio ? (
+                        <span>Size: <strong>{(pad.width * pixelToMmRatio).toFixed(2)}</strong> x <strong>{(pad.height * pixelToMmRatio).toFixed(2)}</strong> mm</span>
+                      ) : (
+                        <span>Size: {pad.width} x {pad.height} px</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </aside>
           )}
-        </div>
+
+        </div> {/* End of Flex Layout */}
 
         {isStreaming && videoRef.current && (
           <div className={styles.videoInfo}>
@@ -688,7 +931,7 @@ export default function CameraView({ isActive = true }) {
           </div>
         )}
       </div>
-    </article>
+    </article >
   )
 }
 
